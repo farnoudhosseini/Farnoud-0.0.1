@@ -8,7 +8,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
-SECRET_KEY = os.getenv("SECRET_KEY", "farnoud_8xK9mP2qR7vL4nW6jH3tY5bC1aZ0eD9")
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_TO_A_RANDOM_SECRET")
 
 # تنظیمات دیتابیس برای ربات (aiomysql)
 DB_CONFIG = {

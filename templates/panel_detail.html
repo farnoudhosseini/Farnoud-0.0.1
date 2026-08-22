@@ -1,5 +1,14 @@
 {% extends "base.html" %}
-{% block title %}{{ panel.name }} | فرنود{% endblock %}
+{% block title %}{{ panel.name }} | فرنود
+<div class="card glass panel-limit-card">
+  <div class="card-title">سقف فروش این پنل</div>
+  <p class="muted">۰ یا خالی = بدون محدودیت. تعداد سفارش‌های فعال/تحویل‌شده این پنل کنترل می‌شود.</p>
+  <form method="post" action="{{ url_for('panel_settings', panel_id=panel.id) }}" class="inline-form">
+    <input type="number" min="0" name="max_sales" value="{{ panel.max_sales if panel.max_sales is not none else '' }}" placeholder="بدون محدودیت">
+    <button class="btn-primary inline" type="submit">ذخیره</button>
+  </form>
+</div>
+{% endblock %}
 {% block content %}
 <div class="dashboard">
     {% include "_sidebar.html" %}
@@ -126,4 +135,13 @@
     setInterval(tick, 5000);
 })();
 </script>
+
+<div class="card glass panel-limit-card">
+  <div class="card-title">سقف فروش این پنل</div>
+  <p class="muted">۰ یا خالی = بدون محدودیت. تعداد سفارش‌های فعال/تحویل‌شده این پنل کنترل می‌شود.</p>
+  <form method="post" action="{{ url_for('panel_settings', panel_id=panel.id) }}" class="inline-form">
+    <input type="number" min="0" name="max_sales" value="{{ panel.max_sales if panel.max_sales is not none else '' }}" placeholder="بدون محدودیت">
+    <button class="btn-primary inline" type="submit">ذخیره</button>
+  </form>
+</div>
 {% endblock %}

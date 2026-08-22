@@ -41,7 +41,7 @@
 <input type="checkbox" name="panel_ids" value="{{ pan.id }}" {% if pan.id in selected %}checked{% endif %}>
 {{ pan.name }}
 </label>
-{% else %}<span style="color:var(--text-tertiary)">ابتدا پنل VPN اضافه کنید</span>{% endfor %}
+{% else %}<span style="color:var(--text-tertiary)">ابتدا پنل اضافه کنید</span>{% endfor %}
 </div></div>
 <div class="form-group"><label>توضیحات (فاکتور)</label>
 <textarea name="description" rows="3">{{ product.description if product and product.description else '' }}</textarea></div>

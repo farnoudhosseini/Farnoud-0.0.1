@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}کنترل دکمه‌ها | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>کنترل دکمه‌ها</h2><button class="btn-primary inline" id="saveMenu">ذخیره چیدمان</button></header>
+<div class="content"><div class="card">
+<p class="muted">دکمه‌ها را Drag & Drop کنید. نمایش، متن و رنگ ظاهری پنل قابل کنترل است. تلگرام به‌صورت ذاتی رنگ واقعی دکمه‌ها را پشتیبانی نمی‌کند.</p>
+<div id="menuItems" data-sortable class="premium-list">
+{% for x in items %}
+<div class="premium-row" data-sort-item data-id="{{ x.key }}" draggable="true">
+<strong>{{ x.key }}</strong><input class="mi-label" value="{{ x.label }}">
+<select class="mi-color"><option value="blue" {% if x.color=='blue' %}selected{% endif %}>آبی</option><option value="green" {% if x.color=='green' %}selected{% endif %}>سبز</option><option value="red" {% if x.color=='red' %}selected{% endif %}>قرمز</option><option value="none" {% if x.color=='none' %}selected{% endif %}>بی‌رنگ</option></select>
+<label><input class="mi-enabled" type="checkbox" {% if x.enabled %}checked{% endif %}> فعال</label>
+<input type="hidden" class="mi-callback" value="{{ x.callback }}">
+<button type="button" class="btn-danger mi-delete">حذف</button>
+</div>
+{% endfor %}
+</div></div></div>
+<script>
+document.querySelectorAll('.mi-delete').forEach(b=>b.onclick=()=>b.closest('[data-sort-item]').remove());
+document.getElementById('saveMenu').onclick=async()=>{
+ const items=[...document.querySelectorAll('#menuItems [data-sort-item]')].map(x=>({
+  key:x.dataset.id,label:x.querySelector('.mi-label').value,callback:x.querySelector('.mi-callback').value,
+  color:x.querySelector('.mi-color').value,enabled:x.querySelector('.mi-enabled').checked
+ }));
+ const r=await fetch('{{ url_for("menu_buttons_manage") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})});
+ if(r.ok) location.reload();
+};
+</script>
+</main></div>
+{% endblock %}

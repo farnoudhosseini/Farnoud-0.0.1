@@ -5,6 +5,12 @@
 <header class="topbar"><h2>پیام‌های کیف پول و متغیرها</h2></header>
 <div class="content">
 <div class="card">
+<div class="card-title">پیام خوش‌آمدگویی /start</div>
+<form method="post"><textarea name="welcome_message" rows="5">{{ welcome_message }}</textarea>
+<div class="card-actions"><button class="btn-primary inline">ذخیره پیام خوش‌آمدگویی</button></div></form>
+<p class="card-desc">متغیرهای کاربر و کدهای ایموجی پریمیوم مثل <code>p_xxxxxxxx</code> در این پیام هم پردازش می‌شوند.</p>
+</div>
+<div class="card">
 <div class="card-title">محدوده شارژ</div>
 <form method="post" style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
 <div class="form-group"><label>حداقل</label><input name="min_charge" value="{{ min_charge }}"></div>

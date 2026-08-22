@@ -186,19 +186,23 @@ def pay_referral_commission(buyer_id: int, amount: int):
     commission = int(amount * percent / 100)
     if commission <= 0:
         return
-    # سقف ماهانه
+    # سقف ماهانه — بر اساس activity واقعی شارژ پورسانت.
     if monthly_cap > 0:
         conn = get_sync_connection()
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT COALESCE(SUM(CAST(SUBSTRING_INDEX(detail, ':', -1) AS DECIMAL)),0) AS s
+                    """SELECT COALESCE(SUM(CAST(SUBSTRING_INDEX(detail, '|', 1) AS DECIMAL)),0) AS s
                        FROM user_activity
-                       WHERE telegram_id=%s AND action='balance' AND detail LIKE 'ref_from_%%'
+                       WHERE telegram_id=%s AND action='balance_add'
+                       AND detail LIKE '%%|ref_from_%%'
                        AND created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')""",
                     (buyer["referrer_id"],),
                 )
-                # fallback simpler: skip complex query
+                used = int((cur.fetchone() or {}).get("s") or 0)
+                if used >= monthly_cap:
+                    return
+                commission = min(commission, monthly_cap - used)
         except Exception:
             pass
         finally:

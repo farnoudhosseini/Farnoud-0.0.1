@@ -11,7 +11,7 @@ from database import (
 from db_products import (
     ensure_product_tables, list_categories, add_category, update_category, delete_category,
     list_products, get_product, create_product, update_product, delete_product, move_product,
-    list_all_orders, get_order_full, ensure_service_mgmt_columns,
+    list_all_orders, get_order_full, ensure_service_mgmt_columns, reorder_products,
     ROLE_OPTIONS as PRODUCT_ROLES,
 )
 from db_support import (
@@ -122,21 +122,7 @@ def api_dashboard_chart():
 @app.route("/bot-messages", methods=["GET", "POST"])
 @login_required
 def bot_messages():
-    if request.method == "POST":
-        welcome = request.form.get("welcome_message", "").strip()
-        if not welcome:
-            flash("پیام خوش‌آمدگویی نمی‌تواند خالی باشد", "error")
-        elif set_setting_sync("welcome_message", welcome):
-            flash("پیام خوش‌آمدگویی ذخیره شد", "success")
-        else:
-            flash("خطا در ذخیره پیام", "error")
-        return redirect(url_for("bot_messages"))
-    return render_template(
-        "bot_messages.html",
-        username=session.get("admin_username"),
-        active="bot_messages",
-        welcome_message=get_setting_sync("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋"),
-    )
+    return redirect(url_for("messages_manage"))
 
 
 @app.route("/panels")
@@ -426,6 +412,8 @@ def messages_manage():
             set_setting_sync("min_charge", request.form.get("min_charge"))
         if request.form.get("max_charge"):
             set_setting_sync("max_charge", request.form.get("max_charge"))
+        if "welcome_message" in request.form:
+            set_setting_sync("welcome_message", request.form.get("welcome_message", "").strip())
         return redirect(url_for("messages_manage"))
     templates = list_templates()
     return render_template(
@@ -434,6 +422,7 @@ def messages_manage():
         templates=templates,
         min_charge=get_setting_sync("min_charge", "10000"),
         max_charge=get_setting_sync("max_charge", "50000000"),
+        welcome_message=get_setting_sync("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋"),
     )
 
 # ---------- کارت‌ها ----------
@@ -610,6 +599,13 @@ def products_delete(pid):
 def products_move(pid, direction):
     move_product(pid, direction)
     return redirect(url_for("products_list"))
+
+@app.route("/api/products/reorder", methods=["POST"])
+@login_required
+def products_reorder_api():
+    payload = request.get_json(silent=True) or {}
+    ok = reorder_products(payload.get("ids") or [])
+    return jsonify({"ok": ok})
 
 @app.route("/categories", methods=["GET", "POST"])
 @login_required
@@ -868,6 +864,83 @@ def personalize():
     return render_template("personalize.html", username=session.get("admin_username"), active="personalize")
 
 
+
+@app.route("/menu-buttons", methods=["GET", "POST"])
+@login_required
+def menu_buttons_manage():
+    from db_extras import get_menu_buttons, set_menu_buttons
+    if request.method=="POST":
+        data=request.get_json(silent=True)
+        if data and isinstance(data.get("items"),list):
+            items=data["items"]
+        else:
+            import json
+            try: items=json.loads(request.form.get("items","[]"))
+            except Exception: items=[]
+        clean=[]
+        for x in items:
+            if not isinstance(x,dict): continue
+            clean.append({
+                "key":str(x.get("key",""))[:40],"label":str(x.get("label",""))[:80],
+                "callback":str(x.get("callback","menu_home"))[:60],
+                "enabled":bool(x.get("enabled",True)),
+                "color":x.get("color","none") if x.get("color") in ("green","red","blue","none") else "none"
+            })
+        set_menu_buttons(clean)
+        if request.is_json: return jsonify({"ok":True})
+        flash("چیدمان دکمه‌ها ذخیره شد","success")
+        return redirect(url_for("menu_buttons_manage"))
+    return render_template("menu_buttons.html",username=session.get("admin_username"),
+                           active="menu_buttons",items=get_menu_buttons())
+
+@app.route("/premium-emojis", methods=["GET", "POST"])
+@login_required
+def premium_emojis_manage():
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "save":
+            code = (request.form.get("code") or "").strip()
+            if not code:
+                code = gen_premium_code()
+            if not code.startswith("p_"):
+                code = "p_" + code
+            ok = add_premium_emoji(code, request.form.get("custom_emoji_id","").strip(),
+                                   request.form.get("label","").strip() or None,
+                                   session.get("admin_id"))
+            flash("ایموجی پریمیوم ذخیره شد" if ok else "ذخیره ناموفق", "success" if ok else "error")
+        elif action == "delete":
+            delete_premium_emoji(request.form.get("code",""))
+            flash("حذف شد", "success")
+        return redirect(url_for("premium_emojis_manage"))
+    return render_template("premium_emojis.html", username=session.get("admin_username"),
+                           active="premium_emojis", emojis=list_premium_emojis())
+
+@app.route("/panels/<int:panel_id>/settings", methods=["POST"])
+@login_required
+def panel_settings(panel_id):
+    panel = get_panel_by_id(panel_id)
+    if not panel:
+        flash("پنل یافت نشد", "error")
+        return redirect(url_for("panels_list"))
+    raw = (request.form.get("max_sales") or "").strip()
+    try:
+        max_sales = int(raw) if raw else None
+        if max_sales is not None and max_sales < 0:
+            raise ValueError
+    except ValueError:
+        flash("سقف فروش نامعتبر است", "error")
+        return redirect(url_for("panel_detail", slug=panel["slug"]))
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE vpn_panels SET max_sales=%s WHERE id=%s", (max_sales, panel_id))
+            conn.commit()
+    finally:
+        conn.close()
+    flash("سقف فروش پنل ذخیره شد", "success")
+    return redirect(url_for("panel_detail", slug=panel["slug"]))
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -878,3 +951,5 @@ def logout():
 if __name__ == "__main__":
     print("🌐 پنل مدیریت فرنود در حال اجرا روی http://localhost:5000")
     app.run(debug=True, host="0.0.0.0", port=5000)
+from db_extras import list_premium_emojis, add_premium_emoji, delete_premium_emoji, gen_premium_code
+

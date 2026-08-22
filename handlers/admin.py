@@ -1,4 +1,4 @@
-# پنل مدیریت داخل ربات تلگرام — شامل مدیریت پنل‌های VPN و کاربران پاسارگارد
+# پنل مدیریت داخل ربات تلگرام — شامل مدیریت پنل‌ها و کاربران پاسارگارد
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -8,17 +8,23 @@ from services.pasarguard import PasarGuardClient, bytes_to_gb
 
 WAITING_WELCOME = 1
 WAITING_USER_FIELD = 2  # ساخت/ویرایش کاربر چندمرحله‌ای
+WAITING_ADMIN_TEXT = 41  # جستجو/ارسال همگانی/تنظیمات مدیریت
 
 def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 تنظیم پیام‌های ربات", callback_data="admin_msgs")],
+        [InlineKeyboardButton("📝 تنظیم پیام‌های ربات", callback_data="admin_msgs"),
+         InlineKeyboardButton("👋 خوش‌آمدگویی", callback_data="admin_welcome")],
         [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
         [InlineKeyboardButton("📦 محصولات", callback_data="admin_products")],
         [InlineKeyboardButton("📋 سرویس‌های فروخته‌شده", callback_data="admin_orders")],
         [InlineKeyboardButton("👥 کاربران ربات", callback_data="admin_bot_users")],
+        [InlineKeyboardButton("📣 ارسال همگانی", callback_data="admin_broadcast"),
+         InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="admin_user_search")],
+        [InlineKeyboardButton("🛠 وب‌پنل", callback_data="admin_web"),
+         InlineKeyboardButton("🎁 رفرال", callback_data="admin_referral")],
         [InlineKeyboardButton("💳 کارت‌ها / پرداخت", callback_data="admin_cards")],
         [InlineKeyboardButton("🧾 درخواست‌های شارژ", callback_data="admin_charges")],
         [
@@ -45,6 +51,7 @@ def panel_menu_keyboard(panel_id: int):
         [InlineKeyboardButton("📊 وضعیت / آمار", callback_data=f"admin_pstats_{panel_id}")],
         [InlineKeyboardButton("👥 لیست کاربران VPN", callback_data=f"admin_pusers_{panel_id}")],
         [InlineKeyboardButton("➕ افزودن کاربر VPN", callback_data=f"admin_padduser_{panel_id}")],
+        [InlineKeyboardButton("📦 سقف فروش", callback_data=f"admin_pmax_{panel_id}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panels")],
     ])
 
@@ -105,7 +112,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
         await query.edit_message_text(
-            "🖥 <b>انتخاب پنل VPN:</b>",
+            "🖥 <b>انتخاب پنل:</b>",
             reply_markup=panels_keyboard(panels),
             parse_mode="HTML",
         )
@@ -123,6 +130,16 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
         )
         return ConversationHandler.END
+
+    if data.startswith("admin_pmax_"):
+        pid=int(data.replace("admin_pmax_",""))
+        panel=get_panel_by_id(pid)
+        context.user_data["admin_input_mode"]="panel_max"
+        context.user_data["admin_panel_id"]=pid
+        await query.edit_message_text(
+            f"📦 سقف فروش «{panel['name'] if panel else '—'}» را بفرستید.\n۰ = بدون محدودیت."
+        )
+        return WAITING_ADMIN_TEXT
 
     if data.startswith("admin_pstats_"):
         pid = int(data.replace("admin_pstats_", ""))
@@ -257,6 +274,82 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_USER_FIELD
 
 
+    if data=="admin_referral":
+        from database import get_setting_sync
+        pct=get_setting_sync("referral_percent","10"); signup=get_setting_sync("referral_signup_bonus","0")
+        cap=get_setting_sync("referral_monthly_cap","0"); minimum=get_setting_sync("referral_min_amount","0")
+        await query.edit_message_text(
+            f"🎁 <b>سیستم رفرال</b>\n\nپورسانت: {pct}%\nپاداش ثبت‌نام: {signup} تومان\nحداقل خرید مشمول: {minimum} تومان\nسقف ماهانه: {cap or '∞'} تومان",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("درصد پورسانت",callback_data="admin_ref_pct"),
+                 InlineKeyboardButton("پاداش ثبت‌نام",callback_data="admin_ref_signup")],
+                [InlineKeyboardButton("حداقل مبلغ",callback_data="admin_ref_min"),
+                 InlineKeyboardButton("سقف ماهانه",callback_data="admin_ref_cap")],
+                [InlineKeyboardButton("🔙 بازگشت",callback_data="admin_panel")]
+            ]))
+        return ConversationHandler.END
+
+    if data.startswith("admin_ref_") and data in ("admin_ref_pct","admin_ref_signup","admin_ref_min","admin_ref_cap"):
+        context.user_data["admin_input_mode"]="ref_"+data.replace("admin_ref_","")
+        await query.edit_message_text("مقدار جدید را فقط به صورت عدد بفرستید:")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_user_search":
+        context.user_data["admin_input_mode"] = "search_users"
+        await query.edit_message_text("🔎 آیدی، یوزرنیم، نام یا شماره کاربر را بفرستید:")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_broadcast":
+        await query.edit_message_text(
+            "📣 نوع ارسال را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("همگانی", callback_data="admin_bc_all"),
+                 InlineKeyboardButton("دارای موجودی", callback_data="admin_bc_balance")],
+                [InlineKeyboardButton("بدون موجودی", callback_data="admin_bc_nobalance"),
+                 InlineKeyboardButton("دارای زیرمجموعه", callback_data="admin_bc_refs")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_bc_"):
+        mode=data.replace("admin_bc_","")
+        context.user_data["admin_broadcast_mode"]=mode
+        context.user_data["admin_input_mode"]="broadcast"
+        await query.edit_message_text(
+            "📝 متن پیام را بفرستید.\n\nمی‌توانید از متغیرهای استاندارد پیام‌ها استفاده کنید. "
+            "در مرحله بعد، پین و دکمه اصلی قابل تنظیم است."
+        )
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_web":
+        from database import get_sync_connection
+        conn=get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT username FROM admins ORDER BY id LIMIT 1")
+                row=cur.fetchone()
+        finally:
+            conn.close()
+        await query.edit_message_text(
+            f"🛠 <b>مدیریت وب‌پنل</b>\n\n"
+            f"نام کاربری فعلی: <code>{(row or {}).get('username','—')}</code>\n"
+            "از گزینه‌های زیر می‌توانید اعتبار ورود را تغییر دهید.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ تغییر نام کاربری", callback_data="admin_web_user")],
+                [InlineKeyboardButton("🔐 تغییر رمز عبور", callback_data="admin_web_pass")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    if data in ("admin_web_user","admin_web_pass"):
+        context.user_data["admin_input_mode"]="web_user" if data.endswith("user") else "web_pass"
+        await query.edit_message_text("مقدار جدید را بفرستید:")
+        return WAITING_ADMIN_TEXT
+
     if data == "admin_bot_users":
         from db_users import list_bot_users, ROLE_LABELS
         users, total = list_bot_users(limit=15)
@@ -330,16 +423,38 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "admin_cards":
         from db_users import list_cards
-        cards = list_cards()
-        lines = ["💳 کارت‌های تعریف‌شده:\n"] + [
-            f"• {c['card_number']} — {c['owner_name']} ({'فعال' if c['is_active'] else 'غیرفعال'})"
-            for c in cards
-        ] or ["کارتی نیست. از پنل وب اضافه کنید."]
-        await query.edit_message_text(
-            "\n".join(lines) if cards else "کارتی ثبت نشده. از پنل وب اضافه کنید.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
-        )
+        cards=list_cards()
+        rows=[[InlineKeyboardButton("➕ افزودن کارت",callback_data="admin_card_add")]]
+        lines=["💳 <b>مدیریت کارت‌ها</b>\n"]
+        for c in cards:
+            lines.append(f"• <code>{c['card_number']}</code> — {c['owner_name']} — {'فعال' if c['is_active'] else 'خاموش'}")
+            rows.append([
+                InlineKeyboardButton(("خاموش" if c['is_active'] else "روشن"),callback_data=f"admin_card_toggle_{c['id']}_{0 if c['is_active'] else 1}"),
+                InlineKeyboardButton("🗑 حذف",callback_data=f"admin_card_del_{c['id']}")
+            ])
+        rows.append([InlineKeyboardButton("🔙 بازگشت",callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines) if cards else "هنوز کارتی ثبت نشده.",reply_markup=InlineKeyboardMarkup(rows),parse_mode="HTML")
         return ConversationHandler.END
+
+    if data=="admin_card_add":
+        context.user_data["admin_input_mode"]="card_add"
+        await query.edit_message_text("شماره کارت | نام صاحب | نام بانک را در یک خط بفرستید.\nنمونه:\n6037... | Farnoud | Mellat")
+        return WAITING_ADMIN_TEXT
+
+    if data.startswith("admin_card_toggle_"):
+        rest=data.replace("admin_card_toggle_","",1).split("_",1)
+        cid,active=rest[0],rest[1]
+        from db_users import toggle_card
+        toggle_card(int(cid),active=="1")
+        context.user_data["admin_input_mode"]=None
+        query.data="admin_cards"
+        return await admin_callback(update,context)
+
+    if data.startswith("admin_card_del_"):
+        from db_users import delete_card
+        delete_card(int(data.replace("admin_card_del_","")))
+        query.data="admin_cards"
+        return await admin_callback(update,context)
 
     if data == "admin_charges":
         from db_users import list_pending_charges
@@ -399,6 +514,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 
+
+    if data=="admin_welcome":
+        from database import get_setting_sync
+        context.user_data["admin_input_mode"]="welcome_all"
+        await query.edit_message_text(
+            "📝 پیام خوش‌آمدگویی /start را بفرستید.\nمتغیرها و کدهای premium مانند p_xxxxxxxx فعال هستند."
+        )
+        return WAITING_ADMIN_TEXT
 
     if data == "admin_msgs":
         try:
@@ -653,6 +776,132 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    return ConversationHandler.END
+
+async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user=update.effective_user
+    if not user or not is_admin(user.id):
+        return ConversationHandler.END
+    text=(update.message.text or "").strip()
+    mode=context.user_data.pop("admin_input_mode",None)
+
+    if mode=="search_users":
+        from db_users import list_bot_users, ROLE_LABELS
+        users,total=list_bot_users(limit=15,search=text)
+        rows=[]
+        lines=[f"🔎 نتیجه جستجو: {total} کاربر\n"]
+        for u in users:
+            lines.append(f"• <code>{u['telegram_id']}</code> @{u.get('username') or '—'} — {int(u.get('balance') or 0):,}")
+            rows.append([InlineKeyboardButton(f"👤 {u['telegram_id']}",callback_data=f"admin_bu_{u['telegram_id']}")])
+        rows.append([InlineKeyboardButton("🔎 جستجوی دوباره",callback_data="admin_user_search")])
+        rows.append([InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")])
+        await update.message.reply_text("\n".join(lines),reply_markup=InlineKeyboardMarkup(rows),parse_mode="HTML")
+        return ConversationHandler.END
+
+    if mode=="welcome_all":
+        from database import set_setting_sync
+        set_setting_sync("welcome_message",text)
+        await update.message.reply_text("✅ پیام خوش‌آمدگویی ذخیره شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📝 پیام‌ها",callback_data="admin_msgs")]]))
+        return ConversationHandler.END
+
+    if mode and mode.startswith("ref_"):
+        from database import set_setting_sync
+        keymap={"pct":"referral_percent","signup":"referral_signup_bonus","min":"referral_min_amount","cap":"referral_monthly_cap"}
+        key=keymap.get(mode[4:])
+        if not text.isdigit():
+            await update.message.reply_text("فقط عدد وارد کنید.")
+            return ConversationHandler.END
+        set_setting_sync(key,text)
+        await update.message.reply_text("✅ تنظیم رفرال ذخیره شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 رفرال",callback_data="admin_referral")]]))
+        return ConversationHandler.END
+
+    if mode=="panel_max":
+        if not text.isdigit():
+            await update.message.reply_text("فقط عدد وارد کنید.")
+            return ConversationHandler.END
+        pid=int(context.user_data.pop("admin_panel_id",0))
+        from database import get_sync_connection
+        conn=get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE vpn_panels SET max_sales=%s WHERE id=%s",(None if int(text)==0 else int(text),pid))
+                conn.commit()
+        finally: conn.close()
+        await update.message.reply_text("✅ سقف فروش ذخیره شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥 پنل‌ها",callback_data="admin_panels")]]))
+        return ConversationHandler.END
+
+    if mode=="card_add":
+        parts=[x.strip() for x in text.split("|")]
+        if len(parts)<2 or not parts[0] or not parts[1]:
+            await update.message.reply_text("فرمت نامعتبر است. شماره | صاحب | بانک")
+            return ConversationHandler.END
+        from db_users import add_card
+        add_card(parts[0],parts[1],parts[2] if len(parts)>2 and parts[2] else None)
+        await update.message.reply_text("✅ کارت اضافه شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها",callback_data="admin_cards")]]))
+        return ConversationHandler.END
+
+    if mode=="web_user":
+        from database import get_sync_connection
+        conn=get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE admins SET username=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",(text[:50],))
+            conn.commit()
+        finally: conn.close()
+        await update.message.reply_text("✅ نام کاربری وب‌پنل تغییر کرد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
+        return ConversationHandler.END
+
+    if mode=="web_pass":
+        from database import get_sync_connection
+        conn=get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE admins SET password=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",(text,))
+            conn.commit()
+        finally: conn.close()
+        await update.message.reply_text("✅ رمز وب‌پنل تغییر کرد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
+        return ConversationHandler.END
+
+    if mode=="broadcast":
+        context.user_data["admin_broadcast_text"]=text
+        context.user_data["admin_input_mode"]="broadcast_opts"
+        await update.message.reply_text(
+            "⚙️ تنظیمات ارسال را بفرستید:\n"
+            "pin=1 برای پین کردن / pin=0 بدون پین\n"
+            "button=1 برای افزودن دکمه «منوی اصلی» / button=0 بدون دکمه\n"
+            "نمونه: pin=1 button=1"
+        )
+        return WAITING_ADMIN_TEXT
+
+    if mode=="broadcast_opts":
+        import re
+        opts=dict(re.findall(r"(pin|button)\\s*=\\s*(0|1)",text.lower()))
+        pin=opts.get("pin","0")=="1"; button=opts.get("button","0")=="1"
+        msg=context.user_data.pop("admin_broadcast_text","")
+        bc=context.user_data.pop("admin_broadcast_mode","all")
+        from db_users import list_bot_users, user_vars
+        users,_=list_bot_users(limit=100000)
+        sent=0
+        for u in users:
+            bal=int(u.get("balance") or 0)
+            refs=__import__("db_users").count_referrals(u["telegram_id"])
+            if not (bc=="all" or (bc=="balance" and bal>0) or (bc=="nobalance" and bal<=0) or (bc=="refs" and refs>0)):
+                continue
+            try:
+                from db_extras import apply_premium_emojis
+                body=apply_premium_emojis(msg)
+                kb=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی",callback_data="menu_home")]]) if button else None
+                m=await context.bot.send_message(u["telegram_id"],body,parse_mode="HTML",reply_markup=kb)
+                if pin:
+                    try: await context.bot.pin_chat_message(u["telegram_id"],m.message_id,disable_notification=True)
+                    except Exception: pass
+                sent+=1
+            except Exception:
+                pass
+        await update.message.reply_text(f"✅ ارسال انجام شد.\nموفق: {sent}")
+        return ConversationHandler.END
+
+    await update.message.reply_text("ورودی نامعتبر است.")
     return ConversationHandler.END
 
 async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

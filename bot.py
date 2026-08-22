@@ -15,8 +15,8 @@ from handlers.reseller import (
 )
 from db_growth import ensure_growth_tables
 from handlers.admin import (
-    admin_panel, admin_callback, receive_welcome_message,
-    receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD,
+    admin_panel, admin_callback, receive_welcome_message, receive_admin_text,
+    receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
 )
 from handlers.buy import start_buy, buy_callback, receive_buy_receipt, WAITING_BUY_RECEIPT
 from handlers.services_user import (
@@ -65,6 +65,22 @@ async def text_router(update, context):
     """مسیریابی دکمه‌های کیبورد اصلی"""
     text = (update.message.text or "").strip()
     uid = update.effective_user.id if update.effective_user else 0
+    try:
+        from db_extras import get_menu_buttons
+        for item in get_menu_buttons():
+            if text == (item.get("label") or "").split("\n")[0].strip():
+                cb = item.get("callback","")
+                # Keep reply-keyboard and inline callbacks on one routing table.
+                fake = type("Q", (), {"data": cb, "answer": (lambda self: None)})()
+                if cb == "menu_buy": return await start_buy(update, context)
+                if cb == "menu_services": return await show_my_services(update, context)
+                if cb == "menu_wallet": return await show_wallet(update, context)
+                if cb == "menu_trial": return await start_trial(update, context)
+                if cb == "menu_support": return await show_support(update, context)
+                if cb == "menu_education": return await show_education(update, context)
+                if cb == "menu_reseller": return await start_reseller_request(update, context)
+    except Exception:
+        pass
     if "کیف پول" in text:
         return await show_wallet(update, context)
     if "خرید" in text:
@@ -186,11 +202,12 @@ def create_bot() -> Application:
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add)"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_card_add|admin_pmax_|admin_referral|admin_ref_|admin_welcome)"),
         ],
         states={
             WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],
             WAITING_USER_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_user_field)],
+            WAITING_ADMIN_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_admin_text)],
         },
         fallbacks=[
             CallbackQueryHandler(admin_callback, pattern="^admin_"),

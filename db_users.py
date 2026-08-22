@@ -166,7 +166,17 @@ def upsert_bot_user(tg_user, referrer_id: int = None) -> dict:
             conn.commit()
             log_activity(tg_user.id, "register", f"referrer={ref}")
             cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (tg_user.id,))
-            return cur.fetchone()
+            created = cur.fetchone()
+            # signup bonus is granted once, only when a real referrer exists.
+            if ref:
+                try:
+                    from database import get_setting_sync
+                    bonus = int(get_setting_sync("referral_signup_bonus", "0") or 0)
+                    if bonus > 0:
+                        add_balance(ref, bonus, f"ref_signup_{tg_user.id}")
+                except Exception:
+                    pass
+            return created
     finally:
         conn.close()
 

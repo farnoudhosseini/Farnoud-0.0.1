@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}ایموجی پریمیوم | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>ایموجی پریمیوم</h2></header>
+<div class="content">
+<div class="card">
+<h3>افزودن / ویرایش</h3>
+<p class="muted">کد را در هر پیام، محصول یا تنظیمی که می‌خواهید بنویسید. نمونه: <code>p_xxxxxxxx</code> یا <code>[p_xxxxxxxx]</code>.</p>
+<form method="post" class="form-grid">
+<input type="hidden" name="action" value="save">
+<div class="form-group"><label>کد</label><input name="code" placeholder="p_..."></div>
+<div class="form-group"><label>Custom Emoji ID</label><input name="custom_emoji_id" required placeholder="1234567890123456789"></div>
+<div class="form-group"><label>عنوان</label><input name="label" placeholder="مثلاً تیک سبز"></div>
+<div class="card-actions"><button class="btn-primary inline">ذخیره</button></div>
+</form>
+</div>
+<div class="card"><h3>کدهای فعال</h3>
+<div class="premium-list">
+{% for e in emojis %}
+<div class="premium-row"><code>{{ e.code }}</code><span>{{ e.label or '—' }}</span><code>{{ e.custom_emoji_id }}</code>
+<form method="post"><input type="hidden" name="action" value="delete"><input type="hidden" name="code" value="{{ e.code }}"><button class="btn-danger">حذف</button></form></div>
+{% else %}<div class="empty">هنوز ایموجی ثبت نشده.</div>{% endfor %}
+</div></div>
+</div></main></div>
+{% endblock %}

@@ -17,7 +17,7 @@
     <div class="stat"><div class="stat-label">سرویس‌های فروخته‌شده</div><div class="stat-value">{{ stats.orders or 0 }}</div></div>
     <div class="stat"><div class="stat-label">درآمد (تومان)</div><div class="stat-value">{{ "{:,.0f}".format(stats.revenue or 0) }}</div></div>
     <div class="stat"><div class="stat-label">شارژ در انتظار</div><div class="stat-value">{{ stats.pending_charges or 0 }}</div></div>
-    <div class="stat"><div class="stat-label">پنل‌های VPN</div><div class="stat-value">{{ stats.panels or 0 }}</div></div>
+    <div class="stat"><div class="stat-label">پنل‌ها</div><div class="stat-value">{{ stats.panels or 0 }}</div></div>
     <div class="stat"><div class="stat-label">محصولات فعال</div><div class="stat-value">{{ stats.products or 0 }}</div></div>
     <div class="stat"><div class="stat-label">تیکت باز</div><div class="stat-value">{{ stats.open_tickets or 0 }}</div></div>
   </div>

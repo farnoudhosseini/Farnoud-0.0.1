@@ -59,6 +59,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _send_welcome(update, context, user):
     welcome = await get_setting("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋")
+    try:
+        from db_users import user_vars
+        from db_extras import apply_premium_emojis
+        u = get_bot_user(user.id) or {}
+        welcome_vars = user_vars(u)
+        for k,v in welcome_vars.items():
+            welcome = welcome.replace(f"[{k}]", str(v))
+        welcome = apply_premium_emojis(welcome)
+    except Exception:
+        pass
     is_adm = user and user.id == ADMIN_ID
     target = update.message or update.callback_query.message
     await context.bot.send_message(

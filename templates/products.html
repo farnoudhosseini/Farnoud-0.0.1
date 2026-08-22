@@ -10,10 +10,10 @@
 {% if products %}
 <div class="card" style="padding:0;overflow:auto">
 <table class="data-table">
-<thead><tr><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>HWID</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
-<tbody>
+<thead><tr data-sort-item data-id="{{ p.id }}"><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>HWID</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
+<tbody data-sortable="{{ url_for('products_reorder_api') }}">
 {% for p in products %}
-<tr>
+<tr data-sort-item data-id="{{ p.id }}">
 <td>{{ p.sort_order }}</td>
 <td><strong>{{ p.name }}</strong></td>
 <td>{{ p.category_name or '—' }}</td>

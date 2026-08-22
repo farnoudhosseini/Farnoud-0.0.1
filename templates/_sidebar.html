@@ -13,8 +13,7 @@
                 <span>پیام‌های ربات</span><span class="chevron">▼</span>
             </button>
             <div class="nav-group-body">
-                <a href="{{ url_for('bot_messages') }}" class="nav-item {% if active == 'bot_messages' %}active{% endif %}"><span>خوش‌آمدگویی</span></a>
-                <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active == 'messages' %}active{% endif %}"><span>تنظیم همه پیام‌ها</span></a>
+                <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active in ['messages','bot_messages'] %}active{% endif %}"><span>تنظیم همه پیام‌ها</span></a>
             </div>
         </div>
 
@@ -71,6 +70,8 @@
         <a href="{{ url_for('referral_settings') }}" class="nav-item {% if active == 'referral' %}active{% endif %}"><span>رفرال / پورسانت</span></a>
         <a href="{{ url_for('reseller_requests_page') }}" class="nav-item {% if active == 'reseller_requests' %}active{% endif %}"><span>درخواست نمایندگی</span></a>
         <a href="{{ url_for('personalize') }}" class="nav-item {% if active == 'personalize' %}active{% endif %}"><span>شخصی‌سازی</span></a>
+        <a href="{{ url_for('premium_emojis_manage') }}" class="nav-item {% if active == 'premium_emojis' %}active{% endif %}"><span>ایموجی پریمیوم</span></a>
+        <a href="{{ url_for('menu_buttons_manage') }}" class="nav-item {% if active == 'menu_buttons' %}active{% endif %}"><span>کنترل دکمه‌ها</span></a>
     </nav>
     <div class="sidebar-footer">
         <div class="user-chip">

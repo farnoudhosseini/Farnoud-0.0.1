@@ -15,41 +15,31 @@ WAITING_GIFT_CODE = 11
 WAITING_RECEIPT = 12
 
 def main_user_keyboard(is_admin: bool = False):
-    """منوی اصلی — دکمه‌ای یا شیشه‌ای بر اساس تنظیم inline_main_menu"""
-    from db_users import get_template
+    """Main menu from one configurable source: order, visibility and labels are persisted."""
     from database import get_setting_sync
-    def btn(key, default):
-        t = get_template(key) or default
-        return t.split("\n")[0][:40]
-    use_inline = get_setting_sync("inline_main_menu", "0") == "1"
+    from db_extras import get_menu_buttons
+    items=[x for x in get_menu_buttons() if x.get("enabled",True)]
+    use_inline=get_setting_sync("inline_main_menu","0")=="1"
+    def label(item):
+        return (item.get("label") or item.get("key") or "—").split("\n")[0][:40]
     if use_inline:
-        rows = [
-            [
-                InlineKeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید"), callback_data="menu_buy"),
-                InlineKeyboardButton(btn("btn_services", "📱 سرویس‌های من"), callback_data="menu_services"),
-            ],
-            [
-                InlineKeyboardButton(btn("btn_wallet", "💰 کیف پول من"), callback_data="menu_wallet"),
-                InlineKeyboardButton(btn("btn_trial", "🎁 تست رایگان"), callback_data="menu_trial"),
-            ],
-            [
-                InlineKeyboardButton(btn("btn_support", "🛠 پشتیبانی"), callback_data="menu_support"),
-                InlineKeyboardButton(btn("btn_education", "📚 آموزش"), callback_data="menu_education"),
-            ],
-            [InlineKeyboardButton(btn("btn_reseller", "🤝 درخواست نمایندگی"), callback_data="menu_reseller")],
-        ]
-        if is_admin:
-            rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
+        rows=[]
+        row=[]
+        for item in items:
+            row.append(InlineKeyboardButton(label(item),callback_data=item.get("callback","menu_home")))
+            if len(row)==2:
+                rows.append(row); row=[]
+        if row: rows.append(row)
+        if is_admin: rows.append([InlineKeyboardButton("⚙️ مدیریت",callback_data="menu_admin")])
         return InlineKeyboardMarkup(rows)
-    rows = [
-        [KeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید")), KeyboardButton(btn("btn_services", "📱 سرویس‌های من"))],
-        [KeyboardButton(btn("btn_wallet", "💰 کیف پول من")), KeyboardButton(btn("btn_trial", "🎁 تست رایگان"))],
-        [KeyboardButton(btn("btn_support", "🛠 پشتیبانی")), KeyboardButton(btn("btn_education", "📚 آموزش"))],
-        [KeyboardButton(btn("btn_reseller", "🤝 درخواست نمایندگی"))],
-    ]
-    if is_admin:
-        rows.append([KeyboardButton("⚙️ مدیریت")])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    rows=[]; row=[]
+    for item in items:
+        row.append(KeyboardButton(label(item)))
+        if len(row)==2: rows.append(row); row=[]
+    if row: rows.append(row)
+    if is_admin: rows.append([KeyboardButton("⚙️ مدیریت")])
+    return ReplyKeyboardMarkup(rows,resize_keyboard=True)
+
 
 def wallet_keyboard():
     return InlineKeyboardMarkup([

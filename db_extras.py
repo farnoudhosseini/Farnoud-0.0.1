@@ -5,6 +5,9 @@ from typing import Optional
 from database import get_sync_connection, get_setting_sync, set_setting_sync
 import secrets
 import string
+import re
+import html
+import json
 
 
 def ensure_extras_tables():
@@ -30,6 +33,7 @@ def ensure_extras_tables():
                 ("report_topic_errors", ""),
                 ("report_topic_backup", ""),
                 ("hourly_global_enabled", "0"),
+                ("menu_buttons_json", "[]"),
             ]:
                 cur.execute(
                     "INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)",
@@ -113,8 +117,14 @@ def apply_premium_emojis(text: str) -> str:
     for e in sorted(emojis, key=lambda x: len(x["code"]), reverse=True):
         code = e["code"]
         eid = e["custom_emoji_id"]
-        # تلگرام: <tg-emoji emoji-id="ID">😀</tg-emoji>
-        replacement = f'<tg-emoji emoji-id="{eid}">✨</tg-emoji>'
+        # Telegram Bot API: custom emoji is rendered only when HTML parse mode is used.
+        replacement = f'<tg-emoji emoji-id="{html.escape(str(eid), quote=True)}">✨</tg-emoji>'
+        # Support the same stored code in common editor syntaxes so admins can paste
+        # it literally anywhere: [p_xxxxx], {{p_xxxxx}}, {{premium:p_xxxxx}}.
+        safe = re.escape(code)
+        text = re.sub(r'\\[\\s*' + safe + r'\\s*\\]', replacement, text)
+        text = re.sub(r'\\{\\{\\s*(?:premium:)?' + safe + r'\\s*\\}\\}', replacement, text)
+        text = re.sub(r'<premium\\s*:\\s*' + safe + r'\\s*>', replacement, text, flags=re.I)
         text = text.replace(code, replacement)
     return text
 
@@ -148,3 +158,27 @@ def get_report_topic(kind: str) -> Optional[int]:
 
 def set_report_topic(kind: str, topic_id: int):
     set_setting_sync(f"report_topic_{kind}", str(topic_id))
+
+
+DEFAULT_MENU_BUTTONS = [
+    {"key":"buy","label":"🛒 خرید سرویس جدید","callback":"menu_buy","enabled":True,"color":"blue"},
+    {"key":"services","label":"📱 سرویس‌های من","callback":"menu_services","enabled":True,"color":"blue"},
+    {"key":"wallet","label":"💰 کیف پول من","callback":"menu_wallet","enabled":True,"color":"green"},
+    {"key":"trial","label":"🎁 تست رایگان","callback":"menu_trial","enabled":True,"color":"blue"},
+    {"key":"support","label":"🛠 پشتیبانی","callback":"menu_support","enabled":True,"color":"red"},
+    {"key":"education","label":"📚 آموزش","callback":"menu_education","enabled":True,"color":"none"},
+    {"key":"reseller","label":"🤝 درخواست نمایندگی","callback":"menu_reseller","enabled":True,"color":"none"},
+]
+
+def get_menu_buttons():
+    raw=get_setting_sync("menu_buttons_json","[]")
+    try:
+        data=json.loads(raw or "[]")
+        if isinstance(data,list) and data:
+            return data
+    except Exception:
+        pass
+    return DEFAULT_MENU_BUTTONS.copy()
+
+def set_menu_buttons(items):
+    set_setting_sync("menu_buttons_json",json.dumps(items,ensure_ascii=False))

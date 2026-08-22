@@ -456,3 +456,19 @@ def update_order(oid: int, **fields):
             conn.commit()
     finally:
         conn.close()
+
+
+def reorder_products(ids: list) -> bool:
+    """Persist drag/drop product order. IDs are applied atomically in the supplied order."""
+    ids = [int(x) for x in ids if str(x).isdigit()]
+    if not ids:
+        return False
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            for pos, pid in enumerate(ids):
+                cur.execute("UPDATE products SET sort_order=%s WHERE id=%s", (pos, pid))
+            conn.commit()
+        return True
+    finally:
+        conn.close()
