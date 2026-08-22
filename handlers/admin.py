@@ -874,31 +874,61 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return WAITING_ADMIN_TEXT
 
     if mode=="broadcast_opts":
-        import re
-        opts=dict(re.findall(r"(pin|button)\\s*=\\s*(0|1)",text.lower()))
-        pin=opts.get("pin","0")=="1"; button=opts.get("button","0")=="1"
-        msg=context.user_data.pop("admin_broadcast_text","")
-        bc=context.user_data.pop("admin_broadcast_mode","all")
-        from db_users import list_bot_users, user_vars
-        users,_=list_bot_users(limit=100000)
-        sent=0
+        import re as _re
+        import asyncio
+        opts=dict(_re.findall(r"(pin|button)\s*=\s*(0|1)", text.lower()))
+        # اگر فقط عدد فرستاد یا خالی، پیش‌فرض بدون پین + با دکمه
+        pin = opts.get("pin", "0") == "1"
+        button = opts.get("button", "1") == "1" if opts else True
+        msg = context.user_data.pop("admin_broadcast_text", "")
+        bc = context.user_data.pop("admin_broadcast_mode", "all")
+        context.user_data.pop("admin_input_mode", None)
+        if not msg:
+            await update.message.reply_text("❌ متن پیام خالی است.")
+            return ConversationHandler.END
+        from db_users import list_bot_users, count_referrals
+        from db_extras import apply_premium_emojis
+        users, _ = list_bot_users(limit=100000)
+        body = apply_premium_emojis(msg)
+        kb = None
+        if button:
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
+        sent = 0
+        failed = 0
+        status = await update.message.reply_text("⏳ در حال ارسال...")
         for u in users:
-            bal=int(u.get("balance") or 0)
-            refs=__import__("db_users").count_referrals(u["telegram_id"])
-            if not (bc=="all" or (bc=="balance" and bal>0) or (bc=="nobalance" and bal<=0) or (bc=="refs" and refs>0)):
+            bal = int(u.get("balance") or 0)
+            try:
+                refs = count_referrals(u["telegram_id"])
+            except Exception:
+                refs = 0
+            if not (
+                bc == "all"
+                or (bc == "balance" and bal > 0)
+                or (bc == "nobalance" and bal <= 0)
+                or (bc == "refs" and refs > 0)
+            ):
                 continue
             try:
-                from db_extras import apply_premium_emojis
-                body=apply_premium_emojis(msg)
-                kb=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی",callback_data="menu_home")]]) if button else None
-                m=await context.bot.send_message(u["telegram_id"],body,parse_mode="HTML",reply_markup=kb)
+                m = await context.bot.send_message(
+                    u["telegram_id"], body, parse_mode="HTML", reply_markup=kb
+                )
                 if pin:
-                    try: await context.bot.pin_chat_message(u["telegram_id"],m.message_id,disable_notification=True)
-                    except Exception: pass
-                sent+=1
+                    try:
+                        await context.bot.pin_chat_message(
+                            u["telegram_id"], m.message_id, disable_notification=True
+                        )
+                    except Exception:
+                        pass
+                sent += 1
             except Exception:
-                pass
-        await update.message.reply_text(f"✅ ارسال انجام شد.\nموفق: {sent}")
+                failed += 1
+            if (sent + failed) % 25 == 0:
+                await asyncio.sleep(0.35)
+        try:
+            await status.edit_text(f"✅ ارسال انجام شد.\nموفق: {sent}\nناموفق: {failed}")
+        except Exception:
+            await update.message.reply_text(f"✅ ارسال انجام شد.\nموفق: {sent}\nناموفق: {failed}")
         return ConversationHandler.END
 
     await update.message.reply_text("ورودی نامعتبر است.")

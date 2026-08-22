@@ -1,7 +1,7 @@
 # ایموجی پریمیوم، گزارش گروهی، تنظیمات منو
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
 from database import get_sync_connection, get_setting_sync, set_setting_sync
 import secrets
 import string
@@ -34,6 +34,7 @@ def ensure_extras_tables():
                 ("report_topic_backup", ""),
                 ("hourly_global_enabled", "0"),
                 ("menu_buttons_json", "[]"),
+                ("menu_buttons_per_row", "3"),
             ]:
                 cur.execute(
                     "INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)",
@@ -103,30 +104,56 @@ def delete_premium_emoji(code: str) -> bool:
         conn.close()
 
 
+_PREMIUM_CODE_RE = re.compile(r"p_[a-z0-9]{4,32}", re.I)
+
+
 def apply_premium_emojis(text: str) -> str:
     """
     جایگزینی کدهای p_... با تگ HTML ایموجی سفارشی تلگرام.
     خروجی باید با parse_mode=HTML ارسال شود.
+    پشتیبانی از: p_xxx  |  [p_xxx]  |  {{p_xxx}}  |  {{premium:p_xxx}}  |  <premium:p_xxx>
     """
     if not text:
-        return text
+        return text or ""
     emojis = list_premium_emojis()
     if not emojis:
         return text
-    # طولانی‌ترها اول تا تداخل پیش نیاید
     for e in sorted(emojis, key=lambda x: len(x["code"]), reverse=True):
         code = e["code"]
-        eid = e["custom_emoji_id"]
-        # Telegram Bot API: custom emoji is rendered only when HTML parse mode is used.
-        replacement = f'<tg-emoji emoji-id="{html.escape(str(eid), quote=True)}">✨</tg-emoji>'
-        # Support the same stored code in common editor syntaxes so admins can paste
-        # it literally anywhere: [p_xxxxx], {{p_xxxxx}}, {{premium:p_xxxxx}}.
+        eid = str(e["custom_emoji_id"])
+        replacement = f'<tg-emoji emoji-id="{html.escape(eid, quote=True)}">✨</tg-emoji>'
         safe = re.escape(code)
-        text = re.sub(r'\\[\\s*' + safe + r'\\s*\\]', replacement, text)
-        text = re.sub(r'\\{\\{\\s*(?:premium:)?' + safe + r'\\s*\\}\\}', replacement, text)
-        text = re.sub(r'<premium\\s*:\\s*' + safe + r'\\s*>', replacement, text, flags=re.I)
+        text = re.sub(r"\[\s*" + safe + r"\s*\]", replacement, text)
+        text = re.sub(r"\{\{\s*(?:premium:)?" + safe + r"\s*\}\}", replacement, text)
+        text = re.sub(r"<premium\s*:\s*" + safe + r"\s*>", replacement, text, flags=re.I)
         text = text.replace(code, replacement)
     return text
+
+
+def extract_premium_from_label(label: str) -> Tuple[str, Optional[str]]:
+    """
+    از متن دکمه کد p_xxx را جدا می‌کند.
+    خروجی: (متن_تمیز_بدون_کد, custom_emoji_id یا None)
+    """
+    if not label:
+        return "", None
+    match = _PREMIUM_CODE_RE.search(label)
+    if not match:
+        return label.strip(), None
+    code = match.group(0)
+    clean = _PREMIUM_CODE_RE.sub("", label)
+    clean = re.sub(r"\s{2,}", " ", clean).strip()
+    row = get_premium_emoji(code)
+    eid = str(row["custom_emoji_id"]) if row else None
+    return clean or "•", eid
+
+
+def strip_premium_codes(text: str) -> str:
+    """حذف کدهای p_ از متن (برای ReplyKeyboard که HTML ندارد)."""
+    if not text:
+        return text or ""
+    text = _PREMIUM_CODE_RE.sub("", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 # ---- گزارش گروهی ----
@@ -160,25 +187,101 @@ def set_report_topic(kind: str, topic_id: int):
     set_setting_sync(f"report_topic_{kind}", str(topic_id))
 
 
+# ---- منوی اصلی ----
+# color: blue→primary | green→success | red→danger | none→default
+# row: شماره سطر (اختیاری، برای چیدمان آزاد)
+# per_row: حداکثر دکمه در هر سطر (پیش‌فرض ۳)
+
+COLOR_TO_STYLE = {
+    "blue": "primary",
+    "green": "success",
+    "red": "danger",
+    "primary": "primary",
+    "success": "success",
+    "danger": "danger",
+    "none": None,
+    "": None,
+}
+
 DEFAULT_MENU_BUTTONS = [
-    {"key":"buy","label":"🛒 خرید سرویس جدید","callback":"menu_buy","enabled":True,"color":"blue"},
-    {"key":"services","label":"📱 سرویس‌های من","callback":"menu_services","enabled":True,"color":"blue"},
-    {"key":"wallet","label":"💰 کیف پول من","callback":"menu_wallet","enabled":True,"color":"green"},
-    {"key":"trial","label":"🎁 تست رایگان","callback":"menu_trial","enabled":True,"color":"blue"},
-    {"key":"support","label":"🛠 پشتیبانی","callback":"menu_support","enabled":True,"color":"red"},
-    {"key":"education","label":"📚 آموزش","callback":"menu_education","enabled":True,"color":"none"},
-    {"key":"reseller","label":"🤝 درخواست نمایندگی","callback":"menu_reseller","enabled":True,"color":"none"},
+    {"key": "buy", "label": "🛒 خرید سرویس جدید", "callback": "menu_buy", "enabled": True, "color": "blue", "row": 0},
+    {"key": "services", "label": "📱 سرویس‌های من", "callback": "menu_services", "enabled": True, "color": "blue", "row": 0},
+    {"key": "wallet", "label": "💰 کیف پول من", "callback": "menu_wallet", "enabled": True, "color": "green", "row": 1},
+    {"key": "trial", "label": "🎁 تست رایگان", "callback": "menu_trial", "enabled": True, "color": "blue", "row": 1},
+    {"key": "support", "label": "🛠 پشتیبانی", "callback": "menu_support", "enabled": True, "color": "red", "row": 2},
+    {"key": "education", "label": "📚 آموزش", "callback": "menu_education", "enabled": True, "color": "none", "row": 2},
+    {"key": "reseller", "label": "🤝 درخواست نمایندگی", "callback": "menu_reseller", "enabled": True, "color": "none", "row": 3},
 ]
 
-def get_menu_buttons():
-    raw=get_setting_sync("menu_buttons_json","[]")
+
+def get_menu_buttons() -> List[Dict[str, Any]]:
+    raw = get_setting_sync("menu_buttons_json", "[]")
     try:
-        data=json.loads(raw or "[]")
-        if isinstance(data,list) and data:
-            return data
+        data = json.loads(raw or "[]")
+        if isinstance(data, list) and data:
+            # نرمال‌سازی فیلدهای قدیمی
+            out = []
+            for i, x in enumerate(data):
+                if not isinstance(x, dict):
+                    continue
+                item = dict(x)
+                item.setdefault("key", f"btn_{i}")
+                item.setdefault("label", item["key"])
+                item.setdefault("callback", "menu_home")
+                item.setdefault("enabled", True)
+                item.setdefault("color", "none")
+                if "row" not in item:
+                    item["row"] = i // 3
+                out.append(item)
+            return out
     except Exception:
         pass
-    return DEFAULT_MENU_BUTTONS.copy()
+    return [dict(x) for x in DEFAULT_MENU_BUTTONS]
+
 
 def set_menu_buttons(items):
-    set_setting_sync("menu_buttons_json",json.dumps(items,ensure_ascii=False))
+    set_setting_sync("menu_buttons_json", json.dumps(items, ensure_ascii=False))
+
+
+def get_buttons_per_row() -> int:
+    try:
+        n = int(get_setting_sync("menu_buttons_per_row", "3") or "3")
+        return max(1, min(n, 8))
+    except Exception:
+        return 3
+
+
+def set_buttons_per_row(n: int):
+    set_setting_sync("menu_buttons_per_row", str(max(1, min(int(n), 8))))
+
+
+def build_menu_rows(items: Optional[List[Dict]] = None, per_row: Optional[int] = None) -> List[List[Dict]]:
+    """
+    دکمه‌های فعال را بر اساس فیلد row گروه‌بندی می‌کند.
+    اگر row نباشد، بر اساس per_row (پیش‌فرض ۳) می‌چیند.
+    """
+    if items is None:
+        items = get_menu_buttons()
+    active = [x for x in items if x.get("enabled", True)]
+    if not active:
+        return []
+
+    has_row = any("row" in x and x.get("row") is not None for x in active)
+    if has_row:
+        groups: Dict[int, List[Dict]] = {}
+        for x in active:
+            r = int(x.get("row") or 0)
+            groups.setdefault(r, []).append(x)
+        return [groups[k] for k in sorted(groups.keys())]
+
+    pr = per_row if per_row is not None else get_buttons_per_row()
+    rows: List[List[Dict]] = []
+    row: List[Dict] = []
+    for x in active:
+        row.append(x)
+        if len(row) >= pr:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows

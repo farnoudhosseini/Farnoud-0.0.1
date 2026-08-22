@@ -788,9 +788,14 @@ def reseller_requests_page():
                         text = render_msg_template("reseller_rejected", {
                             "reason": note or "—",
                         }) or f"❌ درخواست نمایندگی رد شد.\nدلیل: {note or '—'}"
+                    try:
+                        from db_extras import apply_premium_emojis
+                        text = apply_premium_emojis(text)
+                    except Exception:
+                        pass
                     req_lib.post(
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                        json={"chat_id": tg_id, "text": text},
+                        json={"chat_id": tg_id, "text": text, "parse_mode": "HTML"},
                         timeout=10,
                     )
                 except Exception as e:
@@ -878,20 +883,34 @@ def menu_buttons_manage():
             try: items=json.loads(request.form.get("items","[]"))
             except Exception: items=[]
         clean=[]
-        for x in items:
+        allowed_colors={"green","red","blue","none","primary","success","danger"}
+        for i,x in enumerate(items):
             if not isinstance(x,dict): continue
+            color=str(x.get("color") or "none").lower()
+            if color not in allowed_colors: color="none"
+            try: row=int(x.get("row", i//3))
+            except Exception: row=i//3
             clean.append({
-                "key":str(x.get("key",""))[:40],"label":str(x.get("label",""))[:80],
+                "key":str(x.get("key",""))[:40] or f"btn_{i}",
+                "label":str(x.get("label",""))[:120],
                 "callback":str(x.get("callback","menu_home"))[:60],
                 "enabled":bool(x.get("enabled",True)),
-                "color":x.get("color","none") if x.get("color") in ("green","red","blue","none") else "none"
+                "color":color,
+                "row":row,
             })
         set_menu_buttons(clean)
+        if data and data.get("per_row") is not None:
+            try:
+                from db_extras import set_buttons_per_row
+                set_buttons_per_row(int(data.get("per_row")))
+            except Exception:
+                pass
         if request.is_json: return jsonify({"ok":True})
         flash("چیدمان دکمه‌ها ذخیره شد","success")
         return redirect(url_for("menu_buttons_manage"))
+    from db_extras import get_buttons_per_row
     return render_template("menu_buttons.html",username=session.get("admin_username"),
-                           active="menu_buttons",items=get_menu_buttons())
+                           active="menu_buttons",items=get_menu_buttons(),per_row=get_buttons_per_row())
 
 @app.route("/premium-emojis", methods=["GET", "POST"])
 @login_required

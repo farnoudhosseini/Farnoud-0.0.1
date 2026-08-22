@@ -15,30 +15,53 @@ WAITING_GIFT_CODE = 11
 WAITING_RECEIPT = 12
 
 def main_user_keyboard(is_admin: bool = False):
-    """Main menu from one configurable source: order, visibility and labels are persisted."""
+    """منوی اصلی از منبع واحد: ترتیب، نمایش، رنگ و ایموجی پریمیوم."""
     from database import get_setting_sync
-    from db_extras import get_menu_buttons
-    items=[x for x in get_menu_buttons() if x.get("enabled",True)]
-    use_inline=get_setting_sync("inline_main_menu","0")=="1"
-    def label(item):
-        return (item.get("label") or item.get("key") or "—").split("\n")[0][:40]
+    from db_extras import (
+        get_menu_buttons, build_menu_rows, COLOR_TO_STYLE,
+        extract_premium_from_label, strip_premium_codes,
+    )
+    use_inline = get_setting_sync("inline_main_menu", "0") == "1"
+    menu_rows = build_menu_rows(get_menu_buttons())
+
     if use_inline:
-        rows=[]
-        row=[]
-        for item in items:
-            row.append(InlineKeyboardButton(label(item),callback_data=item.get("callback","menu_home")))
-            if len(row)==2:
-                rows.append(row); row=[]
-        if row: rows.append(row)
-        if is_admin: rows.append([InlineKeyboardButton("⚙️ مدیریت",callback_data="menu_admin")])
+        rows = []
+        for group in menu_rows:
+            row = []
+            for item in group:
+                raw_label = (item.get("label") or item.get("key") or "—").split("\n")[0]
+                clean, eid = extract_premium_from_label(raw_label)
+                clean = clean[:40] or "•"
+                style = COLOR_TO_STYLE.get((item.get("color") or "none").lower())
+                kwargs = {"text": clean, "callback_data": item.get("callback") or "menu_home"}
+                if style:
+                    kwargs["style"] = style
+                if eid:
+                    kwargs["icon_custom_emoji_id"] = eid
+                try:
+                    row.append(InlineKeyboardButton(**kwargs))
+                except TypeError:
+                    # نسخه قدیمی PTB بدون style/icon
+                    row.append(InlineKeyboardButton(clean, callback_data=kwargs["callback_data"]))
+            if row:
+                rows.append(row)
+        if is_admin:
+            rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
         return InlineKeyboardMarkup(rows)
-    rows=[]; row=[]
-    for item in items:
-        row.append(KeyboardButton(label(item)))
-        if len(row)==2: rows.append(row); row=[]
-    if row: rows.append(row)
-    if is_admin: rows.append([KeyboardButton("⚙️ مدیریت")])
-    return ReplyKeyboardMarkup(rows,resize_keyboard=True)
+
+    # Reply keyboard: بدون HTML/style — فقط متن تمیز
+    rows = []
+    for group in menu_rows:
+        row = []
+        for item in group:
+            raw_label = (item.get("label") or item.get("key") or "—").split("\n")[0]
+            clean = strip_premium_codes(raw_label)[:40] or "•"
+            row.append(KeyboardButton(clean))
+        if row:
+            rows.append(row)
+    if is_admin:
+        rows.append([KeyboardButton("⚙️ مدیریت")])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def wallet_keyboard():

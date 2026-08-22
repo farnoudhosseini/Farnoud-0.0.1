@@ -66,12 +66,14 @@ async def text_router(update, context):
     text = (update.message.text or "").strip()
     uid = update.effective_user.id if update.effective_user else 0
     try:
-        from db_extras import get_menu_buttons
+        from db_extras import get_menu_buttons, strip_premium_codes
         for item in get_menu_buttons():
-            if text == (item.get("label") or "").split("\n")[0].strip():
-                cb = item.get("callback","")
-                # Keep reply-keyboard and inline callbacks on one routing table.
-                fake = type("Q", (), {"data": cb, "answer": (lambda self: None)})()
+            if not item.get("enabled", True):
+                continue
+            raw = (item.get("label") or "").split("\n")[0].strip()
+            clean = strip_premium_codes(raw)
+            if text == raw or text == clean:
+                cb = item.get("callback", "")
                 if cb == "menu_buy": return await start_buy(update, context)
                 if cb == "menu_services": return await show_my_services(update, context)
                 if cb == "menu_wallet": return await show_wallet(update, context)

@@ -2,29 +2,96 @@
 {% block title %}کنترل دکمه‌ها | فرنود{% endblock %}
 {% block content %}
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
-<header class="topbar"><h2>کنترل دکمه‌ها</h2><button class="btn-primary inline" id="saveMenu">ذخیره چیدمان</button></header>
-<div class="content"><div class="card">
-<p class="muted">دکمه‌ها را Drag & Drop کنید. نمایش، متن و رنگ ظاهری پنل قابل کنترل است. تلگرام به‌صورت ذاتی رنگ واقعی دکمه‌ها را پشتیبانی نمی‌کند.</p>
+<header class="topbar">
+  <h2>کنترل دکمه‌ها</h2>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn-primary inline" type="button" id="addBtn">➕ افزودن</button>
+    <button class="btn-primary inline" type="button" id="saveMenu">💾 ذخیره چیدمان</button>
+  </div>
+</header>
+<div class="content">
+<div class="card">
+<p class="muted">
+  Drag & Drop برای جابه‌جایی آزاد. حداکثر <b>۳ دکمه در هر سطر</b> (قابل تغییر).
+  رنگ‌ها روی منوی اینلاین تلگرام اعمال می‌شوند:
+  <b>آبی=primary</b> · <b>سبز=success</b> · <b>قرمز=danger</b>.
+  در نام دکمه می‌توانید کد ایموجی پریمیوم مثل <code>p_xxxxxxxx</code> بگذارید تا آیکون دکمه شود.
+</p>
+<label style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
+  تعداد دکمه در هر سطر (وقتی row دستی نباشد):
+  <input type="number" id="perRow" min="1" max="8" value="{{ per_row or 3 }}" style="width:4rem">
+</label>
 <div id="menuItems" data-sortable class="premium-list">
 {% for x in items %}
-<div class="premium-row" data-sort-item data-id="{{ x.key }}" draggable="true">
-<strong>{{ x.key }}</strong><input class="mi-label" value="{{ x.label }}">
-<select class="mi-color"><option value="blue" {% if x.color=='blue' %}selected{% endif %}>آبی</option><option value="green" {% if x.color=='green' %}selected{% endif %}>سبز</option><option value="red" {% if x.color=='red' %}selected{% endif %}>قرمز</option><option value="none" {% if x.color=='none' %}selected{% endif %}>بی‌رنگ</option></select>
-<label><input class="mi-enabled" type="checkbox" {% if x.enabled %}checked{% endif %}> فعال</label>
-<input type="hidden" class="mi-callback" value="{{ x.callback }}">
-<button type="button" class="btn-danger mi-delete">حذف</button>
+<div class="premium-row" data-sort-item data-id="{{ x.key }}" draggable="true"
+     style="display:grid;grid-template-columns:1.2fr 2fr 1fr 1fr auto auto;gap:.5rem;align-items:center;margin-bottom:.5rem;padding:.6rem;border-radius:12px;background:var(--card-bg,rgba(255,255,255,.04))">
+  <input class="mi-key" value="{{ x.key }}" placeholder="key" title="کلید یکتا">
+  <input class="mi-label" value="{{ x.label }}" placeholder="متن دکمه (می‌تواند شامل p_xxx باشد)">
+  <select class="mi-color">
+    <option value="blue" {% if x.color=='blue' or x.color=='primary' %}selected{% endif %}>آبی primary</option>
+    <option value="green" {% if x.color=='green' or x.color=='success' %}selected{% endif %}>سبز success</option>
+    <option value="red" {% if x.color=='red' or x.color=='danger' %}selected{% endif %}>قرمز danger</option>
+    <option value="none" {% if x.color=='none' or not x.color %}selected{% endif %}>بی‌رنگ</option>
+  </select>
+  <input class="mi-row" type="number" min="0" value="{{ x.row if x.row is defined else loop.index0 // 3 }}" title="شماره سطر" style="width:4rem">
+  <label style="white-space:nowrap"><input class="mi-enabled" type="checkbox" {% if x.enabled %}checked{% endif %}> فعال</label>
+  <input type="hidden" class="mi-callback" value="{{ x.callback }}">
+  <button type="button" class="btn-danger mi-delete">حذف</button>
 </div>
 {% endfor %}
-</div></div></div>
+</div>
+</div>
+</div>
 <script>
-document.querySelectorAll('.mi-delete').forEach(b=>b.onclick=()=>b.closest('[data-sort-item]').remove());
+function bindDeletes(){
+  document.querySelectorAll('.mi-delete').forEach(b=>{
+    b.onclick=()=>b.closest('[data-sort-item]').remove();
+  });
+}
+bindDeletes();
+
+document.getElementById('addBtn').onclick=()=>{
+  const key='custom_'+Date.now().toString(36);
+  const wrap=document.createElement('div');
+  wrap.className='premium-row';
+  wrap.dataset.sortItem='';
+  wrap.dataset.id=key;
+  wrap.draggable=true;
+  wrap.style.cssText='display:grid;grid-template-columns:1.2fr 2fr 1fr 1fr auto auto;gap:.5rem;align-items:center;margin-bottom:.5rem;padding:.6rem;border-radius:12px;background:var(--card-bg,rgba(255,255,255,.04))';
+  wrap.innerHTML=`
+    <input class="mi-key" value="${key}" placeholder="key">
+    <input class="mi-label" value="دکمه جدید" placeholder="متن">
+    <select class="mi-color">
+      <option value="blue">آبی primary</option>
+      <option value="green">سبز success</option>
+      <option value="red">قرمز danger</option>
+      <option value="none" selected>بی‌رنگ</option>
+    </select>
+    <input class="mi-row" type="number" min="0" value="0" style="width:4rem">
+    <label style="white-space:nowrap"><input class="mi-enabled" type="checkbox" checked> فعال</label>
+    <input type="hidden" class="mi-callback" value="menu_home">
+    <button type="button" class="btn-danger mi-delete">حذف</button>`;
+  document.getElementById('menuItems').appendChild(wrap);
+  bindDeletes();
+};
+
 document.getElementById('saveMenu').onclick=async()=>{
- const items=[...document.querySelectorAll('#menuItems [data-sort-item]')].map(x=>({
-  key:x.dataset.id,label:x.querySelector('.mi-label').value,callback:x.querySelector('.mi-callback').value,
-  color:x.querySelector('.mi-color').value,enabled:x.querySelector('.mi-enabled').checked
- }));
- const r=await fetch('{{ url_for("menu_buttons_manage") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})});
- if(r.ok) location.reload();
+  const items=[...document.querySelectorAll('#menuItems [data-sort-item]')].map((x,idx)=>({
+    key:(x.querySelector('.mi-key')?.value||x.dataset.id||('btn_'+idx)).trim(),
+    label:x.querySelector('.mi-label').value,
+    callback:x.querySelector('.mi-callback').value||'menu_home',
+    color:x.querySelector('.mi-color').value,
+    enabled:x.querySelector('.mi-enabled').checked,
+    row:parseInt(x.querySelector('.mi-row')?.value||Math.floor(idx/3),10)||0
+  }));
+  const perRow=parseInt(document.getElementById('perRow').value||'3',10);
+  const r=await fetch('{{ url_for("menu_buttons_manage") }}',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({items, per_row: perRow})
+  });
+  if(r.ok){ location.reload(); }
+  else alert('خطا در ذخیره');
 };
 </script>
 </main></div>
