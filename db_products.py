@@ -78,6 +78,7 @@ def ensure_product_tables():
                 ("buy_select_panel", "انتخاب پنل", "🖥 پنل مورد نظر را انتخاب کنید:"),
                 ("buy_select_category", "انتخاب دسته", "📁 دسته‌بندی را انتخاب کنید:"),
                 ("buy_select_product", "انتخاب محصول", "📦 محصول را انتخاب کنید:"),
+                ("service_delivered", "تحویل سرویس", "سرویس [service_volume] گیگابایت - [service_expiration] روز\nوضعیت: [status]\nتعداد دستگاه‌های متصل به این سرویس: [hwid_s]\nشماره سرویس: [service_id]\nزمان باقی‌مانده: [service_expiration] روز\nحجم باقی‌مانده: [service_volume] گیگابایت\nلینک اتصال:\n[subscription_link]\nتوجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\nبرای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n[channel_id]"),
                 ("buy_invoice", "فاکتور خرید", "🧾 فاکتور خرید\n\nمحصول: [product_name]\nپنل: [panel_name]\nقیمت: [price] تومان\nموجودی کیف پول: [balance] تومان\nمبلغ قابل پرداخت: [pay_amount] تومان\n\n[description]"),
             ]
             for key, title, body in msgs:

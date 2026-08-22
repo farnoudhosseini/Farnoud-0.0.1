@@ -1,0 +1,189 @@
+# ساخت سرویس VPN روی پاسارگارد و آماده‌سازی پیام تحویل
+
+from __future__ import annotations
+
+import io
+import secrets
+import string
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from database import get_panel_by_id, get_setting_sync
+from db_products import get_product, get_order, update_order
+from db_users import get_bot_user, render_template, set_template, get_template
+from services.pasarguard import PasarGuardClient, gb_to_bytes
+
+
+def _rand_username(prefix: str = "u") -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return prefix + "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+def ensure_service_template():
+    body = (
+        "سرویس [service_volume] گیگابایت - [service_expiration] روز\n"
+        "وضعیت: [status]\n"
+        "تعداد دستگاه‌های متصل به این سرویس: [hwid_s]\n"
+        "شماره سرویس: [service_id]\n"
+        "زمان باقی‌مانده: [service_expiration] روز\n"
+        "حجم باقی‌مانده: [service_volume] گیگابایت\n"
+        "لینک اتصال:\n[subscription_link]\n"
+        "توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+        "برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+        "[channel_id]"
+    )
+    if not get_template("service_delivered"):
+        set_template("service_delivered", body, title="پیام تحویل سرویس")
+
+
+def provision_order(order_id: int) -> dict:
+    """
+    ساخت کاربر روی پاسارگارد برای سفارش و برگرداندن داده پیام + QR.
+    returns: {ok, text, qr_bytes, error, user_data}
+    """
+    ensure_service_template()
+    order = get_order(order_id)
+    if not order:
+        return {"ok": False, "error": "سفارش یافت نشد"}
+    product = get_product(order["product_id"])
+    panel = get_panel_by_id(order["panel_id"])
+    if not product or not panel:
+        return {"ok": False, "error": "محصول یا پنل نامعتبر"}
+
+    volume_gb = float(product.get("volume_gb") or 0)
+    days = int(product.get("duration_days") or 30)
+    hwid = None  # از محصول در آینده
+
+    client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+    username = _rand_username("fn")
+    expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
+
+    # گروه‌های پنل
+    group_ids = []
+    try:
+        groups = client.get_groups()
+        if groups:
+            group_ids = [groups[0].get("id") or groups[0]["id"]]
+    except Exception:
+        group_ids = []
+
+    payload = client.build_user_payload(
+        username=username,
+        status="active",
+        data_limit_gb=volume_gb if volume_gb > 0 else 0,
+        expire=expire_dt.isoformat(),
+        group_ids=group_ids,
+        hwid_limit=hwid,
+        note=f"order#{order_id} tg:{order['telegram_id']}",
+        for_create=True,
+    )
+    try:
+        created = client.create_user(payload)
+    except Exception as e:
+        return {"ok": False, "error": f"ساخت اکانت: {e}"}
+
+    # اطلاعات کامل کاربر
+    try:
+        full = client.get_user(created.get("username") or username)
+    except Exception:
+        full = created or {}
+
+    sub_link = (
+        full.get("subscription_url")
+        or full.get("subscription_link")
+        or created.get("subscription_url")
+        or ""
+    )
+    status = full.get("status") or "active"
+    hwid_s = full.get("hwid_limit")
+    if hwid_s is None:
+        hwid_s = "—"
+    service_id = full.get("id") or created.get("id") or order_id
+    used = full.get("used_traffic") or 0
+    limit = full.get("data_limit") or 0
+    remain_gb = volume_gb
+    if limit and limit > 0:
+        remain_gb = round(max(0, (limit - used) / (1024 ** 3)), 2)
+
+    channel = get_setting_sync("channel_id", "") or get_setting_sync("support_channel", "") or "—"
+
+    vars_ = {
+        "service_volume": remain_gb if remain_gb else volume_gb,
+        "service_expiration": days,
+        "status": status,
+        "hwid_s": hwid_s,
+        "service_id": service_id,
+        "subscription_link": sub_link,
+        "channel_id": channel,
+        "username": full.get("username") or username,
+        "product_name": product.get("name") or "",
+        "panel_name": panel.get("name") or "",
+    }
+    text = render_template("service_delivered", vars_)
+    if not text.strip():
+        text = (
+            f"سرویس {vars_['service_volume']} گیگابایت - {days} روز\n"
+            f"وضعیت: {status}\n"
+            f"تعداد دستگاه‌های متصل به این سرویس: {hwid_s}\n"
+            f"شماره سرویس: {service_id}\n"
+            f"زمان باقی‌مانده: {days} روز\n"
+            f"حجم باقی‌مانده: {vars_['service_volume']} گیگابایت\n"
+            f"لینک اتصال:\n{sub_link}\n"
+            f"توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+            f"برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+            f"{channel}"
+        )
+
+    update_order(
+        order_id,
+        status="provisioned",
+        vpn_username=full.get("username") or username,
+    )
+
+    qr_bytes = make_qr_png(sub_link) if sub_link else None
+    return {
+        "ok": True,
+        "text": text,
+        "qr_bytes": qr_bytes,
+        "user_data": full,
+        "subscription_link": sub_link,
+        "vpn_username": full.get("username") or username,
+    }
+
+
+def make_qr_png(data: str) -> Optional[bytes]:
+    if not data:
+        return None
+    try:
+        import qrcode
+        from qrcode.image.pil import PilImage
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as e:
+        print(f"QR error: {e}")
+        return None
+
+
+async def send_service_to_user(bot, telegram_id: int, result: dict):
+    """ارسال پیام تحویل + QR"""
+    if not result.get("ok"):
+        await bot.send_message(telegram_id, f"❌ خطا در ساخت سرویس: {result.get('error')}")
+        return
+    text = result["text"]
+    qr = result.get("qr_bytes")
+    if qr:
+        from telegram import InputFile
+        await bot.send_photo(
+            telegram_id,
+            photo=InputFile(io.BytesIO(qr), filename="service-qr.png"),
+            caption=text[:1024] if len(text) > 1024 else text,
+        )
+        if len(text) > 1024:
+            await bot.send_message(telegram_id, text)
+    else:
+        await bot.send_message(telegram_id, text)

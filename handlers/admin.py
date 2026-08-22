@@ -380,6 +380,107 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 
+
+    if data == "admin_msgs":
+        try:
+            from db_users import list_templates
+            tpls = list_templates()
+        except Exception as e:
+            await query.edit_message_text(f"خطا: {e}")
+            return ConversationHandler.END
+        if not tpls:
+            await query.edit_message_text(
+                "قالب پیامی نیست. یک‌بار ربات را ری‌استارت کنید تا ساخته شود.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            )
+            return ConversationHandler.END
+        lines = ["📝 <b>تنظیم پیام‌های ربات</b>\nیک مورد را انتخاب کنید:\n"]
+        rows = []
+        for tp in tpls[:20]:
+            lines.append(f"• {tp.get('title') or tp['key']}")
+            rows.append([InlineKeyboardButton((tp.get('title') or tp['key'])[:40], callback_data=f"admin_msg_{tp['key']}")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_msg_"):
+        key = data[len("admin_msg_"):]
+        from db_users import get_template
+        body = get_template(key) or "(خالی)"
+        context.user_data["edit_msg_key"] = key
+        await query.edit_message_text(
+            f"✏️ پیام <code>{key}</code>\n\n{body[:800]}\n\n———\nمتن جدید را همین الان بفرستید:\nمتغیرها: [username] [balance] [invite_link] ...",
+            parse_mode="HTML",
+        )
+        return WAITING_WELCOME
+
+    if data == "admin_products":
+        try:
+            from db_products import list_products, ROLE_OPTIONS
+            products = list_products()
+        except Exception as e:
+            await query.edit_message_text(
+                f"خطا در محصولات: {e}\nاز پنل وب هم می‌توانید مدیریت کنید.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            )
+            return ConversationHandler.END
+        lines = ["📦 <b>محصولات</b>\n"]
+        for pr in products[:25]:
+            lines.append(f"• {pr['name']} — {int(pr['price']):,} ت — {pr.get('volume_gb')}GB / {pr.get('duration_days')}روز")
+        if not products:
+            lines.append("محصولی نیست. از پنل وب اضافه کنید.")
+        await query.edit_message_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("adm_ord_ok_"):
+        from db_products import get_order, update_order
+        from db_users import add_balance
+        from services.provision import provision_order, send_service_to_user
+        oid = int(data.replace("adm_ord_ok_", ""))
+        order = get_order(oid)
+        if not order:
+            await query.answer("یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        if order["status"] not in ("pending_review", "paid"):
+            await query.answer(f"وضعیت: {order['status']}", show_alert=True)
+            return ConversationHandler.END
+        wu = int(order.get("wallet_used") or 0)
+        if wu > 0:
+            try:
+                add_balance(order["telegram_id"], -wu, f"order#{oid}")
+            except Exception as e:
+                print("deduct", e)
+        update_order(oid, status="paid")
+        await query.edit_message_text(f"⏳ ساخت سرویس #{oid}...")
+        result = provision_order(oid)
+        try:
+            await send_service_to_user(context.bot, order["telegram_id"], result)
+        except Exception as e:
+            print("send", e)
+        if result.get("ok"):
+            await query.edit_message_text(f"✅ سفارش #{oid} تایید و سرویس تحویل شد.")
+        else:
+            await query.edit_message_text(f"⚠️ پرداخت OK — خطای ساخت: {result.get('error')}")
+        return ConversationHandler.END
+
+    if data.startswith("adm_ord_no_"):
+        from db_products import get_order, update_order
+        oid = int(data.replace("adm_ord_no_", ""))
+        order = get_order(oid)
+        if order:
+            update_order(oid, status="rejected")
+            try:
+                await context.bot.send_message(order["telegram_id"], f"❌ سفارش #{oid} رد شد.")
+            except Exception:
+                pass
+            await query.edit_message_text(f"❌ سفارش #{oid} رد شد.")
+        return ConversationHandler.END
+
+
     return ConversationHandler.END
 
 async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

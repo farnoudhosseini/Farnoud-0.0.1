@@ -26,6 +26,8 @@ async def post_init(application: Application):
     try:
         ensure_user_tables()
         ensure_product_tables()
+        from services.provision import ensure_service_template
+        ensure_service_template()
     except Exception as e:
         print(f"user tables: {e}")
 
@@ -96,7 +98,7 @@ def create_bot() -> Application:
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_padduser_|admin_pedit_)"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_)"),
         ],
         states={
             WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],

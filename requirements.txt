@@ -5,3 +5,4 @@ flask
 pymysql
 werkzeug
 requests
+qrcode[pil]>=7.4
