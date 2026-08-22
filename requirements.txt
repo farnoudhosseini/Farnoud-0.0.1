@@ -4,3 +4,4 @@ python-dotenv
 flask
 pymysql
 werkzeug
+requests

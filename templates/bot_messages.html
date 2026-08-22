@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}تنظیم پیام‌های ربات | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">
+    {% include "_sidebar.html" %}
+    <main class="main">
+        <header class="topbar">
+            <h2>تنظیم پیام‌های ربات</h2>
+            <div class="topbar-actions">
+                <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+            </div>
+        </header>
+        <div class="content">
+            <div class="card">
+                <div class="card-title">پیام خوش‌آمدگویی (/start)</div>
+                <div class="card-desc">این پیام بعد از دستور /start به کاربر نمایش داده می‌شود. از HTML ساده پشتیبانی می‌کند.</div>
+                <form method="POST" action="{{ url_for('bot_messages') }}">
+                    <div class="form-group">
+                        <label for="welcome_message">متن پیام</label>
+                        <textarea id="welcome_message" name="welcome_message" required>{{ welcome_message }}</textarea>
+                    </div>
+                    <div class="card-actions">
+                        <button type="submit" class="btn-primary inline">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

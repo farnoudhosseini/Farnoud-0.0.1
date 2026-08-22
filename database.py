@@ -1,24 +1,21 @@
 # مدیریت اتصال به دیتابیس MySQL - پروژه فرنود
-# بخش async برای ربات تلگرام
-# بخش sync برای پنل مدیریت وب
 
+import re
 import aiomysql
 import pymysql
 from config import DB_CONFIG, DB_CONFIG_SYNC
 
-# ==================== بخش ربات (async) ====================
-
 pool = None
 
+# ==================== async (ربات) ====================
+
 async def init_db():
-    """ایجاد استخر اتصال و اطمینان از وجود جداول لازم"""
     global pool
     pool = await aiomysql.create_pool(**DB_CONFIG)
     await ensure_tables_async()
     print("✅ اتصال به دیتابیس با موفقیت برقرار شد")
 
 async def ensure_tables_async():
-    """ساخت جداول مورد نیاز اگر وجود نداشته باشند"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
@@ -28,10 +25,25 @@ async def ensure_tables_async():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
-            # پیام خوش‌آمدگویی پیش‌فرض
             await cur.execute("""
                 INSERT IGNORE INTO settings (`key`, `value`)
                 VALUES ('welcome_message', 'سلام! به ربات فرنود خوش آمدید 👋')
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS vpn_panels (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    slug VARCHAR(100) NOT NULL UNIQUE,
+                    panel_type VARCHAR(30) NOT NULL DEFAULT 'pasarguard',
+                    base_url VARCHAR(500) NOT NULL,
+                    username VARCHAR(150) NOT NULL,
+                    password VARCHAR(255) NOT NULL,
+                    is_active TINYINT(1) NOT NULL DEFAULT 1,
+                    last_status VARCHAR(50) DEFAULT NULL,
+                    last_check_at TIMESTAMP NULL DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
 
 async def close_db():
@@ -42,7 +54,6 @@ async def close_db():
         print("🔌 اتصال دیتابیس بسته شد")
 
 async def get_setting(key: str, default: str = "") -> str:
-    """خواندن یک تنظیم از دیتابیس (async)"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT `value` FROM settings WHERE `key` = %s LIMIT 1", (key,))
@@ -52,7 +63,6 @@ async def get_setting(key: str, default: str = "") -> str:
             return default
 
 async def set_setting(key: str, value: str):
-    """ذخیره یک تنظیم در دیتابیس (async)"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
@@ -60,7 +70,7 @@ async def set_setting(key: str, value: str):
                 ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)
             """, (key, value))
 
-# ==================== بخش پنل مدیریت (sync) ====================
+# ==================== sync (پنل وب) ====================
 
 def get_sync_connection():
     config = DB_CONFIG_SYNC.copy()
@@ -68,7 +78,6 @@ def get_sync_connection():
     return pymysql.connect(**config)
 
 def check_admin(username: str, password: str):
-    """بررسی وجود ادمین در جدول admins"""
     connection = None
     try:
         connection = get_sync_connection()
@@ -86,7 +95,6 @@ def check_admin(username: str, password: str):
             connection.close()
 
 def get_setting_sync(key: str, default: str = "") -> str:
-    """خواندن تنظیم (sync)"""
     connection = None
     try:
         connection = get_sync_connection()
@@ -104,7 +112,6 @@ def get_setting_sync(key: str, default: str = "") -> str:
             connection.close()
 
 def set_setting_sync(key: str, value: str) -> bool:
-    """ذخیره تنظیم (sync)"""
     connection = None
     try:
         connection = get_sync_connection()
@@ -123,7 +130,6 @@ def set_setting_sync(key: str, value: str) -> bool:
             connection.close()
 
 def ensure_tables_sync():
-    """ساخت جداول از سمت پنل در صورت نیاز"""
     connection = None
     try:
         connection = get_sync_connection()
@@ -139,9 +145,133 @@ def ensure_tables_sync():
                 INSERT IGNORE INTO settings (`key`, `value`)
                 VALUES ('welcome_message', 'سلام! به ربات فرنود خوش آمدید 👋')
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS vpn_panels (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    slug VARCHAR(100) NOT NULL UNIQUE,
+                    panel_type VARCHAR(30) NOT NULL DEFAULT 'pasarguard',
+                    base_url VARCHAR(500) NOT NULL,
+                    username VARCHAR(150) NOT NULL,
+                    password VARCHAR(255) NOT NULL,
+                    is_active TINYINT(1) NOT NULL DEFAULT 1,
+                    last_status VARCHAR(50) DEFAULT NULL,
+                    last_check_at TIMESTAMP NULL DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
             connection.commit()
     except Exception as e:
         print(f"❌ خطا در ساخت جداول: {e}")
+    finally:
+        if connection:
+            connection.close()
+
+def slugify(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
+    text = re.sub(r"[\s_-]+", "-", text)
+    text = text.strip("-")
+    return text[:80] or "panel"
+
+def list_panels():
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM vpn_panels ORDER BY id DESC")
+            return cursor.fetchall() or []
+    except Exception as e:
+        print(f"❌ list_panels: {e}")
+        return []
+    finally:
+        if connection:
+            connection.close()
+
+def get_panel_by_id(panel_id: int):
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM vpn_panels WHERE id = %s LIMIT 1", (panel_id,))
+            return cursor.fetchone()
+    except Exception as e:
+        print(f"❌ get_panel_by_id: {e}")
+        return None
+    finally:
+        if connection:
+            connection.close()
+
+def get_panel_by_slug(slug: str):
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM vpn_panels WHERE slug = %s LIMIT 1", (slug,))
+            return cursor.fetchone()
+    except Exception as e:
+        print(f"❌ get_panel_by_slug: {e}")
+        return None
+    finally:
+        if connection:
+            connection.close()
+
+def create_panel(name: str, panel_type: str, base_url: str, username: str, password: str, slug: str = None):
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            final_slug = slug or slugify(name)
+            # یکتا بودن slug
+            base_slug = final_slug
+            n = 1
+            while True:
+                cursor.execute("SELECT id FROM vpn_panels WHERE slug = %s LIMIT 1", (final_slug,))
+                if not cursor.fetchone():
+                    break
+                n += 1
+                final_slug = f"{base_slug}-{n}"
+
+            cursor.execute("""
+                INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, is_active, last_status)
+                VALUES (%s, %s, %s, %s, %s, %s, 1, 'connected')
+            """, (name, final_slug, panel_type, base_url, username, password))
+            connection.commit()
+            return cursor.lastrowid, final_slug
+    except Exception as e:
+        print(f"❌ create_panel: {e}")
+        return None, None
+    finally:
+        if connection:
+            connection.close()
+
+def update_panel_status(panel_id: int, status: str):
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                UPDATE vpn_panels SET last_status = %s, last_check_at = NOW() WHERE id = %s
+            """, (status, panel_id))
+            connection.commit()
+    except Exception as e:
+        print(f"❌ update_panel_status: {e}")
+    finally:
+        if connection:
+            connection.close()
+
+def delete_panel(panel_id: int) -> bool:
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM vpn_panels WHERE id = %s", (panel_id,))
+            connection.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"❌ delete_panel: {e}")
+        return False
     finally:
         if connection:
             connection.close()

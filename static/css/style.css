@@ -353,3 +353,107 @@ body {
     .content { padding: 20px; }
     .topbar { padding: 16px 20px; }
 }
+
+/* پنل‌های VPN */
+.panel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+.panel-card {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: var(--transition);
+    cursor: pointer;
+}
+.panel-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+.panel-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.panel-type-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 4px 10px;
+    border-radius: 8px;
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+}
+.status-dot.on { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.status-dot.off { background: var(--error); }
+.panel-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.panel-url {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    word-break: break-all;
+    margin-bottom: 12px;
+}
+.panel-meta {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+.panel-info-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 20px;
+}
+.form-select {
+    width: 100%;
+    padding: 13px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.95rem;
+    outline: none;
+}
+.form-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.btn-danger {
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+    border-radius: var(--radius);
+    color: var(--error);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.btn-danger:hover {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+.raw-json {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-size: 0.75rem;
+    overflow-x: auto;
+    max-height: 320px;
+    color: var(--text-secondary);
+    direction: ltr;
+    text-align: left;
+}
