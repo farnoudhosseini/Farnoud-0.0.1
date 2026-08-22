@@ -13,6 +13,21 @@ from db_products import get_product, get_order, update_order
 from db_users import get_bot_user, render_template, set_template, get_template
 from services.pasarguard import PasarGuardClient, gb_to_bytes
 
+def fix_subscription_url(panel_base: str, sub_link: str) -> str:
+    """اگر لینک نسبی /sub/... بود، base پنل را جلو می‌چسباند."""
+    if not sub_link:
+        return ""
+    s = str(sub_link).strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    base = (panel_base or "").rstrip("/")
+    if not base:
+        return s
+    if not s.startswith("/"):
+        s = "/" + s
+    return base + s
+
+
 
 def _rand_username(prefix: str = "u") -> str:
     alphabet = string.ascii_lowercase + string.digits
@@ -88,12 +103,17 @@ def provision_order(order_id: int) -> dict:
     except Exception:
         full = created or {}
 
-    sub_link = (
+    raw_sub = (
         full.get("subscription_url")
         or full.get("subscription_link")
         or created.get("subscription_url")
+        or full.get("link")
         or ""
     )
+    # گاهی فقط path مثل /sub/TOKEN برمی‌گردد
+    if not raw_sub and full.get("subscription_token"):
+        raw_sub = f"/sub/{full.get('subscription_token')}"
+    sub_link = fix_subscription_url(panel.get("base_url") or "", raw_sub)
     status = full.get("status") or "active"
     hwid_s = full.get("hwid_limit")
     if hwid_s is None:

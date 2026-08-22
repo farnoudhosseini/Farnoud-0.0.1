@@ -16,16 +16,13 @@ WAITING_RECEIPT = 12
 
 def main_user_keyboard(is_admin: bool = False):
     from db_users import get_template
-    btn_wallet = get_template("btn_wallet") or "💰 کیف پول من"
-    btn_buy = get_template("btn_buy") or "🛒 خرید سرویس جدید"
-    # فقط متن دکمه (ممکن است template طولانی باشد)
-    if "\n" in btn_wallet:
-        btn_wallet = btn_wallet.split("\n")[0][:40]
-    if "\n" in btn_buy:
-        btn_buy = btn_buy.split("\n")[0][:40]
+    def btn(key, default):
+        t = get_template(key) or default
+        return t.split("\n")[0][:40]
     rows = [
-        [KeyboardButton(btn_buy)],
-        [KeyboardButton(btn_wallet)],
+        [KeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید")), KeyboardButton(btn("btn_services", "📱 سرویس‌های من"))],
+        [KeyboardButton(btn("btn_wallet", "💰 کیف پول من")), KeyboardButton(btn("btn_support", "🛠 پشتیبانی"))],
+        [KeyboardButton(btn("btn_education", "📚 آموزش"))],
     ]
     if is_admin:
         rows.append([KeyboardButton("⚙️ مدیریت")])

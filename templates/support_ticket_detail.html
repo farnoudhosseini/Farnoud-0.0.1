@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}تیکت #{{ ticket.id }}{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>تیکت #{{ ticket.id }}</h2>
+<a href="{{ url_for('support_tickets') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="card">
+<div class="card-title">{{ ticket.subject }}</div>
+<p class="card-desc">کاربر {{ ticket.telegram_id }} — {{ ticket.status }}</p>
+{% for m in messages %}
+<div style="padding:10px 0;border-bottom:1px solid var(--line);font-size:.9rem">
+<strong>{% if m.sender=='admin' %}پشتیبانی{% else %}کاربر{% endif %}</strong>
+<span style="color:var(--tx3);font-size:.75rem">{{ m.created_at }}</span>
+<div>{{ m.message }}</div>
+</div>
+{% endfor %}
+</div>
+<div class="card">
+<form method="post">
+<div class="form-group"><label>پاسخ</label><textarea name="message" required></textarea></div>
+<button class="btn-primary inline" type="submit">ارسال</button>
+<button class="btn-danger" type="submit" name="close" value="1">بستن تیکت</button>
+</form>
+</div>
+</div></main></div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}دپارتمان‌ها{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>دپارتمان‌های پشتیبانی</h2></header>
+<div class="content">
+<div class="card"><form method="post">
+<input type="hidden" name="action" value="add">
+<div class="form-group"><label>نام</label><input name="name" required></div>
+<div class="form-group"><label>توضیح</label><input name="description"></div>
+<button class="btn-primary inline" type="submit">افزودن</button>
+</form></div>
+{% for d in departments %}
+<div class="card" style="display:flex;justify-content:space-between;align-items:center">
+<div><strong>{{ d.name }}</strong>{% if d.description %} — {{ d.description }}{% endif %}</div>
+<form method="post"><input type="hidden" name="action" value="delete"><input type="hidden" name="did" value="{{ d.id }}">
+<button class="btn-danger" type="submit">حذف</button></form>
+</div>
+{% endfor %}
+</div></main></div>
+{% endblock %}

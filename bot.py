@@ -14,6 +14,12 @@ from handlers.admin import (
     receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD,
 )
 from handlers.buy import start_buy, buy_callback, receive_buy_receipt, WAITING_BUY_RECEIPT
+from handlers.services_user import (
+    show_my_services, services_callback, show_support, support_callback,
+    receive_ticket_subject, receive_ticket_msg, receive_ticket_reply, show_education,
+    WAITING_TICKET_SUBJECT, WAITING_TICKET_MSG, WAITING_TICKET_REPLY,
+)
+from db_support import ensure_support_tables
 from handlers.wallet import (
     show_wallet, wallet_callback, receive_charge_amount,
     receive_gift_code, receive_receipt,
@@ -26,6 +32,7 @@ async def post_init(application: Application):
     try:
         ensure_user_tables()
         ensure_product_tables()
+        ensure_support_tables()
         from services.provision import ensure_service_template
         ensure_service_template()
     except Exception as e:
@@ -40,8 +47,14 @@ async def text_router(update, context):
     uid = update.effective_user.id if update.effective_user else 0
     if "کیف پول" in text:
         return await show_wallet(update, context)
-    if "خرید" in text or "سرویس" in text:
+    if "خرید" in text:
         return await start_buy(update, context)
+    if "سرویس" in text and "خرید" not in text:
+        return await show_my_services(update, context)
+    if "پشتیبانی" in text:
+        return await show_support(update, context)
+    if "آموزش" in text:
+        return await show_education(update, context)
     if text == "⚙️ مدیریت" and uid == ADMIN_ID:
         return await admin_panel(update, context)
     return None
@@ -92,6 +105,22 @@ def create_bot() -> Application:
     )
     application.add_handler(buy_conv)
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy_"))
+    
+    support_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(support_callback, pattern="^sup_")],
+        states={
+            WAITING_TICKET_SUBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_subject)],
+            WAITING_TICKET_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_msg)],
+            WAITING_TICKET_REPLY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_reply)],
+        },
+        fallbacks=[CommandHandler("start", start_command)],
+        allow_reentry=True,
+        per_message=False,
+    )
+    application.add_handler(support_conv)
+    application.add_handler(CallbackQueryHandler(support_callback, pattern="^sup_"))
+    application.add_handler(CallbackQueryHandler(services_callback, pattern="^svc_"))
+
     application.add_handler(wallet_conv)
     application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wallet_|pay_)"))
 

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}تیکت‌ها{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>تیکت‌های باز</h2></header>
+<div class="content">
+{% for t in tickets %}
+<div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+<div><strong>#{{ t.id }}</strong> — {{ t.subject }} — کاربر <code>{{ t.telegram_id }}</code>
+<span class="badge">{{ t.status }}</span></div>
+<a class="btn-primary inline" href="{{ url_for('support_ticket_detail', tid=t.id) }}">باز کردن</a>
+</div>
+{% else %}<div class="empty"><h3>تیکت بازی نیست</h3></div>{% endfor %}
+</div></main></div>
+{% endblock %}

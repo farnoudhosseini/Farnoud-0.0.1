@@ -13,6 +13,10 @@ from db_products import (
     list_products, get_product, create_product, update_product, delete_product, move_product,
     ROLE_OPTIONS as PRODUCT_ROLES,
 )
+from db_support import (
+    ensure_support_tables, list_departments, add_department, delete_department,
+    list_open_tickets, get_ticket, get_ticket_messages, add_ticket_message, close_ticket,
+)
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
 from db_users import (
     ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
@@ -29,6 +33,7 @@ try:
     ensure_tables_sync()
     ensure_user_tables()
     ensure_product_tables()
+    ensure_support_tables()
 except Exception:
     pass
 
@@ -565,6 +570,56 @@ def categories_list():
         "categories.html",
         username=session.get("admin_username"), active="categories",
         categories=list_categories(),
+    )
+
+
+
+@app.route("/support/departments", methods=["GET", "POST"])
+@login_required
+def support_departments():
+    if request.method == "POST":
+        if request.form.get("action") == "add":
+            add_department(request.form.get("name", "").strip(), request.form.get("description"))
+            flash("دپارتمان اضافه شد", "success")
+        elif request.form.get("action") == "delete":
+            delete_department(int(request.form.get("did")))
+            flash("حذف شد", "success")
+        return redirect(url_for("support_departments"))
+    return render_template(
+        "support_deps.html",
+        username=session.get("admin_username"), active="support",
+        departments=list_departments(active_only=False),
+    )
+
+@app.route("/support/tickets")
+@login_required
+def support_tickets():
+    return render_template(
+        "support_tickets.html",
+        username=session.get("admin_username"), active="support",
+        tickets=list_open_tickets(),
+    )
+
+@app.route("/support/tickets/<int:tid>", methods=["GET", "POST"])
+@login_required
+def support_ticket_detail(tid):
+    t = get_ticket(tid)
+    if not t:
+        flash("تیکت نیست", "error")
+        return redirect(url_for("support_tickets"))
+    if request.method == "POST":
+        msg = request.form.get("message", "").strip()
+        if msg:
+            add_ticket_message(tid, "admin", msg)
+            flash("پاسخ ثبت شد", "success")
+        if request.form.get("close"):
+            close_ticket(tid)
+            flash("بسته شد", "success")
+        return redirect(url_for("support_ticket_detail", tid=tid))
+    return render_template(
+        "support_ticket_detail.html",
+        username=session.get("admin_username"), active="support",
+        ticket=t, messages=get_ticket_messages(tid),
     )
 
 
