@@ -11,6 +11,7 @@ from database import (
 from db_products import (
     ensure_product_tables, list_categories, add_category, update_category, delete_category,
     list_products, get_product, create_product, update_product, delete_product, move_product,
+    list_all_orders, get_order_full, ensure_service_mgmt_columns,
     ROLE_OPTIONS as PRODUCT_ROLES,
 )
 from db_support import (
@@ -18,14 +19,17 @@ from db_support import (
     list_open_tickets, get_ticket, get_ticket_messages, add_ticket_message, close_ticket,
 )
 from db_stats import dashboard_counts, chart_series
-from db_growth import ensure_growth_tables, list_discounts, create_discount
+from db_growth import (
+    ensure_growth_tables, list_discounts, create_discount,
+    list_reseller_requests, review_reseller_request, get_reseller_request,
+)
 from database import list_panels as db_list_panels
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
 from db_users import (
     ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
     ROLE_LABELS, get_user_activity, count_referrals, list_templates, set_template,
     list_cards, add_card, delete_card, toggle_card, list_gift_codes, create_gift_code,
-    list_pending_charges, approve_charge, reject_charge,
+    list_pending_charges, approve_charge, reject_charge, render_template as render_msg_template,
 )
 
 
@@ -38,6 +42,9 @@ try:
     ensure_product_tables()
     ensure_support_tables()
     ensure_growth_tables()
+    ensure_service_mgmt_columns()
+    from db_extras import ensure_extras_tables
+    ensure_extras_tables()
 except Exception:
     pass
 
@@ -509,6 +516,20 @@ def products_list():
         products=list_products(), roles=PRODUCT_ROLES,
     )
 
+def _parse_hwid_limit(raw):
+    """خالی یا نامعتبر = None (نامحدود)"""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s == "":
+        return None
+    try:
+        v = int(s)
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 @app.route("/products/add", methods=["GET", "POST"])
 @login_required
 def products_add():
@@ -518,15 +539,21 @@ def products_add():
     if request.method == "POST":
         panel_ids = request.form.getlist("panel_ids")
         cat = request.form.get("category_id") or None
-        create_product(
+        pid = create_product(
             name=request.form.get("name", "").strip(),
             price=int(request.form.get("price") or 0),
             volume_gb=float(request.form.get("volume_gb") or 0),
             duration_days=int(request.form.get("duration_days") or 30),
+            hwid_limit=_parse_hwid_limit(request.form.get("hwid_limit")),
             target_role=request.form.get("target_role") or "all",
             category_id=int(cat) if cat else None,
             description=request.form.get("description") or None,
             panel_ids=panel_ids,
+        )
+        update_product(
+            pid,
+            hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
+            hourly_price=float(request.form.get("hourly_price") or 0) or None,
         )
         flash("محصول اضافه شد", "success")
         return redirect(url_for("products_list"))
@@ -555,10 +582,13 @@ def products_edit(pid):
             price=int(request.form.get("price") or 0),
             volume_gb=float(request.form.get("volume_gb") or 0),
             duration_days=int(request.form.get("duration_days") or 30),
+            hwid_limit=_parse_hwid_limit(request.form.get("hwid_limit")),
             target_role=request.form.get("target_role") or "all",
             category_id=int(cat) if cat else None,
             description=request.form.get("description") or None,
             is_active=1 if request.form.get("is_active") == "1" else 0,
+            hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
+            hourly_price=float(request.form.get("hourly_price") or 0) or None,
         )
         flash("ذخیره شد", "success")
         return redirect(url_for("products_list"))
@@ -654,21 +684,21 @@ def support_ticket_detail(tid):
 @app.route("/growth", methods=["GET", "POST"])
 @login_required
 def growth_settings():
+    """احراز هویت، تست رایگان، لوکیشن، تخفیف — بدون رفرال"""
     if request.method == "POST":
         action = request.form.get("action")
         if action == "settings":
             for key in [
                 "force_join_enabled", "force_join_channel", "force_phone_enabled",
-                "referral_enabled", "referral_percent",
                 "trial_enabled", "trial_panel_id", "trial_volume_gb", "trial_days",
-                "location_change_price", "location_change_limit",
+                "location_change_enabled", "location_change_price", "location_change_limit",
             ]:
                 val = request.form.get(key)
-                if val is not None:
-                    # checkboxes
-                    if key.endswith("_enabled"):
-                        val = "1" if request.form.get(key) == "1" else "0"
-                    set_setting_sync(key, val)
+                if key.endswith("_enabled"):
+                    val = "1" if request.form.get(key) == "1" else "0"
+                elif val is None:
+                    continue
+                set_setting_sync(key, val)
             flash("تنظیمات ذخیره شد", "success")
         elif action == "discount":
             ok = create_discount(
@@ -688,15 +718,139 @@ def growth_settings():
             "force_join_enabled": get_setting_sync("force_join_enabled", "0"),
             "force_join_channel": get_setting_sync("force_join_channel", ""),
             "force_phone_enabled": get_setting_sync("force_phone_enabled", "0"),
-            "referral_enabled": get_setting_sync("referral_enabled", "1"),
-            "referral_percent": get_setting_sync("referral_percent", "10"),
             "trial_enabled": get_setting_sync("trial_enabled", "0"),
             "trial_panel_id": get_setting_sync("trial_panel_id", ""),
             "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
             "trial_days": get_setting_sync("trial_days", "1"),
+            "location_change_enabled": get_setting_sync("location_change_enabled", "1"),
             "location_change_price": get_setting_sync("location_change_price", "0"),
             "location_change_limit": get_setting_sync("location_change_limit", "3"),
         },
+    )
+
+
+@app.route("/referral", methods=["GET", "POST"])
+@login_required
+def referral_settings():
+    """سیستم رفرال — جدا از احراز هویت"""
+    if request.method == "POST":
+        set_setting_sync(
+            "referral_enabled",
+            "1" if request.form.get("referral_enabled") == "1" else "0",
+        )
+        set_setting_sync("referral_percent", request.form.get("referral_percent") or "10")
+        flash("تنظیمات رفرال ذخیره شد", "success")
+        return redirect(url_for("referral_settings"))
+    return render_template(
+        "referral.html",
+        username=session.get("admin_username"), active="referral",
+        s={
+            "referral_enabled": get_setting_sync("referral_enabled", "1"),
+            "referral_percent": get_setting_sync("referral_percent", "10"),
+        },
+    )
+
+
+@app.route("/reseller-requests", methods=["GET", "POST"])
+@login_required
+def reseller_requests_page():
+    """تایید/رد درخواست نمایندگی — فقط از وب‌پنل"""
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "settings":
+            set_setting_sync(
+                "reseller_request_enabled",
+                "1" if request.form.get("reseller_request_enabled") == "1" else "0",
+            )
+            flash("ذخیره شد", "success")
+        elif action == "review":
+            rid = int(request.form.get("request_id") or 0)
+            decision = request.form.get("decision")  # approved | rejected
+            rtype = request.form.get("reseller_type") or "reseller"
+            note = request.form.get("admin_note") or ""
+            req = get_reseller_request(rid)
+            ok = review_reseller_request(rid, decision, reseller_type=rtype, admin_note=note)
+            if ok and req:
+                try:
+                    import requests as req_lib
+                    from config import BOT_TOKEN
+                    tg_id = req["telegram_id"]
+                    if decision == "approved":
+                        type_label = "نماینده ویژه" if rtype == "reseller_vip" else "نماینده عادی"
+                        text = render_msg_template("reseller_approved", {
+                            "reseller_type": type_label,
+                        }) or f"🎉 درخواست نمایندگی تایید شد!\nنوع: {type_label}"
+                    else:
+                        text = render_msg_template("reseller_rejected", {
+                            "reason": note or "—",
+                        }) or f"❌ درخواست نمایندگی رد شد.\nدلیل: {note or '—'}"
+                    req_lib.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": tg_id, "text": text},
+                        timeout=10,
+                    )
+                except Exception as e:
+                    print("notify reseller:", e)
+                flash("انجام شد", "success")
+            else:
+                flash("خطا یا درخواست قبلاً بررسی شده", "error")
+        return redirect(url_for("reseller_requests_page"))
+    return render_template(
+        "reseller_requests.html",
+        username=session.get("admin_username"), active="reseller_requests",
+        requests=list_reseller_requests(),
+        reseller_enabled=get_setting_sync("reseller_request_enabled", "1"),
+    )
+
+
+
+@app.route("/orders")
+@login_required
+def orders_list():
+    q = request.args.get("q") or None
+    orders = list_all_orders(limit=100, search=q)
+    return render_template(
+        "orders.html",
+        username=session.get("admin_username"), active="orders",
+        orders=orders, q=q or "",
+    )
+
+
+@app.route("/orders/<int:oid>/edit", methods=["GET", "POST"])
+@login_required
+def order_edit(oid):
+    order = get_order_full(oid)
+    if not order:
+        flash("یافت نشد", "error")
+        return redirect(url_for("orders_list"))
+    if request.method == "POST":
+        from services.service_edit import edit_sold_service
+        kwargs = {}
+        vol = request.form.get("volume_gb", "").strip()
+        days = request.form.get("duration_days", "").strip()
+        hwid = request.form.get("hwid_limit", "").strip()
+        status = request.form.get("status") or None
+        note = request.form.get("admin_note")
+        if vol != "":
+            kwargs["volume_gb"] = float(vol)
+        if days != "":
+            kwargs["duration_days"] = int(days)
+        if hwid != "":
+            kwargs["hwid_limit"] = int(hwid)
+        if status:
+            kwargs["status"] = status
+        if note is not None:
+            kwargs["note"] = note
+        result = edit_sold_service(oid, **kwargs)
+        if result.get("ok"):
+            flash("ذخیره و سینک شد", "success")
+        else:
+            flash(f"خطا: {result.get('error')}", "error")
+        return redirect(url_for("order_edit", oid=oid))
+    return render_template(
+        "order_edit.html",
+        username=session.get("admin_username"), active="orders",
+        order=order,
     )
 
 

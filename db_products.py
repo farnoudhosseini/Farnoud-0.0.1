@@ -33,6 +33,7 @@ def ensure_product_tables():
                 price DECIMAL(18,0) NOT NULL DEFAULT 0,
                 volume_gb DECIMAL(12,2) NOT NULL DEFAULT 0,
                 duration_days INT NOT NULL DEFAULT 30,
+                hwid_limit INT DEFAULT NULL,
                 target_role VARCHAR(30) NOT NULL DEFAULT 'all',
                 description TEXT,
                 sort_order INT NOT NULL DEFAULT 0,
@@ -43,6 +44,11 @@ def ensure_product_tables():
                 INDEX idx_sort (sort_order)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            # مهاجرت: اضافه کردن hwid_limit اگر ستون وجود نداشته باشد
+            try:
+                cur.execute("ALTER TABLE products ADD COLUMN hwid_limit INT DEFAULT NULL AFTER duration_days")
+            except Exception:
+                pass  # ستون از قبل وجود دارد
             cur.execute("""
             CREATE TABLE IF NOT EXISTS product_panels (
                 product_id INT NOT NULL,
@@ -78,7 +84,7 @@ def ensure_product_tables():
                 ("buy_select_panel", "انتخاب پنل", "🖥 پنل مورد نظر را انتخاب کنید:"),
                 ("buy_select_category", "انتخاب دسته", "📁 دسته‌بندی را انتخاب کنید:"),
                 ("buy_select_product", "انتخاب محصول", "📦 محصول را انتخاب کنید:"),
-                ("service_delivered", "تحویل سرویس", "سرویس [service_volume] گیگابایت - [service_expiration] روز\nوضعیت: [status]\nتعداد دستگاه‌های متصل به این سرویس: [hwid_s]\nشماره سرویس: [service_id]\nزمان باقی‌مانده: [service_expiration] روز\nحجم باقی‌مانده: [service_volume] گیگابایت\nلینک اتصال:\n[subscription_link]\nتوجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\nبرای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n[channel_id]"),
+                ("service_delivered", "تحویل سرویس", "📦 سرویس [service_volume] گیگابایت - [service_expiration] روز\n📊 وضعیت: [status]\n📱 تعداد دستگاه‌های متصل به این سرویس: [hwid_s]\n🔢 شماره سرویس: [service_id]\n⏳ زمان باقی‌مانده: [service_expiration] روز\n💾 حجم باقی‌مانده: [service_volume] گیگابایت\n🔗 لینک اتصال:\n[subscription_link]\nℹ️ توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n🔐 برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n[channel_id]"),
                 ("buy_invoice", "فاکتور خرید", "🧾 فاکتور خرید\n\nمحصول: [product_name]\nپنل: [panel_name]\nقیمت: [price] تومان\nموجودی کیف پول: [balance] تومان\nمبلغ قابل پرداخت: [pay_amount] تومان\n\n[description]"),
             ]
             for key, title, body in msgs:
@@ -204,16 +210,16 @@ def get_product(pid: int) -> Optional[dict]:
         conn.close()
 
 def create_product(name, price, volume_gb, duration_days, target_role="all",
-                   category_id=None, description=None, panel_ids=None) -> int:
+                   category_id=None, description=None, panel_ids=None, hwid_limit=None) -> int:
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM products")
             n = (cur.fetchone() or {}).get("n") or 1
             cur.execute(
-                """INSERT INTO products (name, category_id, price, volume_gb, duration_days, target_role, description, sort_order)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (name, category_id, price, volume_gb, duration_days, target_role, description, n),
+                """INSERT INTO products (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, sort_order)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, n),
             )
             pid = cur.lastrowid
             for panel_id in (panel_ids or []):
@@ -227,8 +233,8 @@ def create_product(name, price, volume_gb, duration_days, target_role="all",
         conn.close()
 
 def update_product(pid: int, panel_ids=None, **fields):
-    allowed = {"name", "category_id", "price", "volume_gb", "duration_days",
-               "target_role", "description", "sort_order", "is_active"}
+    allowed = {"name", "category_id", "price", "volume_gb", "duration_days", "hwid_limit",
+               "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -320,6 +326,126 @@ def update_order(oid: int, **fields):
     for k, v in fields.items():
         if k in allowed:
             sets.append(f"`{k}`=%s"); vals.append(v)
+    if not sets:
+        return
+    vals.append(oid)
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE service_orders SET {','.join(sets)} WHERE id=%s", vals)
+            conn.commit()
+    finally:
+        conn.close()
+
+
+# ---- مدیریت سرویس‌های فروخته‌شده + ساعتی ----
+
+def ensure_service_mgmt_columns():
+    """ستون‌های اضافه برای ساعتی و ادیت سرویس"""
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            for col, ddl in [
+                ("is_hourly", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_rate", "DECIMAL(18,2) DEFAULT NULL"),
+                ("hourly_active", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_started_at", "TIMESTAMP NULL DEFAULT NULL"),
+                ("hourly_last_charge_at", "TIMESTAMP NULL DEFAULT NULL"),
+                ("volume_gb_override", "DECIMAL(12,2) DEFAULT NULL"),
+                ("duration_days_override", "INT DEFAULT NULL"),
+                ("expire_at", "TIMESTAMP NULL DEFAULT NULL"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
+            # محصولات: پشتیبانی ساعتی
+            for col, ddl in [
+                ("hourly_enabled", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_price", "DECIMAL(18,2) DEFAULT NULL"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE products ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
+            # تنظیمات سراسری ساعتی
+            for k, v in [
+                ("hourly_global_enabled", "0"),
+                ("inline_main_menu", "0"),
+                ("report_group_id", ""),
+                ("report_topic_sales", ""),
+                ("report_topic_charges", ""),
+                ("report_topic_tickets", ""),
+                ("report_topic_errors", ""),
+                ("report_topic_backup", ""),
+            ]:
+                cur.execute("INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)", (k, v))
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def list_all_orders(status=None, limit=100, offset=0, search=None):
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """SELECT o.*, p.name AS product_name, p.volume_gb, p.duration_days,
+                            vp.name AS panel_name, u.username, u.first_name
+                     FROM service_orders o
+                     LEFT JOIN products p ON p.id=o.product_id
+                     LEFT JOIN vpn_panels vp ON vp.id=o.panel_id
+                     LEFT JOIN bot_users u ON u.telegram_id=o.telegram_id
+                     WHERE 1=1"""
+            vals = []
+            if status:
+                sql += " AND o.status=%s"
+                vals.append(status)
+            if search:
+                sql += " AND (o.vpn_username LIKE %s OR CAST(o.telegram_id AS CHAR) LIKE %s OR CAST(o.id AS CHAR)=%s)"
+                q = f"%{search}%"
+                vals.extend([q, q, search])
+            sql += " ORDER BY o.id DESC LIMIT %s OFFSET %s"
+            vals.extend([limit, offset])
+            cur.execute(sql, vals)
+            return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def get_order_full(oid: int):
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT o.*, p.name AS product_name, p.volume_gb, p.duration_days, p.hwid_limit,
+                          p.hourly_enabled AS product_hourly, p.hourly_price AS product_hourly_price,
+                          vp.name AS panel_name, vp.base_url, vp.username AS panel_user, vp.password AS panel_pass
+                   FROM service_orders o
+                   LEFT JOIN products p ON p.id=o.product_id
+                   LEFT JOIN vpn_panels vp ON vp.id=o.panel_id
+                   WHERE o.id=%s""",
+                (oid,),
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+# گسترش update_order برای فیلدهای جدید
+_ORIG_UPDATE_ORDER = update_order
+
+def update_order(oid: int, **fields):
+    allowed = {
+        "status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
+        "wallet_used", "pay_amount", "is_hourly", "hourly_rate", "hourly_active",
+        "hourly_started_at", "hourly_last_charge_at", "volume_gb_override",
+        "duration_days_override", "expire_at",
+    }
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"`{k}`=%s")
+            vals.append(v)
     if not sets:
         return
     vals.append(oid)

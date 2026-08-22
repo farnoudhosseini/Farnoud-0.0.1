@@ -10,6 +10,9 @@ from db_users import ensure_user_tables
 from db_products import ensure_product_tables
 from handlers.start import start_command, check_join_callback, contact_handler
 from handlers.trial import start_trial
+from handlers.reseller import (
+    start_reseller_request, receive_reseller_desc, cancel_reseller, WAITING_RESELLER_DESC,
+)
 from db_growth import ensure_growth_tables
 from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message,
@@ -36,10 +39,22 @@ async def post_init(application: Application):
         ensure_product_tables()
         ensure_support_tables()
         ensure_growth_tables()
+        from db_products import ensure_service_mgmt_columns
+        ensure_service_mgmt_columns()
+        from db_extras import ensure_extras_tables
+        ensure_extras_tables()
         from services.provision import ensure_service_template
         ensure_service_template()
     except Exception as e:
         print(f"user tables: {e}")
+    try:
+        from handlers.group_reports import backup_job, hourly_job
+        jq = application.job_queue
+        if jq:
+            jq.run_repeating(backup_job, interval=7200, first=60)
+            jq.run_repeating(hourly_job, interval=3600, first=120)
+    except Exception as e:
+        print(f"jobs: {e}")
 
 async def post_shutdown(application: Application):
     await close_db()
@@ -64,6 +79,31 @@ async def text_router(update, context):
         return await admin_panel(update, context)
     return None
 
+
+async def menu_callback(update, context):
+    """مسیریابی منوی شیشه‌ای (اینلاین)"""
+    q = update.callback_query
+    await q.answer()
+    data = q.data or ""
+    uid = update.effective_user.id if update.effective_user else 0
+    if data == "menu_wallet":
+        return await show_wallet(update, context)
+    if data == "menu_buy":
+        return await start_buy(update, context)
+    if data == "menu_services":
+        return await show_my_services(update, context)
+    if data == "menu_support":
+        return await show_support(update, context)
+    if data == "menu_education":
+        return await show_education(update, context)
+    if data == "menu_trial":
+        return await start_trial(update, context)
+    if data == "menu_reseller":
+        return await start_reseller_request(update, context)
+    if data == "menu_admin" and uid == ADMIN_ID:
+        return await admin_panel(update, context)
+    return None
+
 def create_bot() -> Application:
     application = (
         Application.builder()
@@ -78,6 +118,9 @@ def create_bot() -> Application:
     application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("wallet", show_wallet))
+    from handlers.group_reports import setgroup_command
+    application.add_handler(CommandHandler("setgroup", setgroup_command))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
 
     # مکالمه کیف پول / شارژ / هدیه / رسید
     wallet_conv = ConversationHandler(
@@ -134,7 +177,7 @@ def create_bot() -> Application:
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_)"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add)"),
         ],
         states={
             WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],
@@ -150,6 +193,28 @@ def create_bot() -> Application:
     )
     application.add_handler(admin_conv)
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin_|adm_ch_|adm_ord_)"))
+
+    # درخواست نمایندگی
+    reseller_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(
+                filters.TEXT & filters.Regex(r"نمایندگی|نماینده"),
+                start_reseller_request,
+            ),
+        ],
+        states={
+            WAITING_RESELLER_DESC: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_reseller_desc),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("start", start_command),
+            CommandHandler("cancel", cancel_reseller),
+        ],
+        allow_reentry=True,
+        per_message=False,
+    )
+    application.add_handler(reseller_conv)
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
 

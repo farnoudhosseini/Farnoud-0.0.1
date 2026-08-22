@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}ویرایش سرویس #{{ order.id }}{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>ویرایش سرویس #{{ order.id }}</h2>
+<a href="{{ url_for('orders_list') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="card" style="max-width:560px">
+<p style="font-size:.9rem;color:var(--text-secondary);margin-bottom:12px">
+کاربر: {{ order.telegram_id }} · VPN: <code>{{ order.vpn_username or '—' }}</code><br>
+محصول: {{ order.product_name or '—' }} · پنل: {{ order.panel_name or '—' }}
+</p>
+<form method="post">
+<div class="form-group"><label>حجم (گیگابایت) — خالی = بدون تغییر · ۰ = نامحدود</label>
+<input type="number" step="0.1" name="volume_gb" placeholder="{{ order.volume_gb_override or order.volume_gb or '' }}"></div>
+<div class="form-group"><label>مدت از الان (روز) — خالی = بدون تغییر</label>
+<input type="number" name="duration_days" placeholder="{{ order.duration_days_override or order.duration_days or '' }}"></div>
+<div class="form-group"><label>HWID — خالی = بدون تغییر · ۰ = نامحدود</label>
+<input type="number" name="hwid_limit"></div>
+<div class="form-group"><label>وضعیت روی پنل</label>
+<select name="status" class="form-select">
+<option value="">— بدون تغییر —</option>
+<option value="active">active</option>
+<option value="disabled">disabled</option>
+<option value="on_hold">on_hold</option>
+</select></div>
+<div class="form-group"><label>یادداشت ادمین</label>
+<textarea name="admin_note" rows="2">{{ order.admin_note or '' }}</textarea></div>
+<button class="btn-primary inline" type="submit">ذخیره و سینک با پاسارگارد</button>
+</form>
+</div></div></main></div>
+{% endblock %}

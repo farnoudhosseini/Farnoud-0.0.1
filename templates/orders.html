@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}سرویس‌های فروخته‌شده{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar">
+<h2>سرویس‌های فروخته‌شده</h2>
+<form method="get" style="display:flex;gap:8px">
+<input name="q" value="{{ q or '' }}" placeholder="جستجو id / یوزرنیم / تلگرام">
+<button class="btn-primary inline" type="submit">جستجو</button>
+</form>
+</header>
+<div class="content">
+{% if orders %}
+<div class="card" style="padding:0;overflow:auto">
+<table class="data-table">
+<thead><tr>
+<th>#</th><th>کاربر</th><th>محصول</th><th>VPN</th><th>حجم</th><th>روز</th><th>ساعتی</th><th>وضعیت</th><th></th>
+</tr></thead>
+<tbody>
+{% for o in orders %}
+<tr>
+<td>{{ o.id }}</td>
+<td>{{ o.telegram_id }}{% if o.username %}<br><small>@{{ o.username }}</small>{% endif %}</td>
+<td>{{ o.product_name or '—' }}</td>
+<td><code>{{ o.vpn_username or '—' }}</code></td>
+<td>{{ o.volume_gb_override or o.volume_gb or '—' }} GB</td>
+<td>{{ o.duration_days_override or o.duration_days or '—' }}</td>
+<td>{% if o.is_hourly %}⏱ {% if o.hourly_active %}فعال{% else %}متوقف{% endif %}{% else %}—{% endif %}</td>
+<td>{{ o.status }}</td>
+<td><a href="{{ url_for('order_edit', oid=o.id) }}">ویرایش</a></td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div class="empty"><h3>سرویسی نیست</h3></div>
+{% endif %}
+</div></main></div>
+{% endblock %}

@@ -22,6 +22,11 @@
 <input type="number" step="0.1" name="volume_gb" value="{{ product.volume_gb if product else 0 }}"></div>
 <div class="form-group"><label>مدت (روز)</label>
 <input type="number" name="duration_days" value="{{ product.duration_days if product else 30 }}"></div>
+<div class="form-group"><label>محدودیت HWID (خالی = نامحدود)</label>
+<input type="number" name="hwid_limit" min="0" placeholder="نامحدود" value="{{ product.hwid_limit if product and product.hwid_limit is not none else '' }}"></div>
+<div class="form-group"><label><input type="checkbox" name="hourly_enabled" value="1" {% if product and product.hourly_enabled %}checked{% endif %}> قابل خرید ساعتی</label></div>
+<div class="form-group"><label>قیمت هر ساعت (تومان) — برای سرویس ساعتی</label>
+<input type="number" step="0.01" name="hourly_price" value="{{ product.hourly_price if product and product.hourly_price else '' }}" placeholder="اختیاری"></div>
 <div class="form-group"><label>نوع کاربر هدف</label>
 <select name="target_role" class="form-select">
 {% for k,v in roles.items() %}

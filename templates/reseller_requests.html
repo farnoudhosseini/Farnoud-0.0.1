@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}درخواست‌های نمایندگی{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>درخواست‌های نمایندگی</h2></header>
+<div class="content">
+<form method="post" class="card" style="margin-bottom:16px">
+<input type="hidden" name="action" value="settings">
+<label class="check-item"><input type="checkbox" name="reseller_request_enabled" value="1" {% if reseller_enabled=='1' %}checked{% endif %}> فعال بودن دکمه درخواست نمایندگی در ربات</label>
+<button class="btn-primary inline" type="submit" style="margin-top:8px">ذخیره</button>
+</form>
+
+{% if requests %}
+<div class="card" style="padding:0;overflow:auto">
+<table class="data-table">
+<thead>
+<tr>
+<th>#</th><th>کاربر</th><th>توضیحات</th><th>وضعیت</th><th>نوع</th><th>تاریخ</th><th>عملیات</th>
+</tr>
+</thead>
+<tbody>
+{% for r in requests %}
+<tr>
+<td>{{ r.id }}</td>
+<td>
+<strong>{{ r.first_name or '' }} {{ r.last_name or '' }}</strong><br>
+<small>@{{ r.username or '—' }} · {{ r.telegram_id }}</small><br>
+<small>نقش فعلی: {{ r.current_role or 'user' }}</small>
+</td>
+<td style="max-width:280px;white-space:pre-wrap;font-size:.85rem">{{ r.description }}</td>
+<td>
+{% if r.status == 'pending' %}<span style="color:#f59e0b">در انتظار</span>
+{% elif r.status == 'approved' %}<span style="color:#22c55e">تایید شده</span>
+{% else %}<span style="color:#ef4444">رد شده</span>{% endif %}
+</td>
+<td>
+{% if r.reseller_type == 'reseller_vip' %}ویژه
+{% elif r.reseller_type == 'reseller' %}عادی
+{% else %}—{% endif %}
+</td>
+<td style="font-size:.8rem">{{ r.created_at }}</td>
+<td class="actions">
+{% if r.status == 'pending' %}
+<form method="post" style="display:flex;flex-direction:column;gap:6px;min-width:160px">
+<input type="hidden" name="action" value="review">
+<input type="hidden" name="request_id" value="{{ r.id }}">
+<select name="reseller_type" class="form-select" required>
+<option value="reseller">عادی</option>
+<option value="reseller_vip">ویژه</option>
+</select>
+<input name="admin_note" placeholder="یادداشت (اختیاری)" style="font-size:.8rem">
+<button type="submit" name="decision" value="approved" class="btn-primary inline" style="font-size:.8rem">تایید</button>
+<button type="submit" name="decision" value="rejected" class="link-danger" style="font-size:.8rem">رد</button>
+</form>
+{% else %}
+{% if r.admin_note %}<small>{{ r.admin_note }}</small>{% else %}—{% endif %}
+{% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<div class="empty"><h3>درخواستی ثبت نشده</h3></div>
+{% endif %}
+</div></main></div>
+{% endblock %}

@@ -469,3 +469,12 @@ textarea { min-height: 96px; resize: vertical; }
   .data-table { font-size: .8rem; }
   .data-table th, .data-table td { padding: 10px 8px; }
 }
+
+/* p3 polish */
+.nav-item { border-radius: 10px; margin: 2px 8px; }
+.card { border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.data-table th { font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; opacity: .7; }
+.form-group label { font-weight: 500; margin-bottom: 4px; display: block; }
+.btn-primary.inline { border-radius: 10px; }
+.empty { text-align: center; padding: 48px 16px; opacity: .7; }
+.check-item { display: flex; align-items: center; gap: 8px; margin: 6px 0; }

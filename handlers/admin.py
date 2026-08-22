@@ -17,9 +17,15 @@ def main_keyboard():
         [InlineKeyboardButton("📝 تنظیم پیام‌های ربات", callback_data="admin_msgs")],
         [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
         [InlineKeyboardButton("📦 محصولات", callback_data="admin_products")],
+        [InlineKeyboardButton("📋 سرویس‌های فروخته‌شده", callback_data="admin_orders")],
         [InlineKeyboardButton("👥 کاربران ربات", callback_data="admin_bot_users")],
         [InlineKeyboardButton("💳 کارت‌ها / پرداخت", callback_data="admin_cards")],
         [InlineKeyboardButton("🧾 درخواست‌های شارژ", callback_data="admin_charges")],
+        [
+            InlineKeyboardButton("✨ ایموجی پریمیوم", callback_data="admin_premiji"),
+            InlineKeyboardButton("⌨️ منوی شیشه‌ای", callback_data="admin_inline_menu"),
+        ],
+        [InlineKeyboardButton("⏱ سرویس ساعتی", callback_data="admin_hourly")],
         [InlineKeyboardButton("🔙 بستن", callback_data="admin_close")],
     ])
 
@@ -493,6 +499,159 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ سفارش #{oid} رد شد.")
         return ConversationHandler.END
 
+    # ---- سرویس‌های فروخته‌شده ----
+    if data == "admin_orders":
+        from db_products import list_all_orders
+        orders = list_all_orders(status="provisioned", limit=15)
+        if not orders:
+            await query.edit_message_text(
+                "سرویس فعالی نیست.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            )
+            return ConversationHandler.END
+        rows = []
+        for o in orders:
+            label = f"#{o['id']} {o.get('vpn_username') or '—'} ({o.get('product_name') or ''})"
+            rows.append([InlineKeyboardButton(label[:50], callback_data=f"admin_ord_{o['id']}")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("📋 سرویس‌های فعال (آخرین ۱۵):", reply_markup=InlineKeyboardMarkup(rows))
+        return ConversationHandler.END
+
+    if data.startswith("admin_ord_") and not data.startswith("admin_ordedit_"):
+        from db_products import get_order_full
+        oid = int(data.replace("admin_ord_", ""))
+        o = get_order_full(oid)
+        if not o:
+            await query.edit_message_text("یافت نشد.")
+            return ConversationHandler.END
+        vol = o.get("volume_gb_override") or o.get("volume_gb") or "—"
+        days = o.get("duration_days_override") or o.get("duration_days") or "—"
+        text = (
+            f"📋 سرویس #{o['id']}\n"
+            f"کاربر: {o.get('telegram_id')}\n"
+            f"VPN: <code>{o.get('vpn_username') or '—'}</code>\n"
+            f"محصول: {o.get('product_name') or '—'}\n"
+            f"پنل: {o.get('panel_name') or '—'}\n"
+            f"حجم: {vol} GB | مدت: {days} روز\n"
+            f"ساعتی: {'بله' if o.get('is_hourly') else 'خیر'} | فعال: {o.get('hourly_active')}\n"
+            f"وضعیت: {o.get('status')}"
+        )
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📦 حجم", callback_data=f"admin_ordedit_{oid}_vol"),
+                InlineKeyboardButton("📅 روز", callback_data=f"admin_ordedit_{oid}_days"),
+            ],
+            [
+                InlineKeyboardButton("📱 HWID", callback_data=f"admin_ordedit_{oid}_hwid"),
+                InlineKeyboardButton("⏯ وضعیت", callback_data=f"admin_ordedit_{oid}_status"),
+            ],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_orders")],
+        ])
+        await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_ordedit_"):
+        # admin_ordedit_{oid}_{field}
+        parts = data.replace("admin_ordedit_", "").split("_")
+        if len(parts) < 2:
+            return ConversationHandler.END
+        oid, field = int(parts[0]), parts[1]
+        context.user_data["ord_edit_id"] = oid
+        context.user_data["ord_edit_field"] = field
+        prompts = {
+            "vol": "حجم جدید (گیگابایت) را بفرستید (۰ = نامحدود):",
+            "days": "تعداد روز باقی‌مانده از الان را بفرستید:",
+            "hwid": "محدودیت HWID را بفرستید (۰ = نامحدود):",
+            "status": "وضعیت را بفرستید: active یا disabled",
+        }
+        await query.edit_message_text(prompts.get(field, "مقدار را بفرستید:"))
+        return WAITING_USER_FIELD
+
+    # ---- ایموجی پریمیوم ----
+    if data == "admin_premiji":
+        from db_extras import list_premium_emojis
+        items = list_premium_emojis()
+        lines = ["✨ <b>ایموجی‌های پریمیوم</b>\n"]
+        rows = [[InlineKeyboardButton("➕ افزودن", callback_data="admin_premiji_add")]]
+        for e in items[:20]:
+            lines.append(f"<code>{e['code']}</code> → <code>{e['custom_emoji_id']}</code>")
+            rows.append([
+                InlineKeyboardButton(f"🗑 {e['code']}", callback_data=f"admin_premiji_del_{e['code']}"),
+            ])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        if len(lines) == 1:
+            lines.append("هنوز چیزی ثبت نشده.")
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_premiji_add":
+        context.user_data["premiji_step"] = "code"
+        await query.edit_message_text(
+            "کد را وارد کنید (باید با <code>p_</code> شروع شود).\n"
+            "یا خالی بفرستید تا کد تصادفی ساخته شود.",
+            parse_mode="HTML",
+        )
+        return WAITING_USER_FIELD
+
+    if data.startswith("admin_premiji_del_"):
+        from db_extras import delete_premium_emoji
+        code = data.replace("admin_premiji_del_", "", 1)
+        delete_premium_emoji(code)
+        await query.edit_message_text(f"حذف شد: {code}", reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 لیست", callback_data="admin_premiji")],
+        ]))
+        return ConversationHandler.END
+
+    # ---- منوی شیشه‌ای ----
+    if data == "admin_inline_menu":
+        from database import get_setting_sync, set_setting_sync
+        cur = get_setting_sync("inline_main_menu", "0")
+        new = "0" if cur == "1" else "1"
+        set_setting_sync("inline_main_menu", new)
+        state = "شیشه‌ای (اینلاین) ✅" if new == "1" else "دکمه‌ای (ریپلای) ✅"
+        await query.edit_message_text(
+            f"⌨️ منوی اصلی ربات: <b>{state}</b>\n\nکاربران با /start منوی جدید را می‌بینند.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    # ---- ساعتی ----
+    if data == "admin_hourly":
+        from database import get_setting_sync, set_setting_sync
+        cur = get_setting_sync("hourly_global_enabled", "0")
+        await query.edit_message_text(
+            f"⏱ سرویس ساعتی سراسری: {'فعال ✅' if cur == '1' else 'غیرفعال ❌'}\n\n"
+            "می‌توانید برای هر محصول هم hourly را جداگانه در وب‌پنل فعال کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "خاموش کردن" if cur == "1" else "روشن کردن",
+                    callback_data="admin_hourly_toggle",
+                )],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    if data == "admin_hourly_toggle":
+        from database import get_setting_sync, set_setting_sync
+        cur = get_setting_sync("hourly_global_enabled", "0")
+        set_setting_sync("hourly_global_enabled", "0" if cur == "1" else "1")
+        # reuse
+        data = "admin_hourly"
+        # fall through by recursive style - just re-show
+        cur2 = get_setting_sync("hourly_global_enabled", "0")
+        await query.edit_message_text(
+            f"⏱ سرویس ساعتی سراسری: {'فعال ✅' if cur2 == '1' else 'غیرفعال ❌'}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "خاموش کردن" if cur2 == "1" else "روشن کردن",
+                    callback_data="admin_hourly_toggle",
+                )],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
 
     return ConversationHandler.END
 
@@ -515,12 +674,91 @@ async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 async def receive_user_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """جمع‌آوری فیلدهای ساخت/ویرایش کاربر VPN به‌صورت گفتگو"""
+    """جمع‌آوری فیلدهای ساخت/ویرایش کاربر VPN به‌صورت گفتگو + ادیت سفارش + ایموجی پریمیوم"""
     user = update.effective_user
     if not user or not is_admin(user.id):
         return ConversationHandler.END
 
     text = (update.message.text or "").strip()
+
+    # ---- ادیت سرویس فروخته‌شده ----
+    if context.user_data.get("ord_edit_id") and context.user_data.get("ord_edit_field"):
+        from services.service_edit import edit_sold_service
+        oid = context.user_data.pop("ord_edit_id")
+        field = context.user_data.pop("ord_edit_field")
+        kwargs = {}
+        try:
+            if field == "vol":
+                kwargs["volume_gb"] = float(text)
+            elif field == "days":
+                kwargs["duration_days"] = int(text)
+            elif field == "hwid":
+                kwargs["hwid_limit"] = int(text)
+            elif field == "status":
+                if text not in ("active", "disabled", "on_hold"):
+                    await update.message.reply_text("فقط active / disabled / on_hold")
+                    context.user_data["ord_edit_id"] = oid
+                    context.user_data["ord_edit_field"] = field
+                    return WAITING_USER_FIELD
+                kwargs["status"] = text
+        except ValueError:
+            await update.message.reply_text("مقدار نامعتبر. دوباره بفرستید:")
+            context.user_data["ord_edit_id"] = oid
+            context.user_data["ord_edit_field"] = field
+            return WAITING_USER_FIELD
+        result = edit_sold_service(oid, **kwargs)
+        if result.get("ok"):
+            await update.message.reply_text(f"✅ سرویس #{oid} به‌روز شد و در پاسارگارد ثبت شد.", reply_markup=main_keyboard())
+        else:
+            await update.message.reply_text(f"❌ خطا: {result.get('error')}", reply_markup=main_keyboard())
+        return ConversationHandler.END
+
+    # ---- ایموجی پریمیوم ----
+    if context.user_data.get("premiji_step") == "code":
+        from db_extras import gen_premium_code, add_premium_emoji
+        code = text if text.startswith("p_") else (gen_premium_code() if not text else None)
+        if not code or not code.startswith("p_"):
+            await update.message.reply_text("کد باید با p_ شروع شود. دوباره:")
+            return WAITING_USER_FIELD
+        context.user_data["premiji_code"] = code
+        context.user_data["premiji_step"] = "emoji"
+        await update.message.reply_text(
+            f"کد: <code>{code}</code>\n\nحالا یک پیام با ایموجی پریمیوم (کاستوم) بفرستید.",
+            parse_mode="HTML",
+        )
+        return WAITING_USER_FIELD
+
+    if context.user_data.get("premiji_step") == "emoji":
+        from db_extras import add_premium_emoji
+        code = context.user_data.get("premiji_code")
+        # استخراج custom_emoji_id از entities
+        entities = update.message.entities or []
+        emoji_id = None
+        for ent in entities:
+            if getattr(ent, "type", None) == "custom_emoji":
+                emoji_id = str(getattr(ent, "custom_emoji_id", "") or "")
+                break
+        if not emoji_id:
+            # ممکن است فقط عدد فرستاده شود
+            if text.isdigit():
+                emoji_id = text
+            else:
+                await update.message.reply_text("ایموجی پریمیوم یافت نشد. یک پیام با ایموجی کاستوم بفرستید یا شناسه عددی:")
+                return WAITING_USER_FIELD
+        ok = add_premium_emoji(code, emoji_id, created_by=user.id)
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+        if ok:
+            await update.message.reply_text(
+                f"✅ ثبت شد.\nکد: <code>{code}</code>\nID: <code>{emoji_id}</code>\n\n"
+                f"هر جا از <code>{code}</code> استفاده کنید با parse_mode=HTML به ایموجی پریمیوم تبدیل می‌شود.",
+                reply_markup=main_keyboard(),
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text("❌ خطا در ثبت.", reply_markup=main_keyboard())
+        return ConversationHandler.END
+
     step = context.user_data.get("vpn_step")
     mode = context.user_data.get("vpn_mode")
     pdata = context.user_data.setdefault("vpn_user", {})

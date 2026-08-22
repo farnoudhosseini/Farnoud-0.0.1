@@ -15,14 +15,37 @@ WAITING_GIFT_CODE = 11
 WAITING_RECEIPT = 12
 
 def main_user_keyboard(is_admin: bool = False):
+    """منوی اصلی — دکمه‌ای یا شیشه‌ای بر اساس تنظیم inline_main_menu"""
     from db_users import get_template
+    from database import get_setting_sync
     def btn(key, default):
         t = get_template(key) or default
         return t.split("\n")[0][:40]
+    use_inline = get_setting_sync("inline_main_menu", "0") == "1"
+    if use_inline:
+        rows = [
+            [
+                InlineKeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید"), callback_data="menu_buy"),
+                InlineKeyboardButton(btn("btn_services", "📱 سرویس‌های من"), callback_data="menu_services"),
+            ],
+            [
+                InlineKeyboardButton(btn("btn_wallet", "💰 کیف پول من"), callback_data="menu_wallet"),
+                InlineKeyboardButton(btn("btn_trial", "🎁 تست رایگان"), callback_data="menu_trial"),
+            ],
+            [
+                InlineKeyboardButton(btn("btn_support", "🛠 پشتیبانی"), callback_data="menu_support"),
+                InlineKeyboardButton(btn("btn_education", "📚 آموزش"), callback_data="menu_education"),
+            ],
+            [InlineKeyboardButton(btn("btn_reseller", "🤝 درخواست نمایندگی"), callback_data="menu_reseller")],
+        ]
+        if is_admin:
+            rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
+        return InlineKeyboardMarkup(rows)
     rows = [
         [KeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید")), KeyboardButton(btn("btn_services", "📱 سرویس‌های من"))],
         [KeyboardButton(btn("btn_wallet", "💰 کیف پول من")), KeyboardButton(btn("btn_trial", "🎁 تست رایگان"))],
         [KeyboardButton(btn("btn_support", "🛠 پشتیبانی")), KeyboardButton(btn("btn_education", "📚 آموزش"))],
+        [KeyboardButton(btn("btn_reseller", "🤝 درخواست نمایندگی"))],
     ]
     if is_admin:
         rows.append([KeyboardButton("⚙️ مدیریت")])

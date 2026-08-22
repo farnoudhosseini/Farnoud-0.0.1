@@ -35,18 +35,119 @@ def back_main_kb():
 
 def service_card_keyboard(order_id: int):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 تمدید خودکار", callback_data=f"svc_renew_{order_id}")],
+        [
+            InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"svc_refresh_{order_id}"),
+            InlineKeyboardButton("🔄 تمدید خودکار", callback_data=f"svc_renew_{order_id}"),
+        ],
         [
             InlineKeyboardButton("🔐 بازنشانی اشتراک", callback_data=f"svc_reset_{order_id}"),
             InlineKeyboardButton("⏯ خاموش / روشن", callback_data=f"svc_toggle_{order_id}"),
         ],
-        [InlineKeyboardButton("📎 لینک و QR", callback_data=f"svc_link_{order_id}")],
+        [
+            InlineKeyboardButton("📎 لینک و QR", callback_data=f"svc_link_{order_id}"),
+            InlineKeyboardButton("🌍 تغییر لوکیشن", callback_data=f"svc_loc_{order_id}"),
+        ],
         [
             InlineKeyboardButton("⚠️ گزارش اختلال", callback_data=f"svc_report_{order_id}"),
             InlineKeyboardButton("💸 بازگشت وجه", callback_data=f"svc_refund_{order_id}"),
         ],
+        [InlineKeyboardButton("⏹ توقف سرویس ساعتی", callback_data=f"svc_hstop_{order_id}")],
         [InlineKeyboardButton("🔙 لیست سرویس‌ها", callback_data="svc_list")],
     ])
+
+
+def _remaining_days(expire_val) -> str:
+    """محاسبه روز باقی‌مانده از فیلد expire پنل — نامحدود یا عدد روز"""
+    if expire_val is None or expire_val == "" or expire_val == 0 or expire_val == "0":
+        return "∞"
+    try:
+        if isinstance(expire_val, (int, float)):
+            ts = int(expire_val)
+            if ts > 1e12:  # milliseconds
+                ts = ts // 1000
+            exp_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        else:
+            s = str(expire_val).strip().replace("Z", "+00:00")
+            exp_dt = datetime.fromisoformat(s)
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        delta = exp_dt - now
+        days = max(0, delta.days)
+        return str(days)
+    except Exception:
+        return "—"
+
+
+def build_service_status_text(o: dict) -> str:
+    """
+    ساخت متن وضعیت سرویس با داده‌های زنده از پاسارگارد
+    مطابق قالب درخواستی کاربر.
+    """
+    volume_plan = o.get("volume_gb") or "—"
+    days_plan = o.get("duration_days") or "—"
+    channel = get_setting_sync("channel_id", "") or get_setting_sync("support_channel", "") or "—"
+
+    # fallback بدون اتصال پنل
+    text = (
+        f"📦 سرویس {volume_plan} گیگابایت - {days_plan} روز\n"
+        f"📊 وضعیت: {o.get('status') or '—'}\n"
+        f"📱 تعداد دستگاه‌های متصل به این سرویس: —\n"
+        f"🔢 شماره سرویس: {o.get('id')}\n"
+        f"⏳ زمان باقی‌مانده: — روز\n"
+        f"💾 حجم باقی‌مانده: — گیگابایت\n"
+        f"🔗 لینک اتصال:\n—\n"
+        f"ℹ️ توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+        f"🔐 برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+        f"{channel}"
+    )
+
+    if not o.get("vpn_username"):
+        return text
+
+    try:
+        client = _client(o)
+        full = client.get_user(o["vpn_username"])
+        raw = full.get("subscription_url") or full.get("subscription_link") or ""
+        if not raw and full.get("subscription_token"):
+            raw = f"/sub/{full['subscription_token']}"
+        base, _, _ = _panel_creds(o)
+        link = fix_subscription_url(base, raw)
+
+        st = full.get("status") or "—"
+        hwid = full.get("hwid_limit")
+        if hwid is None:
+            hwid = "نامحدود"
+        elif hwid == 0:
+            hwid = "نامحدود"
+
+        used = full.get("used_traffic") or 0
+        limit = full.get("data_limit") or 0
+        remain_gb = "∞"
+        if limit and int(limit) > 0:
+            remain_gb = round(max(0, (int(limit) - int(used)) / (1024 ** 3)), 2)
+
+        remain_days = _remaining_days(full.get("expire"))
+
+        vol_show = remain_gb if remain_gb != "∞" else (volume_plan if volume_plan != "—" else "∞")
+        days_show = remain_days if remain_days != "∞" else (days_plan if days_plan != "—" else "∞")
+
+        text = (
+            f"📦 سرویس {vol_show} گیگابایت - {days_show} روز\n"
+            f"📊 وضعیت: {st}\n"
+            f"📱 تعداد دستگاه‌های متصل به این سرویس: {hwid}\n"
+            f"🔢 شماره سرویس: {o.get('id')}\n"
+            f"⏳ زمان باقی‌مانده: {remain_days} روز\n"
+            f"💾 حجم باقی‌مانده: {remain_gb} گیگابایت\n"
+            f"🔗 لینک اتصال:\n{link or '—'}\n"
+            f"ℹ️ توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+            f"🔐 برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+            f"{channel}"
+        )
+    except Exception as e:
+        text += f"\n\n⚠️ دریافت وضعیت زنده: {e}"
+
+    return text
 
 async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -91,53 +192,18 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_my_services(update, context)
         return ConversationHandler.END
 
-    if data.startswith("svc_open_"):
+    if data.startswith("svc_open_") or data.startswith("svc_refresh_"):
         oid = int(data.split("_")[-1])
         o = get_user_order(oid, user.id)
         if not o:
             await q.edit_message_text("سرویس پیدا نشد.", reply_markup=back_main_kb())
             return ConversationHandler.END
-        text = (
-            f"🔷 <b>{o.get('vpn_username') or 'سرویس'}</b> — {o.get('product_name') or ''}\n\n"
-            f"شماره سرویس: <code>{o['id']}</code>\n"
-            f"پنل: {o.get('panel_name') or '—'}\n"
-            f"حجم پلن: {o.get('volume_gb') or '—'} GB\n"
-            f"مدت پلن: {o.get('duration_days') or '—'} روز\n"
-            f"وضعیت سفارش: {o.get('status')}"
-        )
-        # تلاش برای مشخصات زنده از پاسارگارد
-        if o.get("vpn_username"):
-            try:
-                client = _client(o)
-                full = client.get_user(o["vpn_username"])
-                raw = full.get("subscription_url") or full.get("subscription_link") or ""
-                if not raw and full.get("subscription_token"):
-                    raw = f"/sub/{full['subscription_token']}"
-                base, _, _ = _panel_creds(o)
-                link = fix_subscription_url(base, raw)
-                st = full.get("status") or "—"
-                hwid = full.get("hwid_limit")
-                if hwid is None: hwid = "—"
-                used = full.get("used_traffic") or 0
-                limit = full.get("data_limit") or 0
-                remain = "∞"
-                if limit and int(limit) > 0:
-                    remain = f"{round(max(0, (int(limit)-int(used))/(1024**3)), 2)}"
-                text = (
-                    f"سرویس {o.get('volume_gb') or remain} گیگابایت\n"
-                    f"وضعیت: {st}\n"
-                    f"تعداد دستگاه‌های متصل: {hwid}\n"
-                    f"شماره سرویس: {o['id']}\n"
-                    f"نام سرویس: <code>{o.get('vpn_username')}</code>\n"
-                    f"محصول: {o.get('product_name') or '—'}\n"
-                    f"حجم باقی‌مانده: {remain} گیگابایت\n"
-                    f"لینک اتصال:\n{link or '—'}"
-                )
-            except Exception as e:
-                text += f"\n\n⚠️ دریافت وضعیت زنده: {e}"
-        # کیبورد: تمدید به پلن دیگر هم
+        text = build_service_status_text(o)
         kb = service_card_keyboard(oid)
-        await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        try:
+            await q.edit_message_text(text, reply_markup=kb)
+        except Exception:
+            pass  # متن یکسان → تلگرام خطا می‌دهد؛ مشکلی نیست
         return ConversationHandler.END
 
     # ---- actions need order ----
@@ -317,6 +383,151 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
             await q.edit_message_text(f"❌ تمدید ناموفق: {e}", reply_markup=service_card_keyboard(oid))
+        return ConversationHandler.END
+
+
+    # ---- توقف سرویس ساعتی ----
+    if data.startswith("svc_hstop_"):
+        oid = int(data.replace("svc_hstop_", ""))
+        from services.service_edit import stop_hourly_service
+        result = stop_hourly_service(oid, user.id)
+        if result.get("ok"):
+            await q.edit_message_text("✅ سرویس ساعتی متوقف شد و دیگر از موجودی کسر نمی‌شود.", reply_markup=back_main_kb())
+        else:
+            await q.edit_message_text(f"❌ {result.get('error')}", reply_markup=service_card_keyboard(oid))
+        return ConversationHandler.END
+
+    # ---- تغییر لوکیشن ----
+    if data.startswith("svc_loc_") and not data.startswith("svc_locset_"):
+        oid = _oid("svc_loc_")
+        o = get_user_order(oid, user.id)
+        if not o or not o.get("vpn_username"):
+            await q.edit_message_text("سرویس معتبر نیست.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        if get_setting_sync("location_change_enabled", "1") != "1":
+            await q.edit_message_text("تغییر لوکیشن فعلاً غیرفعال است.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        from db_growth import count_location_changes
+        try:
+            price = int(get_setting_sync("location_change_price", "0") or 0)
+        except Exception:
+            price = 0
+        try:
+            limit = int(get_setting_sync("location_change_limit", "3") or 3)
+        except Exception:
+            limit = 3
+        used = count_location_changes(user.id)
+        if limit > 0 and used >= limit:
+            await q.edit_message_text(
+                f"❌ به حد مجاز تغییر لوکیشن رسیده‌اید ({used}/{limit}).",
+                reply_markup=service_card_keyboard(oid),
+            )
+            return ConversationHandler.END
+        try:
+            client = _client(o)
+            groups = client.get_groups() or []
+            full = client.get_user(o["vpn_username"])
+            current_gids = set()
+            for g in (full.get("group_ids") or full.get("groups") or []):
+                if isinstance(g, dict):
+                    current_gids.add(int(g.get("id") or 0))
+                else:
+                    try:
+                        current_gids.add(int(g))
+                    except Exception:
+                        pass
+            rows = []
+            for g in groups:
+                gid = g.get("id")
+                gname = g.get("name") or g.get("title") or f"گروه {gid}"
+                if gid is None:
+                    continue
+                mark = " ✅" if int(gid) in current_gids else ""
+                rows.append([InlineKeyboardButton(
+                    f"{gname}{mark}"[:60],
+                    callback_data=f"svc_locset_{oid}_{gid}",
+                )])
+            if not rows:
+                await q.edit_message_text(
+                    "هیچ لوکیشنی در پنل یافت نشد.",
+                    reply_markup=service_card_keyboard(oid),
+                )
+                return ConversationHandler.END
+            rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"svc_open_{oid}")])
+            price_txt = f"{price:,} تومان" if price > 0 else "رایگان"
+            await q.edit_message_text(
+                f"🌍 تغییر لوکیشن\n\n"
+                f"قیمت هر بار: {price_txt}\n"
+                f"استفاده‌شده: {used}/{limit if limit > 0 else '∞'}\n\n"
+                f"لوکیشن جدید را انتخاب کنید:",
+                reply_markup=InlineKeyboardMarkup(rows),
+            )
+        except Exception as e:
+            await q.edit_message_text(
+                f"❌ خطا در دریافت لوکیشن‌ها: {e}",
+                reply_markup=service_card_keyboard(oid),
+            )
+        return ConversationHandler.END
+
+    if data.startswith("svc_locset_"):
+        # svc_locset_{orderId}_{groupId}
+        parts = data.replace("svc_locset_", "").split("_")
+        if len(parts) < 2:
+            return ConversationHandler.END
+        oid, gid = int(parts[0]), int(parts[1])
+        o = get_user_order(oid, user.id)
+        if not o or not o.get("vpn_username"):
+            await q.edit_message_text("سرویس معتبر نیست.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        from db_growth import count_location_changes, record_location_change
+        from db_users import get_bot_user, add_balance
+        try:
+            price = int(get_setting_sync("location_change_price", "0") or 0)
+        except Exception:
+            price = 0
+        try:
+            limit = int(get_setting_sync("location_change_limit", "3") or 3)
+        except Exception:
+            limit = 3
+        used = count_location_changes(user.id)
+        if limit > 0 and used >= limit:
+            await q.edit_message_text(
+                f"❌ به حد مجاز تغییر لوکیشن رسیده‌اید.",
+                reply_markup=service_card_keyboard(oid),
+            )
+            return ConversationHandler.END
+        bu = get_bot_user(user.id)
+        balance = int((bu or {}).get("balance") or 0)
+        if price > 0 and balance < price:
+            await q.edit_message_text(
+                f"❌ موجودی کافی نیست.\nمبلغ لازم: {price:,} تومان\nموجودی: {balance:,} تومان",
+                reply_markup=service_card_keyboard(oid),
+            )
+            return ConversationHandler.END
+        try:
+            client = _client(o)
+            full = client.get_user(o["vpn_username"])
+            from_gids = full.get("group_ids") or []
+            from_gid = None
+            if from_gids:
+                g0 = from_gids[0]
+                from_gid = g0.get("id") if isinstance(g0, dict) else g0
+            groups = client.get_groups() or []
+            gname = next((g.get("name") or g.get("title") for g in groups if int(g.get("id") or 0) == gid), f"گروه {gid}")
+            client.modify_user(o["vpn_username"], {"group_ids": [gid]})
+            if price > 0:
+                add_balance(user.id, -price, f"location_change#{oid}")
+            record_location_change(oid, user.id, from_gid=from_gid, to_gid=gid, to_name=gname, price=price)
+            await q.edit_message_text(
+                f"✅ لوکیشن به «{gname}» تغییر کرد."
+                + (f"\n💸 مبلغ کسرشده: {price:,} تومان" if price > 0 else ""),
+                reply_markup=service_card_keyboard(oid),
+            )
+        except Exception as e:
+            await q.edit_message_text(
+                f"❌ تغییر لوکیشن ناموفق: {e}",
+                reply_markup=service_card_keyboard(oid),
+            )
         return ConversationHandler.END
 
     if data.startswith("svc_report_"):

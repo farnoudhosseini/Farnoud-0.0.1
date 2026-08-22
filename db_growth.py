@@ -30,6 +30,34 @@ def ensure_growth_tables():
                 UNIQUE KEY uniq_trial_user (telegram_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS location_changes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                from_group_id INT DEFAULT NULL,
+                to_group_id INT DEFAULT NULL,
+                to_group_name VARCHAR(200) DEFAULT NULL,
+                price DECIMAL(18,0) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_tg (telegram_id),
+                INDEX idx_order (order_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS reseller_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                description TEXT NOT NULL,
+                status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+                reseller_type ENUM('reseller','reseller_vip') DEFAULT NULL,
+                admin_note TEXT,
+                reviewed_at TIMESTAMP NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_tg (telegram_id),
+                INDEX idx_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
             defaults = [
                 ("force_join_enabled", "0"),
                 ("force_join_channel", ""),
@@ -41,16 +69,24 @@ def ensure_growth_tables():
                 ("trial_volume_gb", "1"),
                 ("trial_days", "1"),
                 ("trial_per_user", "1"),
+                ("location_change_enabled", "1"),
                 ("location_change_price", "0"),
                 ("location_change_limit", "3"),
                 ("btn_trial", "🎁 تست رایگان"),
+                ("btn_reseller", "🤝 درخواست نمایندگی"),
+                ("reseller_request_enabled", "1"),
             ]
             for k, v in defaults:
                 cur.execute("INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)", (k, v))
             for key, title, body in [
                 ("btn_trial", "دکمه تست", "🎁 تست رایگان"),
+                ("btn_reseller", "دکمه نمایندگی", "🤝 درخواست نمایندگی"),
                 ("force_join_msg", "عضویت کانال", "برای استفاده از ربات ابتدا در کانال عضو شوید:\n[channel]\nسپس «بررسی عضویت» را بزنید."),
                 ("force_phone_msg", "احراز موبایل", "برای ادامه، شماره موبایل خود را با دکمه زیر ارسال کنید."),
+                ("reseller_request_prompt", "درخواست نمایندگی", "🤝 درخواست نمایندگی\n\nتوضیحات خود را بنویسید (مثلاً سابقه فروش، تعداد مشتری، شهر و ...):\nپس از ارسال، درخواست شما در صف بررسی ادمین قرار می‌گیرد."),
+                ("reseller_request_sent", "ثبت درخواست نمایندگی", "✅ درخواست نمایندگی شما ثبت شد و در انتظار بررسی ادمین است.\nشماره درخواست: #[request_id]"),
+                ("reseller_approved", "تایید نمایندگی", "🎉 درخواست نمایندگی شما تایید شد!\nنوع: [reseller_type]\nاز امکانات نماینده بهره‌مند شوید."),
+                ("reseller_rejected", "رد نمایندگی", "❌ درخواست نمایندگی شما رد شد.\nدلیل: [reason]"),
             ]:
                 cur.execute(
                     "INSERT IGNORE INTO message_templates (`key`, title, body) VALUES (%s,%s,%s)",
@@ -146,3 +182,141 @@ def pay_referral_commission(buyer_id: int, amount: int):
     commission = int(amount * percent / 100)
     if commission > 0:
         add_balance(buyer["referrer_id"], commission, f"ref_from_{buyer_id}")
+
+
+# ---- تغییر لوکیشن ----
+
+def count_location_changes(telegram_id: int) -> int:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM location_changes WHERE telegram_id=%s",
+                (telegram_id,),
+            )
+            row = cur.fetchone()
+            return int((row or {}).get("c") or 0)
+    finally:
+        conn.close()
+
+
+def record_location_change(order_id: int, telegram_id: int, from_gid=None,
+                           to_gid=None, to_name=None, price: int = 0):
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO location_changes
+                   (order_id, telegram_id, from_group_id, to_group_id, to_group_name, price)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (order_id, telegram_id, from_gid, to_gid, to_name, price),
+            )
+            conn.commit()
+            return cur.lastrowid
+    finally:
+        conn.close()
+
+
+# ---- درخواست نمایندگی ----
+
+def create_reseller_request(telegram_id: int, description: str) -> int:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            # اگر درخواست pending دارد، اجازه دوباره نده
+            cur.execute(
+                "SELECT id FROM reseller_requests WHERE telegram_id=%s AND status='pending' LIMIT 1",
+                (telegram_id,),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return -int(existing["id"])  # منفی = قبلاً ثبت شده
+            cur.execute(
+                "INSERT INTO reseller_requests (telegram_id, description) VALUES (%s,%s)",
+                (telegram_id, description.strip()[:2000]),
+            )
+            conn.commit()
+            return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_reseller_request(rid: int) -> Optional[dict]:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM reseller_requests WHERE id=%s", (rid,))
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def list_reseller_requests(status: str = None, limit: int = 100) -> list:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            if status:
+                cur.execute(
+                    """SELECT r.*, u.username, u.first_name, u.last_name, u.role AS current_role
+                       FROM reseller_requests r
+                       LEFT JOIN bot_users u ON u.telegram_id = r.telegram_id
+                       WHERE r.status=%s ORDER BY r.id DESC LIMIT %s""",
+                    (status, limit),
+                )
+            else:
+                cur.execute(
+                    """SELECT r.*, u.username, u.first_name, u.last_name, u.role AS current_role
+                       FROM reseller_requests r
+                       LEFT JOIN bot_users u ON u.telegram_id = r.telegram_id
+                       ORDER BY FIELD(r.status,'pending','approved','rejected'), r.id DESC
+                       LIMIT %s""",
+                    (limit,),
+                )
+            return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def review_reseller_request(rid: int, status: str, reseller_type: str = None,
+                            admin_note: str = None) -> bool:
+    """status: approved | rejected — فقط از وب‌پنل"""
+    if status not in ("approved", "rejected"):
+        return False
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM reseller_requests WHERE id=%s", (rid,))
+            req = cur.fetchone()
+            if not req or req["status"] != "pending":
+                return False
+            rtype = None
+            if status == "approved":
+                rtype = reseller_type if reseller_type in ("reseller", "reseller_vip") else "reseller"
+            cur.execute(
+                """UPDATE reseller_requests
+                   SET status=%s, reseller_type=%s, admin_note=%s, reviewed_at=NOW()
+                   WHERE id=%s""",
+                (status, rtype, admin_note, rid),
+            )
+            if status == "approved" and rtype:
+                cur.execute(
+                    "UPDATE bot_users SET role=%s WHERE telegram_id=%s",
+                    (rtype, req["telegram_id"]),
+                )
+            conn.commit()
+            return True
+    finally:
+        conn.close()
+
+
+def user_pending_reseller_request(telegram_id: int) -> Optional[dict]:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM reseller_requests WHERE telegram_id=%s AND status='pending' LIMIT 1",
+                (telegram_id,),
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()

@@ -10,7 +10,7 @@
 {% if products %}
 <div class="card" style="padding:0;overflow:auto">
 <table class="data-table">
-<thead><tr><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
+<thead><tr><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>HWID</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
 <tbody>
 {% for p in products %}
 <tr>
@@ -20,6 +20,7 @@
 <td>{{ "{:,.0f}".format(p.price) }}</td>
 <td>{{ p.volume_gb }} GB</td>
 <td>{{ p.duration_days }}</td>
+<td>{% if p.hwid_limit is not none and p.hwid_limit %}{{ p.hwid_limit }}{% else %}∞{% endif %}</td>
 <td>{{ roles.get(p.target_role, p.target_role) }}</td>
 <td>{% for x in p.panels %}{{ x.name }}{% if not loop.last %}، {% endif %}{% else %}—{% endfor %}</td>
 <td class="actions">

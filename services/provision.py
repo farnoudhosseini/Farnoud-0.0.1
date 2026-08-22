@@ -36,18 +36,20 @@ def _rand_username(prefix: str = "u") -> str:
 
 def ensure_service_template():
     body = (
-        "سرویس [service_volume] گیگابایت - [service_expiration] روز\n"
-        "وضعیت: [status]\n"
-        "تعداد دستگاه‌های متصل به این سرویس: [hwid_s]\n"
-        "شماره سرویس: [service_id]\n"
-        "زمان باقی‌مانده: [service_expiration] روز\n"
-        "حجم باقی‌مانده: [service_volume] گیگابایت\n"
-        "لینک اتصال:\n[subscription_link]\n"
-        "توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
-        "برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+        "📦 سرویس [service_volume] گیگابایت - [service_expiration] روز\n"
+        "📊 وضعیت: [status]\n"
+        "📱 تعداد دستگاه‌های متصل به این سرویس: [hwid_s]\n"
+        "🔢 شماره سرویس: [service_id]\n"
+        "⏳ زمان باقی‌مانده: [service_expiration] روز\n"
+        "💾 حجم باقی‌مانده: [service_volume] گیگابایت\n"
+        "🔗 لینک اتصال:\n[subscription_link]\n"
+        "ℹ️ توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+        "🔐 برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
         "[channel_id]"
     )
-    if not get_template("service_delivered"):
+    current = get_template("service_delivered") or ""
+    # اگر خالی است یا نسخه قدیمی بدون ایموجی است، آپدیت کن
+    if not current.strip() or not current.strip().startswith("📦"):
         set_template("service_delivered", body, title="پیام تحویل سرویس")
 
 
@@ -67,7 +69,16 @@ def provision_order(order_id: int) -> dict:
 
     volume_gb = float(product.get("volume_gb") or 0)
     days = int(product.get("duration_days") or 30)
-    hwid = None  # از محصول در آینده
+    # HWID از محصول — خالی/None = نامحدود
+    hwid_raw = product.get("hwid_limit")
+    hwid = None
+    if hwid_raw is not None and str(hwid_raw).strip() != "":
+        try:
+            hwid = int(hwid_raw)
+            if hwid <= 0:
+                hwid = None
+        except (TypeError, ValueError):
+            hwid = None
 
     client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
     username = _rand_username("fn")
@@ -116,8 +127,8 @@ def provision_order(order_id: int) -> dict:
     sub_link = fix_subscription_url(panel.get("base_url") or "", raw_sub)
     status = full.get("status") or "active"
     hwid_s = full.get("hwid_limit")
-    if hwid_s is None:
-        hwid_s = "—"
+    if hwid_s is None or hwid_s == 0:
+        hwid_s = "نامحدود"
     service_id = full.get("id") or created.get("id") or order_id
     used = full.get("used_traffic") or 0
     limit = full.get("data_limit") or 0
@@ -142,15 +153,15 @@ def provision_order(order_id: int) -> dict:
     text = render_template("service_delivered", vars_)
     if not text.strip():
         text = (
-            f"سرویس {vars_['service_volume']} گیگابایت - {days} روز\n"
-            f"وضعیت: {status}\n"
-            f"تعداد دستگاه‌های متصل به این سرویس: {hwid_s}\n"
-            f"شماره سرویس: {service_id}\n"
-            f"زمان باقی‌مانده: {days} روز\n"
-            f"حجم باقی‌مانده: {vars_['service_volume']} گیگابایت\n"
-            f"لینک اتصال:\n{sub_link}\n"
-            f"توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
-            f"برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
+            f"📦 سرویس {vars_['service_volume']} گیگابایت - {days} روز\n"
+            f"📊 وضعیت: {status}\n"
+            f"📱 تعداد دستگاه‌های متصل به این سرویس: {hwid_s}\n"
+            f"🔢 شماره سرویس: {service_id}\n"
+            f"⏳ زمان باقی‌مانده: {days} روز\n"
+            f"💾 حجم باقی‌مانده: {vars_['service_volume']} گیگابایت\n"
+            f"🔗 لینک اتصال:\n{sub_link}\n"
+            f"ℹ️ توجه: آموزش اتصال به سرویس‌ها را می‌توانید در بخش «مرکز آموزش» ببینید.\n"
+            f"🔐 برای تغییر رمز و قطع دسترسی افراد متصل به پروکسی روی دکمه زیر کلیک کنید\n"
             f"{channel}"
         )
 
