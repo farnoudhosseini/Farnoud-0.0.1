@@ -14,14 +14,24 @@ WAITING_CHARGE_AMOUNT = 10
 WAITING_GIFT_CODE = 11
 WAITING_RECEIPT = 12
 
-def main_user_keyboard(is_admin: bool = False):
-    """منوی اصلی از منبع واحد: ترتیب، نمایش، رنگ و ایموجی پریمیوم."""
+def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
+    """
+    منوی اصلی.
+    - به صورت پیش‌فرض ReplyKeyboard (دکمه‌ای) همیشه فعال است.
+    - اگر inline_main_menu=1 باشد، InlineKeyboard (شیشه‌ای) برمی‌گردد.
+    - force_inline=True/False برای اجبار یکی از دو حالت.
+    رنگ و ایموجی پریمیوم فقط روی حالت شیشه‌ای اعمال می‌شود.
+    """
     from database import get_setting_sync
     from db_extras import (
         get_menu_buttons, build_menu_rows, COLOR_TO_STYLE,
         extract_premium_from_label, strip_premium_codes,
     )
-    use_inline = get_setting_sync("inline_main_menu", "0") == "1"
+    if force_inline is None:
+        use_inline = get_setting_sync("inline_main_menu", "0") == "1"
+    else:
+        use_inline = bool(force_inline)
+
     menu_rows = build_menu_rows(get_menu_buttons())
 
     if use_inline:
@@ -31,7 +41,7 @@ def main_user_keyboard(is_admin: bool = False):
             for item in group:
                 raw_label = (item.get("label") or item.get("key") or "—").split("\n")[0]
                 clean, eid = extract_premium_from_label(raw_label)
-                clean = clean[:40] or "•"
+                clean = (clean or "•")[:40]
                 style = COLOR_TO_STYLE.get((item.get("color") or "none").lower())
                 kwargs = {"text": clean, "callback_data": item.get("callback") or "menu_home"}
                 if style:
@@ -41,7 +51,6 @@ def main_user_keyboard(is_admin: bool = False):
                 try:
                     row.append(InlineKeyboardButton(**kwargs))
                 except TypeError:
-                    # نسخه قدیمی PTB بدون style/icon
                     row.append(InlineKeyboardButton(clean, callback_data=kwargs["callback_data"]))
             if row:
                 rows.append(row)
@@ -49,7 +58,7 @@ def main_user_keyboard(is_admin: bool = False):
             rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
         return InlineKeyboardMarkup(rows)
 
-    # Reply keyboard: بدون HTML/style — فقط متن تمیز
+    # Reply keyboard — همیشه کار می‌کند
     rows = []
     for group in menu_rows:
         row = []
@@ -62,6 +71,18 @@ def main_user_keyboard(is_admin: bool = False):
     if is_admin:
         rows.append([KeyboardButton("⚙️ مدیریت")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+def main_user_keyboards(is_admin: bool = False):
+    """هر دو کیبورد را برمی‌گرداند: (reply, inline یا None)"""
+    from database import get_setting_sync
+    reply = main_user_keyboard(is_admin=is_admin, force_inline=False)
+    inline = None
+    if get_setting_sync("inline_main_menu", "0") == "1":
+        inline = main_user_keyboard(is_admin=is_admin, force_inline=True)
+    return reply, inline
+
+
 
 
 def wallet_keyboard():

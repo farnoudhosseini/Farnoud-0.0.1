@@ -123,10 +123,23 @@ async def menu_callback(update, context):
     if data == "menu_admin" and uid == ADMIN_ID:
         return await admin_panel(update, context)
     if data == "menu_home":
-        from handlers.start import start_command
-        # fake message path - send main keyboard
         from handlers.wallet import main_user_keyboard
-        await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=main_user_keyboard(is_admin=(uid==ADMIN_ID)))
+        from database import get_setting_sync
+        is_adm = uid == ADMIN_ID
+        # ویرایش پیام اینلاین
+        glass = main_user_keyboard(is_admin=is_adm, force_inline=True) if get_setting_sync("inline_main_menu","0")=="1" else None
+        if glass:
+            await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=glass)
+        else:
+            await update.callback_query.edit_message_text("🏠 منوی اصلی")
+        # کیبورد دکمه‌ای پایین چت را هم تازه کن
+        try:
+            await context.bot.send_message(
+                uid, "👇 منوی دکمه‌ای:",
+                reply_markup=main_user_keyboard(is_admin=is_adm, force_inline=False),
+            )
+        except Exception:
+            pass
         return None
     return None
 

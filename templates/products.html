@@ -10,19 +10,23 @@
 {% if products %}
 <div class="card" style="padding:0;overflow:auto">
 <table class="data-table">
-<thead><tr data-sort-item data-id="{{ p.id }}"><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>HWID</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
+<thead>
+<tr>
+  <th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>HWID</th><th>نقش</th><th>پنل‌ها</th><th></th>
+</tr>
+</thead>
 <tbody data-sortable="{{ url_for('products_reorder_api') }}">
 {% for p in products %}
 <tr data-sort-item data-id="{{ p.id }}">
 <td>{{ p.sort_order }}</td>
 <td><strong>{{ p.name }}</strong></td>
 <td>{{ p.category_name or '—' }}</td>
-<td>{{ "{:,.0f}".format(p.price) }}</td>
+<td>{{ "{:,.0f}".format(p.price|float) if p.price is not none else '0' }}</td>
 <td>{{ p.volume_gb }} GB</td>
 <td>{{ p.duration_days }}</td>
 <td>{% if p.hwid_limit is not none and p.hwid_limit %}{{ p.hwid_limit }}{% else %}∞{% endif %}</td>
-<td>{{ roles.get(p.target_role, p.target_role) }}</td>
-<td>{% for x in p.panels %}{{ x.name }}{% if not loop.last %}، {% endif %}{% else %}—{% endfor %}</td>
+<td>{{ roles.get(p.target_role, p.target_role) if roles else p.target_role }}</td>
+<td>{% if p.panels %}{% for x in p.panels %}{{ x.name }}{% if not loop.last %}، {% endif %}{% endfor %}{% else %}—{% endif %}</td>
 <td class="actions">
 <form method="post" action="{{ url_for('products_move', pid=p.id, direction='up') }}" style="display:inline"><button class="btn-ghost" type="submit">↑</button></form>
 <form method="post" action="{{ url_for('products_move', pid=p.id, direction='down') }}" style="display:inline"><button class="btn-ghost" type="submit">↓</button></form>

@@ -64,24 +64,39 @@ async def _send_welcome(update, context, user):
         from db_extras import apply_premium_emojis
         u = get_bot_user(user.id) or {}
         welcome_vars = user_vars(u)
-        for k,v in welcome_vars.items():
+        for k, v in welcome_vars.items():
             welcome = welcome.replace(f"[{k}]", str(v))
         welcome = apply_premium_emojis(welcome)
     except Exception:
         pass
     is_adm = user and user.id == ADMIN_ID
-    target = update.message or update.callback_query.message
+    from handlers.wallet import main_user_keyboard
+    from database import get_setting_sync
+
+    # همیشه کیبورد دکمه‌ای (Reply) فعال باشد
+    reply_kb = main_user_keyboard(is_admin=is_adm, force_inline=False)
     await context.bot.send_message(
         user.id,
         welcome,
-        reply_markup=main_user_keyboard(is_admin=is_adm),
+        reply_markup=reply_kb,
         parse_mode="HTML",
     )
-    if is_adm:
+
+    # اگر منوی شیشه‌ای روشن است، یک پیام جدا با دکمه‌های اینلاین هم بفرست
+    if get_setting_sync("inline_main_menu", "0") == "1":
+        glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
+        await context.bot.send_message(
+            user.id,
+            "🎛 منوی سریع:",
+            reply_markup=glass,
+        )
+    elif is_adm:
         await context.bot.send_message(
             user.id,
             "⚙️ دسترسی ادمین فعال است.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ مدیریت", callback_data="admin_panel")]]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⚙️ مدیریت", callback_data="admin_panel")]]
+            ),
         )
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
