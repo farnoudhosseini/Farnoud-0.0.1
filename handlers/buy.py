@@ -45,7 +45,10 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bu = get_bot_user(user.id) or upsert_bot_user(user)
 
     if data == "buy_cancel":
-        await q.edit_message_text("خرید لغو شد.")
+        await q.edit_message_text(
+            "❌ خرید لغو شد.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
         return ConversationHandler.END
 
     if data.startswith("buy_panel_"):

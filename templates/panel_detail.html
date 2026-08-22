@@ -1,14 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ panel.name }} | فرنود
-<div class="card glass panel-limit-card">
-  <div class="card-title">سقف فروش این پنل</div>
-  <p class="muted">۰ یا خالی = بدون محدودیت. تعداد سفارش‌های فعال/تحویل‌شده این پنل کنترل می‌شود.</p>
-  <form method="post" action="{{ url_for('panel_settings', panel_id=panel.id) }}" class="inline-form">
-    <input type="number" min="0" name="max_sales" value="{{ panel.max_sales if panel.max_sales is not none else '' }}" placeholder="بدون محدودیت">
-    <button class="btn-primary inline" type="submit">ذخیره</button>
-  </form>
-</div>
-{% endblock %}
+{% block title %}{{ panel.name }} | فرنود{% endblock %}
 {% block content %}
 <div class="dashboard">
     {% include "_sidebar.html" %}
@@ -46,6 +37,29 @@
                         <div class="stat-value" style="font-size:0.85rem;color:var(--text-secondary)" id="liveUpdated">—</div>
                     </div>
                 </div>
+            </div>
+
+            <div class="card glass panel-limit-card">
+              <div class="card-title">سقف فروش این پنل</div>
+              <p class="muted">۰ یا خالی = بدون محدودیت. تعداد سفارش‌های فعال/تحویل‌شده این پنل کنترل می‌شود.</p>
+              <form method="post" action="{{ url_for('panel_settings', panel_id=panel.id) }}" class="inline-form">
+                <input type="number" min="0" name="max_sales" value="{{ panel.max_sales if panel.max_sales is not none else '' }}" placeholder="بدون محدودیت">
+                <button class="btn-primary inline" type="submit">ذخیره</button>
+              </form>
+            </div>
+
+            <div class="card glass">
+              <div class="card-title">روش تمدید سرویس</div>
+              <p class="muted">هنگام تمدید سرویس توسط کاربر، این روش اعمال می‌شود.</p>
+              <form method="post" action="{{ url_for('panel_settings', panel_id=panel.id) }}" class="inline-form">
+                <select name="renew_mode">
+                  <option value="reset_both" {% if panel.renew_mode == 'reset_both' or not panel.renew_mode %}selected{% endif %}>۱) ریست زمان و حجم</option>
+                  <option value="reset_time" {% if panel.renew_mode == 'reset_time' %}selected{% endif %}>۲) ریست زمان فقط</option>
+                  <option value="reset_volume" {% if panel.renew_mode == 'reset_volume' %}selected{% endif %}>۳) ریست حجم فقط</option>
+                  <option value="additive" {% if panel.renew_mode == 'additive' %}selected{% endif %}>۴) بدون ریست (افزایشی)</option>
+                </select>
+                <button class="btn-primary inline" type="submit">ذخیره</button>
+              </form>
             </div>
 
             <div id="liveError" class="card" style="{% if not error %}display:none;{% endif %}border-color:color-mix(in srgb, var(--error) 40%, transparent)">

@@ -81,8 +81,8 @@ document.getElementById('saveMenu').onclick=async()=>{
     callback:x.querySelector('.mi-callback').value||'menu_home',
     color:x.querySelector('.mi-color').value,
     enabled:x.querySelector('.mi-enabled').checked,
-    row:parseInt(x.querySelector('.mi-row')?.value||Math.floor(idx/3),10)||0,
-    col:parseInt(x.querySelector('.mi-col')?.value||(idx%3),10)||0
+    row:(()=>{const v=parseInt(x.querySelector('.mi-row')?.value,10);return Number.isFinite(v)?v:Math.floor(idx/3);})(),
+    col:(()=>{const v=parseInt(x.querySelector('.mi-col')?.value,10);return Number.isFinite(v)?v:(idx%3);})()
   }));
   const perRow=parseInt(document.getElementById('perRow').value||'3',10);
   const r=await fetch('{{ url_for("menu_buttons_manage") }}',{

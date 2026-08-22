@@ -281,10 +281,32 @@ def ensure_panel_max_sales():
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            try:
-                cur.execute("ALTER TABLE vpn_panels ADD COLUMN max_sales INT DEFAULT NULL")
-                conn.commit()
-            except Exception:
-                pass
+            for col, ddl in [
+                ("max_sales", "INT DEFAULT NULL"),
+                # renew_mode: reset_both | reset_time | reset_volume | additive
+                ("renew_mode", "VARCHAR(32) NOT NULL DEFAULT 'reset_both'"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE vpn_panels ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def set_panel_field(panel_id: int, field: str, value) -> bool:
+    allowed = {"max_sales", "renew_mode", "name", "is_active"}
+    if field not in allowed:
+        return False
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE vpn_panels SET {field}=%s WHERE id=%s", (value, panel_id))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        print(f"set_panel_field: {e}")
+        return False
     finally:
         conn.close()

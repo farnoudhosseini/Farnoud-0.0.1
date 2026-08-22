@@ -65,6 +65,7 @@ def panel_menu_keyboard(panel_id: int):
         [InlineKeyboardButton("👥 لیست کاربران VPN", callback_data=f"admin_pusers_{panel_id}")],
         [InlineKeyboardButton("➕ افزودن کاربر VPN", callback_data=f"admin_padduser_{panel_id}")],
         [InlineKeyboardButton("📦 سقف فروش", callback_data=f"admin_pmax_{panel_id}")],
+        [InlineKeyboardButton("♻️ روش تمدید", callback_data=f"admin_prenew_{panel_id}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panels")],
     ])
 
@@ -150,9 +151,44 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["admin_input_mode"]="panel_max"
         context.user_data["admin_panel_id"]=pid
         await query.edit_message_text(
-            f"📦 سقف فروش «{panel['name'] if panel else '—'}» را بفرستید.\n۰ = بدون محدودیت."
+            f"📦 سقف فروش «{panel['name'] if panel else '—'}» را بفرستید.\n۰ = بدون محدودیت.\n/cancel برای انصراف"
         )
         return WAITING_ADMIN_TEXT
+
+    if data.startswith("admin_prenew_"):
+        pid = int(data.replace("admin_prenew_", ""))
+        panel = get_panel_by_id(pid)
+        current = (panel or {}).get("renew_mode") or "reset_both"
+        labels = {
+            "reset_both": "ریست زمان و حجم",
+            "reset_time": "ریست زمان فقط",
+            "reset_volume": "ریست حجم فقط",
+            "additive": "بدون ریست (افزایشی)",
+        }
+        rows = [
+            [InlineKeyboardButton(f"{'✅ ' if current==k else ''}{v}", callback_data=f"admin_prenewset_{pid}_{k}")]
+            for k, v in labels.items()
+        ]
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_panel_{pid}")])
+        await query.edit_message_text(
+            f"♻️ روش تمدید پنل «{(panel or {}).get('name') or pid}»\n"
+            f"فعلی: <b>{labels.get(current, current)}</b>",
+            reply_markup=InlineKeyboardMarkup(rows),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_prenewset_"):
+        parts = data.replace("admin_prenewset_", "").split("_", 1)
+        pid, mode = int(parts[0]), parts[1]
+        from database import set_panel_field
+        set_panel_field(pid, "renew_mode", mode)
+        await query.edit_message_text(
+            f"✅ روش تمدید ذخیره شد: <code>{mode}</code>",
+            reply_markup=panel_menu_keyboard(pid),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
 
     if data.startswith("admin_pstats_"):
         pid = int(data.replace("admin_pstats_", ""))
@@ -326,15 +362,110 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    if data.startswith("admin_bc_"):
-        mode=data.replace("admin_bc_","")
-        context.user_data["admin_broadcast_mode"]=mode
-        context.user_data["admin_input_mode"]="broadcast"
+    if data.startswith("admin_bc_") and data in (
+        "admin_bc_all", "admin_bc_balance", "admin_bc_nobalance", "admin_bc_refs"
+    ):
+        mode = data.replace("admin_bc_", "")
+        context.user_data["admin_broadcast_mode"] = mode
+        context.user_data["admin_input_mode"] = "broadcast"
         await query.edit_message_text(
-            "📝 متن پیام را بفرستید.\n\nمی‌توانید از متغیرهای استاندارد پیام‌ها استفاده کنید. "
-            "در مرحله بعد، پین و دکمه اصلی قابل تنظیم است."
+            "📝 متن پیام همگانی را بفرستید.\n"
+            "کدهای p_xxxxxxxx به ایموجی پریمیوم تبدیل می‌شوند.\n\n"
+            "/cancel برای انصراف"
         )
         return WAITING_ADMIN_TEXT
+
+    # انتخاب پین در ارسال همگانی
+    if data in ("admin_bc_pin_yes", "admin_bc_pin_no"):
+        context.user_data["admin_bc_pin"] = data.endswith("_yes")
+        from db_extras import get_menu_buttons
+        items = [x for x in get_menu_buttons() if x.get("enabled", True)]
+        rows = [[InlineKeyboardButton("بدون دکمه", callback_data="admin_bc_btn_none")]]
+        for it in items[:20]:
+            label = (it.get("label") or it.get("key") or "?")[:40]
+            rows.append([InlineKeyboardButton(
+                f"📎 {label}",
+                callback_data=f"admin_bc_btn_{it.get('key') or it.get('callback')}",
+            )])
+        rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="admin_bc_btn_menu_home")])
+        rows.append([InlineKeyboardButton("❌ انصراف", callback_data="admin_panel")])
+        await query.edit_message_text(
+            "📎 دکمه‌ی قابل attach را از لیست انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_bc_btn_"):
+        btn_key = data.replace("admin_bc_btn_", "")
+        context.user_data["admin_bc_btn"] = btn_key
+        # اجرای ارسال
+        msg = context.user_data.pop("admin_broadcast_text", "")
+        bc = context.user_data.pop("admin_broadcast_mode", "all")
+        pin = context.user_data.pop("admin_bc_pin", False)
+        context.user_data.pop("admin_input_mode", None)
+        if not msg:
+            await query.edit_message_text("❌ متن پیام خالی است.", reply_markup=main_keyboard())
+            return ConversationHandler.END
+        from db_users import list_bot_users, count_referrals
+        from db_extras import apply_premium_emojis, get_menu_buttons, extract_premium_from_label
+        users, _ = list_bot_users(limit=100000)
+        body = apply_premium_emojis(msg)
+        kb = None
+        if btn_key and btn_key != "none":
+            if btn_key == "menu_home":
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
+            else:
+                items = get_menu_buttons()
+                match = next((x for x in items if (x.get("key") or x.get("callback")) == btn_key), None)
+                if match:
+                    raw = (match.get("label") or match.get("key") or "دکمه")[:40]
+                    clean, eid = extract_premium_from_label(raw)
+                    kwargs = {"text": clean or "•", "callback_data": match.get("callback") or "menu_home"}
+                    if eid:
+                        kwargs["icon_custom_emoji_id"] = eid
+                    try:
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton(**kwargs)]])
+                    except TypeError:
+                        kb = InlineKeyboardMarkup([[InlineKeyboardButton(kwargs["text"], callback_data=kwargs["callback_data"])]])
+                else:
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
+        import asyncio
+        sent = failed = 0
+        await query.edit_message_text("⏳ در حال ارسال...")
+        for u in users:
+            bal = int(u.get("balance") or 0)
+            try:
+                refs = count_referrals(u["telegram_id"])
+            except Exception:
+                refs = 0
+            if not (
+                bc == "all"
+                or (bc == "balance" and bal > 0)
+                or (bc == "nobalance" and bal <= 0)
+                or (bc == "refs" and refs > 0)
+            ):
+                continue
+            try:
+                m = await context.bot.send_message(
+                    u["telegram_id"], body, parse_mode="HTML", reply_markup=kb
+                )
+                if pin:
+                    try:
+                        await context.bot.pin_chat_message(
+                            u["telegram_id"], m.message_id, disable_notification=True
+                        )
+                    except Exception:
+                        pass
+                sent += 1
+            except Exception:
+                failed += 1
+            if (sent + failed) % 25 == 0:
+                await asyncio.sleep(0.35)
+        await query.edit_message_text(
+            f"✅ ارسال انجام شد.\nموفق: {sent}\nناموفق: {failed}",
+            reply_markup=main_keyboard(),
+        )
+        return ConversationHandler.END
 
     if data == "admin_web":
         from database import get_sync_connection
@@ -581,15 +712,31 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         lines = ["📦 <b>محصولات</b>\n"]
         for pr in products[:25]:
-            lines.append(f"• {pr['name']} — {int(pr['price']):,} ت — {pr.get('volume_gb')}GB / {pr.get('duration_days')}روز")
+            lines.append(f"• #{pr['id']} {pr['name']} — {int(pr['price']):,} ت — {pr.get('volume_gb')}GB / {pr.get('duration_days')}روز")
         if not products:
-            lines.append("محصولی نیست. از پنل وب اضافه کنید.")
+            lines.append("محصولی نیست.")
+        rows = [
+            [InlineKeyboardButton("➕ افزودن محصول", callback_data="admin_product_add")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+        ]
         await query.edit_message_text(
             "\n".join(lines),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            reply_markup=InlineKeyboardMarkup(rows),
             parse_mode="HTML",
         )
         return ConversationHandler.END
+
+    if data == "admin_product_add":
+        context.user_data["admin_input_mode"] = "product_add"
+        await query.edit_message_text(
+            "➕ محصول جدید\n"
+            "فرمت را بفرستید:\n"
+            "<code>نام | قیمت | حجم_گیگ | روز</code>\n"
+            "مثال: <code>پلن ۳۰ روزه | 150000 | 50 | 30</code>\n\n"
+            "/cancel برای انصراف",
+            parse_mode="HTML",
+        )
+        return WAITING_ADMIN_TEXT
 
     if data.startswith("adm_ord_ok_"):
         from db_products import get_order, update_order
@@ -851,6 +998,12 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not user or not is_admin(user.id):
         return ConversationHandler.END
     text=(update.message.text or "").strip()
+    if text.lower() in ("/cancel", "cancel", "انصراف"):
+        for k in list(context.user_data.keys()):
+            if k.startswith("admin_") or k in ("edit_msg_key", "ord_edit_id", "ord_edit_field"):
+                context.user_data.pop(k, None)
+        await update.message.reply_text("❌ لغو شد.", reply_markup=main_keyboard())
+        return ConversationHandler.END
     mode=context.user_data.pop("admin_input_mode",None)
 
     if mode=="search_users":
@@ -898,6 +1051,39 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✅ سقف فروش ذخیره شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥 پنل‌ها",callback_data="admin_panels")]]))
         return ConversationHandler.END
 
+    if mode == "product_add":
+        if text.lower() in ("/cancel", "cancel", "انصراف"):
+            context.user_data.pop("admin_input_mode", None)
+            await update.message.reply_text("❌ لغو شد.", reply_markup=main_keyboard())
+            return ConversationHandler.END
+        parts = [x.strip() for x in text.split("|")]
+        if len(parts) < 4:
+            await update.message.reply_text(
+                "فرمت: نام | قیمت | حجم_گیگ | روز\nمثال: پلن ۳۰ | 150000 | 50 | 30\n/cancel برای انصراف"
+            )
+            return WAITING_ADMIN_TEXT
+        try:
+            name, price, vol, days = parts[0], int(parts[1]), float(parts[2]), int(parts[3])
+        except Exception:
+            await update.message.reply_text("❌ قیمت/حجم/روز باید عدد باشند.")
+            return WAITING_ADMIN_TEXT
+        from db_products import create_product
+        try:
+            pid = create_product(
+                name=name, price=price, volume_gb=vol, duration_days=days
+            )
+            context.user_data.pop("admin_input_mode", None)
+            await update.message.reply_text(
+                f"✅ محصول #{pid} «{name}» اضافه شد.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📦 محصولات", callback_data="admin_products")],
+                    [InlineKeyboardButton("🏠 منوی اصلی", callback_data="admin_panel")],
+                ]),
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا: {e}")
+        return ConversationHandler.END
+
     if mode=="card_add":
         parts=[x.strip() for x in text.split("|")]
         if len(parts)<2 or not parts[0] or not parts[1]:
@@ -941,73 +1127,43 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✅ رمز وب‌پنل تغییر کرد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
         return ConversationHandler.END
 
-    if mode=="broadcast":
-        context.user_data["admin_broadcast_text"]=text
-        context.user_data["admin_input_mode"]="broadcast_opts"
-        await update.message.reply_text(
-            "⚙️ تنظیمات ارسال را بفرستید:\n"
-            "pin=1 برای پین کردن / pin=0 بدون پین\n"
-            "button=1 برای افزودن دکمه «منوی اصلی» / button=0 بدون دکمه\n"
-            "نمونه: pin=1 button=1"
-        )
-        return WAITING_ADMIN_TEXT
-
-    if mode=="broadcast_opts":
-        import re as _re
-        import asyncio
-        opts=dict(_re.findall(r"(pin|button)\s*=\s*(0|1)", text.lower()))
-        # اگر فقط عدد فرستاد یا خالی، پیش‌فرض بدون پین + با دکمه
-        pin = opts.get("pin", "0") == "1"
-        button = opts.get("button", "1") == "1" if opts else True
-        msg = context.user_data.pop("admin_broadcast_text", "")
-        bc = context.user_data.pop("admin_broadcast_mode", "all")
-        context.user_data.pop("admin_input_mode", None)
-        if not msg:
-            await update.message.reply_text("❌ متن پیام خالی است.")
+    if mode == "broadcast":
+        if text.lower() in ("/cancel", "cancel", "انصراف"):
+            context.user_data.pop("admin_input_mode", None)
+            context.user_data.pop("admin_broadcast_mode", None)
+            await update.message.reply_text(
+                "❌ ارسال همگانی لغو شد.",
+                reply_markup=main_keyboard(),
+            )
             return ConversationHandler.END
-        from db_users import list_bot_users, count_referrals
-        from db_extras import apply_premium_emojis
-        users, _ = list_bot_users(limit=100000)
-        body = apply_premium_emojis(msg)
-        kb = None
-        if button:
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
-        sent = 0
-        failed = 0
-        status = await update.message.reply_text("⏳ در حال ارسال...")
-        for u in users:
-            bal = int(u.get("balance") or 0)
-            try:
-                refs = count_referrals(u["telegram_id"])
-            except Exception:
-                refs = 0
-            if not (
-                bc == "all"
-                or (bc == "balance" and bal > 0)
-                or (bc == "nobalance" and bal <= 0)
-                or (bc == "refs" and refs > 0)
-            ):
-                continue
-            try:
-                m = await context.bot.send_message(
-                    u["telegram_id"], body, parse_mode="HTML", reply_markup=kb
-                )
-                if pin:
-                    try:
-                        await context.bot.pin_chat_message(
-                            u["telegram_id"], m.message_id, disable_notification=True
-                        )
-                    except Exception:
-                        pass
-                sent += 1
-            except Exception:
-                failed += 1
-            if (sent + failed) % 25 == 0:
-                await asyncio.sleep(0.35)
-        try:
-            await status.edit_text(f"✅ ارسال انجام شد.\nموفق: {sent}\nناموفق: {failed}")
-        except Exception:
-            await update.message.reply_text(f"✅ ارسال انجام شد.\nموفق: {sent}\nناموفق: {failed}")
+        context.user_data["admin_broadcast_text"] = text
+        context.user_data.pop("admin_input_mode", None)
+        await update.message.reply_text(
+            "📌 آیا پیام پین شود؟",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ پین شود", callback_data="admin_bc_pin_yes"),
+                    InlineKeyboardButton("❌ پین نشود", callback_data="admin_bc_pin_no"),
+                ],
+                [InlineKeyboardButton("🔙 انصراف", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    if mode == "broadcast_opts":
+        # سازگاری با ورودی متنی قدیمی — هدایت به فلو دکمه‌ای
+        context.user_data["admin_broadcast_text"] = context.user_data.get("admin_broadcast_text") or text
+        context.user_data.pop("admin_input_mode", None)
+        await update.message.reply_text(
+            "📌 آیا پیام پین شود؟",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ پین شود", callback_data="admin_bc_pin_yes"),
+                    InlineKeyboardButton("❌ پین نشود", callback_data="admin_bc_pin_no"),
+                ],
+                [InlineKeyboardButton("🔙 انصراف", callback_data="admin_panel")],
+            ]),
+        )
         return ConversationHandler.END
 
     await update.message.reply_text("ورودی نامعتبر است.")
@@ -1017,9 +1173,13 @@ async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_
     user = update.effective_user
     if not user or not is_admin(user.id):
         return ConversationHandler.END
-    new_message = update.message.text.strip()
+    new_message = (update.message.text or "").strip()
+    if new_message.lower() in ("/cancel", "cancel", "انصراف"):
+        context.user_data.pop("edit_msg_key", None)
+        await update.message.reply_text("❌ لغو شد.", reply_markup=main_keyboard())
+        return ConversationHandler.END
     if not new_message:
-        await update.message.reply_text("❌ پیام خالی است.")
+        await update.message.reply_text("❌ پیام خالی است.\n/cancel برای انصراف")
         return WAITING_WELCOME
     edit_key = context.user_data.pop("edit_msg_key", None)
     if edit_key:

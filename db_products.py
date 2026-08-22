@@ -321,7 +321,8 @@ def get_order(oid: int):
 
 def update_order(oid: int, **fields):
     allowed = {"status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
-               "wallet_used", "pay_amount"}
+               "wallet_used", "pay_amount", "custom_name", "is_hourly", "hourly_rate", "hourly_active",
+               "volume_gb_override", "duration_days_override", "expire_at", "panel_id", "product_id"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -354,6 +355,7 @@ def ensure_service_mgmt_columns():
                 ("volume_gb_override", "DECIMAL(12,2) DEFAULT NULL"),
                 ("duration_days_override", "INT DEFAULT NULL"),
                 ("expire_at", "TIMESTAMP NULL DEFAULT NULL"),
+                ("custom_name", "VARCHAR(100) DEFAULT NULL"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
@@ -439,7 +441,7 @@ def update_order(oid: int, **fields):
         "status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
         "wallet_used", "pay_amount", "is_hourly", "hourly_rate", "hourly_active",
         "hourly_started_at", "hourly_last_charge_at", "volume_gb_override",
-        "duration_days_override", "expire_at",
+        "duration_days_override", "expire_at", "custom_name", "panel_id", "product_id",
     }
     sets, vals = [], []
     for k, v in fields.items():

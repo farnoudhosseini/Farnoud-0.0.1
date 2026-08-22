@@ -942,6 +942,18 @@ def panel_settings(panel_id):
     if not panel:
         flash("پنل یافت نشد", "error")
         return redirect(url_for("panels_list"))
+    from database import get_sync_connection
+    renew_mode = (request.form.get("renew_mode") or "").strip()
+    if renew_mode in ("reset_both", "reset_time", "reset_volume", "additive"):
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE vpn_panels SET renew_mode=%s WHERE id=%s", (renew_mode, panel_id))
+                conn.commit()
+        finally:
+            conn.close()
+        flash("روش تمدید ذخیره شد", "success")
+        return redirect(url_for("panel_detail", slug=panel["slug"]))
     raw = (request.form.get("max_sales") or "").strip()
     try:
         max_sales = int(raw) if raw else None
@@ -950,7 +962,6 @@ def panel_settings(panel_id):
     except ValueError:
         flash("سقف فروش نامعتبر است", "error")
         return redirect(url_for("panel_detail", slug=panel["slug"]))
-    from database import get_sync_connection
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:

@@ -22,7 +22,8 @@ from handlers.buy import start_buy, buy_callback, receive_buy_receipt, WAITING_B
 from handlers.services_user import (
     show_my_services, services_callback, show_support, support_callback,
     receive_ticket_subject, receive_ticket_msg, receive_ticket_reply, show_education,
-    WAITING_TICKET_SUBJECT, WAITING_TICKET_MSG, WAITING_TICKET_REPLY,
+    receive_rename,
+    WAITING_TICKET_SUBJECT, WAITING_TICKET_MSG, WAITING_TICKET_REPLY, WAITING_RENAME,
 )
 from db_support import ensure_support_tables
 from handlers.wallet import (
@@ -206,12 +207,31 @@ def create_bot() -> Application:
             WAITING_TICKET_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_msg)],
             WAITING_TICKET_REPLY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_reply)],
         },
-        fallbacks=[CommandHandler("start", start_command)],
+        fallbacks=[
+            CommandHandler("start", start_command),
+            CommandHandler("cancel", start_command),
+        ],
         allow_reentry=True,
         per_message=False,
     )
     application.add_handler(support_conv)
     application.add_handler(CallbackQueryHandler(support_callback, pattern="^sup_"))
+
+    rename_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(services_callback, pattern="^svc_rename_")],
+        states={
+            WAITING_RENAME: [
+                MessageHandler(filters.TEXT, receive_rename),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("start", start_command),
+            CommandHandler("cancel", start_command),
+        ],
+        allow_reentry=True,
+        per_message=False,
+    )
+    application.add_handler(rename_conv)
     application.add_handler(CallbackQueryHandler(services_callback, pattern="^svc_"))
 
     application.add_handler(wallet_conv)
@@ -220,16 +240,17 @@ def create_bot() -> Application:
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_card_add|admin_pmax_|admin_referral|admin_ref_|admin_welcome)"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome)"),
         ],
         states={
-            WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],
-            WAITING_USER_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_user_field)],
-            WAITING_ADMIN_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_admin_text)],
+            WAITING_WELCOME: [MessageHandler(filters.TEXT, receive_welcome_message)],
+            WAITING_USER_FIELD: [MessageHandler(filters.TEXT, receive_user_field)],
+            WAITING_ADMIN_TEXT: [MessageHandler(filters.TEXT, receive_admin_text)],
         },
         fallbacks=[
             CallbackQueryHandler(admin_callback, pattern="^admin_"),
             CommandHandler("start", start_command),
+            CommandHandler("cancel", admin_panel),
             CommandHandler("admin", admin_panel),
         ],
         allow_reentry=True,

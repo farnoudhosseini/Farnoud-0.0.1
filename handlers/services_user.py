@@ -16,6 +16,7 @@ import io
 from datetime import datetime, timedelta, timezone
 
 WAITING_TICKET_MSG = 31
+WAITING_RENAME = 32
 
 def _panel_creds(o: dict):
     base = o.get("base_url") or o.get("panel_base") or ""
@@ -37,7 +38,7 @@ def service_card_keyboard(order_id: int):
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"svc_refresh_{order_id}"),
-            InlineKeyboardButton("🔄 تمدید خودکار", callback_data=f"svc_renew_{order_id}"),
+            InlineKeyboardButton("♻️ تمدید سرویس", callback_data=f"svc_renewmenu_{order_id}"),
         ],
         [
             InlineKeyboardButton("🔐 بازنشانی اشتراک", callback_data=f"svc_reset_{order_id}"),
@@ -48,11 +49,15 @@ def service_card_keyboard(order_id: int):
             InlineKeyboardButton("🌍 تغییر لوکیشن", callback_data=f"svc_loc_{order_id}"),
         ],
         [
+            InlineKeyboardButton("✏️ تغییر نام", callback_data=f"svc_rename_{order_id}"),
             InlineKeyboardButton("⚠️ گزارش اختلال", callback_data=f"svc_report_{order_id}"),
-            InlineKeyboardButton("💸 بازگشت وجه", callback_data=f"svc_refund_{order_id}"),
         ],
-        [InlineKeyboardButton("⏯ خاموش/روشن ساعتی", callback_data=f"svc_htoggle_{order_id}")],
+        [
+            InlineKeyboardButton("💸 بازگشت وجه", callback_data=f"svc_refund_{order_id}"),
+            InlineKeyboardButton("⏯ ساعتی", callback_data=f"svc_htoggle_{order_id}"),
+        ],
         [InlineKeyboardButton("🔙 لیست سرویس‌ها", callback_data="svc_list")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
     ])
 
 
@@ -166,9 +171,10 @@ async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for o in orders:
         product = o.get("product_name") or "محصول"
         uname = o.get("vpn_username") or f"#{o['id']}"
-        # «نام سرویس» - نام محصول
-        label = f"{uname} - {product}"
+        cname = (o.get("custom_name") or "").strip()
+        label = f"{cname} ({uname})" if cname else f"{uname} - {product}"
         rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_open_{o['id']}")])
+    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = "📱 سرویس‌های من\nسرویس خریداری‌شده را انتخاب کنید:"
     kb = InlineKeyboardMarkup(rows)
     if update.callback_query:
@@ -281,6 +287,33 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(f"❌ خطا: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
+    # ---- منوی تمدید: لیست پلن‌های همان پنل ----
+    if data.startswith("svc_renewmenu_"):
+        oid = int(data.replace("svc_renewmenu_", ""))
+        o = get_user_order(oid, user.id)
+        if not o or not o.get("vpn_username"):
+            await q.edit_message_text("اکانت نیست.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        panel_id = o.get("panel_id")
+        from db_products import list_products
+        bu = get_bot_user(user.id) or {}
+        products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True) if panel_id else []
+        if not products:
+            products = list_products(active_only=True, role=bu.get("role"))
+        if not products:
+            await q.edit_message_text("پلنی برای تمدید تعریف نشده.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        rows = []
+        for pr in products:
+            label = f"{pr['name']} — {int(pr.get('price') or 0):,} ت / {pr.get('volume_gb')}GB / {pr.get('duration_days')}روز"
+            rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_plan_{oid}_{pr['id']}")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"svc_open_{oid}")])
+        await q.edit_message_text(
+            "♻️ پلن تمدید را انتخاب کنید:\n(بر اساس تنظیم روش تمدید پنل اعمال می‌شود)",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return ConversationHandler.END
+
     if data.startswith("svc_plan_"):
         # svc_plan_{orderId}_{productId}
         parts = data.replace("svc_plan_", "").split("_")
@@ -298,92 +331,127 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if price > balance:
             await q.edit_message_text(f"موجودی کم است. نیاز: {price:,}", reply_markup=service_card_keyboard(oid))
             return ConversationHandler.END
+        # روش تمدید از پنل
+        renew_mode = "reset_both"
+        try:
+            from database import get_panel_by_id
+            panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
+            if panel and panel.get("renew_mode"):
+                renew_mode = panel["renew_mode"]
+        except Exception:
+            pass
         try:
             if price > 0:
                 add_balance(user.id, -price, f"renew_plan#{oid}")
             client = _client(o)
             uname = o["vpn_username"]
-            from datetime import datetime, timedelta, timezone
-            new_exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-            payload = {"expire": new_exp, "status": "active", "data_limit": int(volume * 1024**3) if volume > 0 else 0}
+            full = {}
             try:
-                client._request("POST", f"/api/user/{uname}/reset")
+                full = client.get_user(uname) or {}
             except Exception:
-                pass
+                full = {}
+            now = datetime.now(timezone.utc)
+            payload = {"status": "active"}
+            # زمان
+            if renew_mode in ("reset_both", "reset_time"):
+                new_exp = (now + timedelta(days=days)).isoformat()
+                payload["expire"] = new_exp
+            elif renew_mode in ("additive",):
+                exp = full.get("expire")
+                base_dt = now
+                if exp:
+                    try:
+                        if isinstance(exp, (int, float)) and exp > 0:
+                            ts = int(exp)
+                            if ts > 1e12:
+                                ts = ts // 1000
+                            base_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                        else:
+                            base_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                        if base_dt.tzinfo is None:
+                            base_dt = base_dt.replace(tzinfo=timezone.utc)
+                        if base_dt < now:
+                            base_dt = now
+                    except Exception:
+                        base_dt = now
+                payload["expire"] = (base_dt + timedelta(days=days)).isoformat()
+            # حجم
+            if renew_mode in ("reset_both", "reset_volume"):
+                if volume > 0:
+                    payload["data_limit"] = int(volume * 1024 ** 3)
+                else:
+                    payload["data_limit"] = 0
+            elif renew_mode == "additive" and volume > 0:
+                current_limit = float(full.get("data_limit") or 0)
+                payload["data_limit"] = int(current_limit + volume * 1024 ** 3)
+            # ریست مصرف در حالت‌های ریست حجم/هر دو
+            if renew_mode in ("reset_both", "reset_volume"):
+                try:
+                    client._request("POST", f"/api/user/{uname}/reset")
+                except Exception:
+                    pass
             client.modify_user(uname, payload)
+            mode_labels = {
+                "reset_both": "ریست زمان و حجم",
+                "reset_time": "ریست زمان فقط",
+                "reset_volume": "ریست حجم فقط",
+                "additive": "افزایشی (بدون ریست)",
+            }
             await q.edit_message_text(
-                f"✅ تمدید با پلن «{product['name']}» انجام شد.\n{days} روز / {volume} GB / {price:,} تومان",
+                f"✅ تمدید با پلن «{product['name']}» انجام شد.\n"
+                f"{days} روز / {volume} GB / {price:,} تومان\n"
+                f"روش: {mode_labels.get(renew_mode, renew_mode)}",
                 reply_markup=service_card_keyboard(oid),
             )
+            log_activity(user.id, "renew_plan", f"{oid}:{pid}")
         except Exception as e:
             if price > 0:
-                try: add_balance(user.id, price, f"renew_plan_refund#{oid}")
-                except Exception: pass
+                try:
+                    add_balance(user.id, price, f"renew_plan_refund#{oid}")
+                except Exception:
+                    pass
             await q.edit_message_text(f"❌ {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
-    if data.startswith("svc_renew_"):
+    # سازگاری با callback قدیمی → منوی تمدید
+    if data.startswith("svc_renew_") and not data.startswith("svc_renewmenu_"):
         oid = _oid("svc_renew_")
-
+        # همان منطق منوی تمدید
         o = get_user_order(oid, user.id)
         if not o or not o.get("vpn_username"):
             await q.edit_message_text("اکانت نیست.", reply_markup=back_main_kb())
             return ConversationHandler.END
-        product = get_product(o["product_id"]) if o.get("product_id") else None
-        price = int((product or {}).get("price") or o.get("amount") or 0)
-        days = int((product or {}).get("duration_days") or o.get("duration_days") or 30)
-        volume = float((product or {}).get("volume_gb") or o.get("volume_gb") or 0)
-        bu = get_bot_user(user.id)
-        balance = int((bu or {}).get("balance") or 0)
-        if price > 0 and balance < price:
-            await q.edit_message_text(
-                f"موجودی کافی نیست.\nقیمت تمدید: {price:,} تومان\nموجودی: {balance:,}\nاز کیف پول شارژ کنید.",
-                reply_markup=service_card_keyboard(oid),
-            )
-            return ConversationHandler.END
-        try:
-            if price > 0:
-                add_balance(user.id, -price, f"renew#{oid}")
-            client = _client(o)
-            uname = o["vpn_username"]
-            full = client.get_user(uname)
-            # extend expire
-            exp = full.get("expire")
-            now = datetime.now(timezone.utc)
-            base_dt = now
-            if exp:
-                try:
-                    if isinstance(exp, (int, float)) and exp > 0:
-                        base_dt = datetime.fromtimestamp(int(exp), tz=timezone.utc)
-                    else:
-                        base_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-                    if base_dt < now:
-                        base_dt = now
-                except Exception:
-                    base_dt = now
-            new_exp = (base_dt + timedelta(days=days)).isoformat()
-            payload = {"expire": new_exp, "status": "active"}
-            if volume > 0:
-                payload["data_limit"] = int(volume * 1024 ** 3)
-            # reset usage optional
-            try:
-                client._request("POST", f"/api/user/{uname}/reset")
-            except Exception:
-                pass
-            client.modify_user(uname, payload)
-            await q.edit_message_text(
-                f"✅ سرویس {days} روز تمدید شد.\nمبلغ کسرشده: {price:,} تومان",
-                reply_markup=service_card_keyboard(oid),
-            )
-            log_activity(user.id, "renew", str(oid))
-        except Exception as e:
-            if price > 0:
-                try:
-                    add_balance(user.id, price, f"renew_refund#{oid}")
-                except Exception:
-                    pass
-            await q.edit_message_text(f"❌ تمدید ناموفق: {e}", reply_markup=service_card_keyboard(oid))
+        panel_id = o.get("panel_id")
+        from db_products import list_products
+        bu = get_bot_user(user.id) or {}
+        products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True) if panel_id else []
+        if not products:
+            products = list_products(active_only=True, role=bu.get("role"))
+        rows = []
+        for pr in products:
+            label = f"{pr['name']} — {int(pr.get('price') or 0):,} ت / {pr.get('volume_gb')}GB / {pr.get('duration_days')}روز"
+            rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_plan_{oid}_{pr['id']}")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"svc_open_{oid}")])
+        await q.edit_message_text(
+            "♻️ پلن تمدید را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
         return ConversationHandler.END
+
+    # ---- تغییر نام سرویس ----
+    if data.startswith("svc_rename_"):
+        oid = int(data.replace("svc_rename_", ""))
+        o = get_user_order(oid, user.id)
+        if not o:
+            await q.edit_message_text("سرویس پیدا نشد.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        context.user_data["rename_order_id"] = oid
+        await q.edit_message_text(
+            "✏️ نام دلخواه سرویس را بفرستید.\n"
+            "نام نباید تکراری باشد.\n\n"
+            "/cancel برای انصراف · /skip برای حذف نام سفارشی",
+        )
+        return WAITING_RENAME
 
 
     # ---- توقف سرویس ساعتی ----
@@ -722,6 +790,53 @@ async def receive_ticket_msg(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         pass
     return ConversationHandler.END
+
+async def receive_rename(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت نام سفارشی سرویس"""
+    user = update.effective_user
+    text = (update.message.text or "").strip()
+    oid = context.user_data.get("rename_order_id")
+    if not oid:
+        await update.message.reply_text("جلسه منقضی شد.", reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]
+        ))
+        return ConversationHandler.END
+    if text.lower() in ("/cancel", "cancel", "انصراف"):
+        context.user_data.pop("rename_order_id", None)
+        await update.message.reply_text(
+            "❌ تغییر نام لغو شد.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
+        return ConversationHandler.END
+    if text.lower() in ("/skip", "skip"):
+        from db_products import update_order
+        update_order(oid, custom_name=None)
+        context.user_data.pop("rename_order_id", None)
+        await update.message.reply_text(
+            "✅ نام سفارشی حذف شد.",
+            reply_markup=service_card_keyboard(oid),
+        )
+        return ConversationHandler.END
+    name = text[:80]
+    # بررسی تکراری بودن برای همین کاربر
+    from db_support import list_user_orders
+    others = list_user_orders(user.id)
+    for o in others:
+        if o["id"] != oid and (o.get("custom_name") or "").strip() == name:
+            await update.message.reply_text(
+                "❌ این نام قبلاً برای سرویس دیگری استفاده شده. نام دیگری بفرستید:\n/cancel برای انصراف"
+            )
+            return WAITING_RENAME
+    from db_products import update_order
+    update_order(oid, custom_name=name)
+    context.user_data.pop("rename_order_id", None)
+    await update.message.reply_text(
+        f"✅ نام سرویس به «{name}» تغییر کرد.",
+        reply_markup=service_card_keyboard(oid),
+    )
+    log_activity(user.id, "rename_service", f"{oid}:{name}")
+    return ConversationHandler.END
+
 
 # aliases for bot.py imports
 async def receive_ticket_subject(update, context):
