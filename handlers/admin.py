@@ -14,9 +14,9 @@ def is_admin(user_id: int) -> bool:
 
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 تنظیم پیام خوش‌آمد", callback_data="set_welcome")],
-        [InlineKeyboardButton("📄 مشاهده پیام فعلی", callback_data="admin_view_welcome")],
+        [InlineKeyboardButton("📝 تنظیم پیام‌های ربات", callback_data="admin_msgs")],
         [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
+        [InlineKeyboardButton("📦 محصولات", callback_data="admin_products")],
         [InlineKeyboardButton("👥 کاربران ربات", callback_data="admin_bot_users")],
         [InlineKeyboardButton("💳 کارت‌ها / پرداخت", callback_data="admin_cards")],
         [InlineKeyboardButton("🧾 درخواست‌های شارژ", callback_data="admin_charges")],
@@ -390,6 +390,12 @@ async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_
     if not new_message:
         await update.message.reply_text("❌ پیام خالی است.")
         return WAITING_WELCOME
+    edit_key = context.user_data.pop("edit_msg_key", None)
+    if edit_key:
+        from db_users import set_template
+        set_template(edit_key, new_message)
+        await update.message.reply_text(f"✅ پیام <code>{edit_key}</code> ذخیره شد.", reply_markup=main_keyboard(), parse_mode="HTML")
+        return ConversationHandler.END
     await set_setting("welcome_message", new_message)
     await update.message.reply_text("✅ ذخیره شد.", reply_markup=main_keyboard(), parse_mode="HTML")
     return ConversationHandler.END

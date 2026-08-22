@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{% if mode=='add' %}محصول جدید{% else %}ویرایش محصول{% endif %}{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>{% if mode=='add' %}محصول جدید{% else %}ویرایش{% endif %}</h2>
+<a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="card" style="max-width:640px">
+<form method="post">
+<div class="form-group"><label>نام محصول *</label>
+<input name="name" required value="{{ product.name if product else '' }}"></div>
+<div class="form-group"><label>دسته‌بندی</label>
+<select name="category_id" class="form-select">
+<option value="">— بدون دسته —</option>
+{% for c in categories %}
+<option value="{{ c.id }}" {% if product and product.category_id==c.id %}selected{% endif %}>{{ c.name }}</option>
+{% endfor %}
+</select></div>
+<div class="form-group"><label>قیمت (تومان)</label>
+<input type="number" name="price" min="0" value="{{ product.price if product else 0 }}"></div>
+<div class="form-group"><label>حجم (گیگابایت)</label>
+<input type="number" step="0.1" name="volume_gb" value="{{ product.volume_gb if product else 0 }}"></div>
+<div class="form-group"><label>مدت (روز)</label>
+<input type="number" name="duration_days" value="{{ product.duration_days if product else 30 }}"></div>
+<div class="form-group"><label>نوع کاربر هدف</label>
+<select name="target_role" class="form-select">
+{% for k,v in roles.items() %}
+<option value="{{ k }}" {% if product and product.target_role==k %}selected{% endif %}>{{ v }}</option>
+{% endfor %}
+</select></div>
+<div class="form-group"><label>پنل‌های مرتبط</label>
+<div class="checkbox-list">
+{% set selected = product.panel_ids if product else [] %}
+{% for pan in panels %}
+<label class="check-item">
+<input type="checkbox" name="panel_ids" value="{{ pan.id }}" {% if pan.id in selected %}checked{% endif %}>
+{{ pan.name }}
+</label>
+{% else %}<span style="color:var(--text-tertiary)">ابتدا پنل VPN اضافه کنید</span>{% endfor %}
+</div></div>
+<div class="form-group"><label>توضیحات (فاکتور)</label>
+<textarea name="description" rows="3">{{ product.description if product and product.description else '' }}</textarea></div>
+{% if mode=='edit' %}
+<div class="form-group"><label><input type="checkbox" name="is_active" value="1" {% if product.is_active %}checked{% endif %}> فعال</label></div>
+{% endif %}
+<button class="btn-primary inline" type="submit">ذخیره</button>
+</form>
+</div></div></main></div>
+{% endblock %}

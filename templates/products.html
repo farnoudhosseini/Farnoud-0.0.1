@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}محصولات{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar">
+<h2>محصولات</h2>
+<a href="{{ url_for('products_add') }}" class="btn-primary inline">+ محصول جدید</a>
+</header>
+<div class="content">
+{% if products %}
+<div class="card" style="padding:0;overflow:auto">
+<table class="data-table">
+<thead><tr><th>ردیف</th><th>نام</th><th>دسته</th><th>قیمت</th><th>حجم</th><th>روز</th><th>نقش</th><th>پنل‌ها</th><th></th></tr></thead>
+<tbody>
+{% for p in products %}
+<tr>
+<td>{{ p.sort_order }}</td>
+<td><strong>{{ p.name }}</strong></td>
+<td>{{ p.category_name or '—' }}</td>
+<td>{{ "{:,.0f}".format(p.price) }}</td>
+<td>{{ p.volume_gb }} GB</td>
+<td>{{ p.duration_days }}</td>
+<td>{{ roles.get(p.target_role, p.target_role) }}</td>
+<td>{% for x in p.panels %}{{ x.name }}{% if not loop.last %}، {% endif %}{% else %}—{% endfor %}</td>
+<td class="actions">
+<form method="post" action="{{ url_for('products_move', pid=p.id, direction='up') }}" style="display:inline"><button class="btn-ghost" type="submit">↑</button></form>
+<form method="post" action="{{ url_for('products_move', pid=p.id, direction='down') }}" style="display:inline"><button class="btn-ghost" type="submit">↓</button></form>
+<a href="{{ url_for('products_edit', pid=p.id) }}">ویرایش</a>
+<form method="post" action="{{ url_for('products_delete', pid=p.id) }}" style="display:inline" onsubmit="return confirm('حذف؟')">
+<button type="submit" class="link-danger">حذف</button></form>
+</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div class="empty"><h3>محصولی نیست</h3>
+<a href="{{ url_for('products_add') }}" class="btn-primary inline" style="margin-top:12px;display:inline-block">+ افزودن</a></div>
+{% endif %}
+</div></main></div>
+{% endblock %}

@@ -2,19 +2,26 @@
 {% block title %}درخواست شارژ{% endblock %}
 {% block content %}
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
-<header class="topbar"><h2>درخواست‌های در انتظار</h2></header>
+<header class="topbar"><h2>درخواست‌های شارژ</h2></header>
 <div class="content">
 {% for ch in pending %}
-<div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+<div class="card">
+<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px">
 <div>
 <strong>#{{ ch.id }}</strong> — کاربر <code>{{ ch.telegram_id }}</code>
 — {{ "{:,.0f}".format(ch.amount) }} تومان
 <div style="font-size:0.8rem;color:var(--text-tertiary)">{{ ch.created_at }}</div>
+{% if ch.receipt_file_id %}
+<p class="card-desc" style="margin-top:8px">شناسه فایل رسید تلگرام: <code>{{ ch.receipt_file_id }}</code></p>
+<p class="card-desc">برای مشاهده تصویر، در ربات ادمین روی پیام رسید همان فاکتور ببینید (فایل در تلگرام ذخیره شده).</p>
+{% endif %}
 </div>
-<div style="display:flex;gap:8px">
+<div style="display:flex;gap:8px;align-items:start">
 <form method="post" action="{{ url_for('charge_approve', cid=ch.id) }}"><button class="btn-primary inline" type="submit">تایید</button></form>
 <form method="post" action="{{ url_for('charge_reject', cid=ch.id) }}"><button class="btn-danger" type="submit">رد</button></form>
-</div></div>
-{% else %}<div class="empty"><p>موردی نیست</p></div>{% endfor %}
+</div>
+</div>
+</div>
+{% else %}<div class="empty"><h3>موردی نیست</h3></div>{% endfor %}
 </div></main></div>
 {% endblock %}

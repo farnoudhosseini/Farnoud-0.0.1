@@ -6,20 +6,57 @@
         <span class="brand-text">فرنود</span>
     </div>
     <nav class="nav">
-        <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'dashboard' %}active{% endif %}">
-            <span>داشبورد</span>
-        </a>
-        <div class="nav-label">ربات</div>
-        <a href="{{ url_for('bot_messages') }}" class="nav-item {% if active == 'bot_messages' %}active{% endif %}"><span>پیام خوش‌آمد</span></a>
-        <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active == 'messages' %}active{% endif %}"><span>پیام‌های کیف پول</span></a>
-        <a href="{{ url_for('bot_users_list') }}" class="nav-item {% if active == 'bot_users' %}active{% endif %}"><span>کاربران ربات</span></a>
-        <div class="nav-label">پرداخت</div>
-        <a href="{{ url_for('cards_manage') }}" class="nav-item {% if active == 'cards' %}active{% endif %}"><span>کارت‌ها</span></a>
-        <a href="{{ url_for('charges_list') }}" class="nav-item {% if active == 'charges' %}active{% endif %}"><span>درخواست شارژ</span></a>
-        <a href="{{ url_for('gifts_manage') }}" class="nav-item {% if active == 'gifts' %}active{% endif %}"><span>کد هدیه</span></a>
-        <div class="nav-label">VPN</div>
-        <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><span>مدیریت پنل‌ها</span></a>
-        <div class="nav-label">سیستم</div>
+        <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'dashboard' %}active{% endif %}"><span>داشبورد</span></a>
+
+        <div class="nav-group {% if active in ['bot_messages','messages'] %}open{% endif %}" data-group="msgs">
+            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
+                <span>پیام‌های ربات</span><span class="chevron">▼</span>
+            </button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('bot_messages') }}" class="nav-item {% if active == 'bot_messages' %}active{% endif %}"><span>خوش‌آمدگویی</span></a>
+                <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active == 'messages' %}active{% endif %}"><span>تنظیم همه پیام‌ها</span></a>
+            </div>
+        </div>
+
+        <div class="nav-group {% if active in ['bot_users'] %}open{% endif %}" data-group="users">
+            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
+                <span>کاربران</span><span class="chevron">▼</span>
+            </button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('bot_users_list') }}" class="nav-item {% if active == 'bot_users' %}active{% endif %}"><span>کاربران ربات</span></a>
+            </div>
+        </div>
+
+        <div class="nav-group {% if active in ['cards','charges','gifts'] %}open{% endif %}" data-group="pay">
+            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
+                <span>مدیریت پرداخت‌ها</span><span class="chevron">▼</span>
+            </button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('cards_manage') }}" class="nav-item {% if active == 'cards' %}active{% endif %}"><span>کارت‌ها</span></a>
+                <a href="{{ url_for('charges_list') }}" class="nav-item {% if active == 'charges' %}active{% endif %}"><span>درخواست شارژ</span></a>
+                <a href="{{ url_for('gifts_manage') }}" class="nav-item {% if active == 'gifts' %}active{% endif %}"><span>کد هدیه</span></a>
+            </div>
+        </div>
+
+        <div class="nav-group {% if active in ['products','categories'] %}open{% endif %}" data-group="prod">
+            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
+                <span>محصولات</span><span class="chevron">▼</span>
+            </button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('products_list') }}" class="nav-item {% if active == 'products' %}active{% endif %}"><span>لیست محصولات</span></a>
+                <a href="{{ url_for('categories_list') }}" class="nav-item {% if active == 'categories' %}active{% endif %}"><span>دسته‌بندی‌ها</span></a>
+            </div>
+        </div>
+
+        <div class="nav-group {% if active == 'panels' %}open{% endif %}" data-group="vpn">
+            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
+                <span>پنل‌های VPN</span><span class="chevron">▼</span>
+            </button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><span>مدیریت پنل‌ها</span></a>
+            </div>
+        </div>
+
         <a href="{{ url_for('personalize') }}" class="nav-item {% if active == 'personalize' %}active{% endif %}"><span>شخصی‌سازی</span></a>
     </nav>
     <div class="sidebar-footer">
@@ -30,6 +67,6 @@
                 <span class="role">مدیر</span>
             </div>
         </div>
-        <a href="{{ url_for('logout') }}" class="btn-logout" title="خروج">خروج</a>
+        <a href="{{ url_for('logout') }}" class="btn-logout">خروج</a>
     </div>
 </aside>

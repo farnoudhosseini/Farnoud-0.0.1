@@ -8,6 +8,11 @@ from database import (
     list_panels, get_panel_by_id, get_panel_by_slug, create_panel,
     update_panel_status, delete_panel,
 )
+from db_products import (
+    ensure_product_tables, list_categories, add_category, update_category, delete_category,
+    list_products, get_product, create_product, update_product, delete_product, move_product,
+    ROLE_OPTIONS as PRODUCT_ROLES,
+)
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
 from db_users import (
     ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
@@ -23,6 +28,7 @@ app.secret_key = SECRET_KEY
 try:
     ensure_tables_sync()
     ensure_user_tables()
+    ensure_product_tables()
 except Exception:
     pass
 
@@ -457,6 +463,108 @@ def gifts_manage():
         "gifts.html",
         username=session.get("admin_username"), active="gifts",
         codes=list_gift_codes(),
+    )
+
+
+
+# ---------- محصولات ----------
+@app.route("/products")
+@login_required
+def products_list():
+    return render_template(
+        "products.html",
+        username=session.get("admin_username"), active="products",
+        products=list_products(), roles=PRODUCT_ROLES,
+    )
+
+@app.route("/products/add", methods=["GET", "POST"])
+@login_required
+def products_add():
+    from database import list_panels
+    panels = list_panels()
+    cats = list_categories()
+    if request.method == "POST":
+        panel_ids = request.form.getlist("panel_ids")
+        cat = request.form.get("category_id") or None
+        create_product(
+            name=request.form.get("name", "").strip(),
+            price=int(request.form.get("price") or 0),
+            volume_gb=float(request.form.get("volume_gb") or 0),
+            duration_days=int(request.form.get("duration_days") or 30),
+            target_role=request.form.get("target_role") or "all",
+            category_id=int(cat) if cat else None,
+            description=request.form.get("description") or None,
+            panel_ids=panel_ids,
+        )
+        flash("محصول اضافه شد", "success")
+        return redirect(url_for("products_list"))
+    return render_template(
+        "product_form.html",
+        username=session.get("admin_username"), active="products",
+        mode="add", product=None, panels=panels, categories=cats, roles=PRODUCT_ROLES,
+    )
+
+@app.route("/products/<int:pid>/edit", methods=["GET", "POST"])
+@login_required
+def products_edit(pid):
+    from database import list_panels
+    product = get_product(pid)
+    if not product:
+        flash("یافت نشد", "error")
+        return redirect(url_for("products_list"))
+    panels = list_panels()
+    cats = list_categories()
+    if request.method == "POST":
+        cat = request.form.get("category_id") or None
+        update_product(
+            pid,
+            panel_ids=request.form.getlist("panel_ids"),
+            name=request.form.get("name", "").strip(),
+            price=int(request.form.get("price") or 0),
+            volume_gb=float(request.form.get("volume_gb") or 0),
+            duration_days=int(request.form.get("duration_days") or 30),
+            target_role=request.form.get("target_role") or "all",
+            category_id=int(cat) if cat else None,
+            description=request.form.get("description") or None,
+            is_active=1 if request.form.get("is_active") == "1" else 0,
+        )
+        flash("ذخیره شد", "success")
+        return redirect(url_for("products_list"))
+    return render_template(
+        "product_form.html",
+        username=session.get("admin_username"), active="products",
+        mode="edit", product=product, panels=panels, categories=cats, roles=PRODUCT_ROLES,
+    )
+
+@app.route("/products/<int:pid>/delete", methods=["POST"])
+@login_required
+def products_delete(pid):
+    delete_product(pid)
+    flash("حذف شد", "success")
+    return redirect(url_for("products_list"))
+
+@app.route("/products/<int:pid>/move/<direction>", methods=["POST"])
+@login_required
+def products_move(pid, direction):
+    move_product(pid, direction)
+    return redirect(url_for("products_list"))
+
+@app.route("/categories", methods=["GET", "POST"])
+@login_required
+def categories_list():
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add":
+            add_category(request.form.get("name", "").strip())
+            flash("دسته اضافه شد", "success")
+        elif action == "delete":
+            delete_category(int(request.form.get("cid")))
+            flash("حذف شد", "success")
+        return redirect(url_for("categories_list"))
+    return render_template(
+        "categories.html",
+        username=session.get("admin_username"), active="categories",
+        categories=list_categories(),
     )
 
 

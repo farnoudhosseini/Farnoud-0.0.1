@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}دسته‌بندی{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>دسته‌بندی محصولات</h2></header>
+<div class="content">
+<div class="card">
+<form method="post" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+<input type="hidden" name="action" value="add">
+<div class="form-group" style="margin:0;flex:1"><label>نام دسته</label><input name="name" required></div>
+<button class="btn-primary inline" type="submit">افزودن</button>
+</form>
+</div>
+{% for c in categories %}
+<div class="card" style="display:flex;justify-content:space-between;align-items:center">
+<strong>{{ c.name }}</strong>
+<form method="post" onsubmit="return confirm('حذف؟')">
+<input type="hidden" name="action" value="delete"><input type="hidden" name="cid" value="{{ c.id }}">
+<button class="btn-danger" type="submit">حذف</button>
+</form>
+</div>
+{% else %}<div class="empty"><p>دسته‌ای نیست</p></div>{% endfor %}
+</div></main></div>
+{% endblock %}
