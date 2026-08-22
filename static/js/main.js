@@ -101,3 +101,54 @@ document.addEventListener("DOMContentLoaded", () => {
     x.addEventListener('change',()=>x.closest('label')?.classList.toggle('checked',x.checked));
   });
 })();
+
+/* Premium shell interactions — UI only */
+(function(){
+  const root=document.documentElement;
+  const body=document.body;
+  const savedCollapse=localStorage.getItem("farnoud_sidebar_collapsed")==="1";
+  if(savedCollapse && innerWidth>760) body.classList.add("sidebar-collapsed");
+
+  function icons(){ if(window.lucide) lucide.createIcons({attrs:{'stroke-width':1.8}}); }
+  function bindNav(){
+    document.querySelectorAll(".nav-group-btn").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        btn.parentElement.classList.toggle("open");
+      });
+    });
+  }
+  function shell(){
+    const sidebar=document.getElementById("appSidebar");
+    if(!sidebar) return;
+    const collapse=document.getElementById("sidebarCollapse");
+    if(collapse) collapse.addEventListener("click",()=>{
+      body.classList.toggle("sidebar-collapsed");
+      localStorage.setItem("farnoud_sidebar_collapsed",body.classList.contains("sidebar-collapsed")?"1":"0");
+    });
+    const topbars=document.querySelectorAll(".topbar");
+    topbars.forEach(top=>{
+      if(!top.querySelector(".mobile-menu")){
+        const b=document.createElement("button");
+        b.className="mobile-menu"; b.type="button"; b.setAttribute("aria-label","باز کردن منو");
+        b.innerHTML='<i data-lucide="menu"></i>';
+        b.addEventListener("click",()=>body.classList.add("mobile-sidebar-open"));
+        top.prepend(b);
+      }
+    });
+    sidebar.addEventListener("click",e=>{
+      if(innerWidth<=760 && e.target.closest("a")) body.classList.remove("mobile-sidebar-open");
+    });
+    let overlay=document.querySelector(".sidebar-overlay");
+    if(!overlay){
+      overlay=document.createElement("div"); overlay.className="sidebar-overlay";
+      overlay.style.cssText="display:none;position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:90";
+      document.body.appendChild(overlay);
+      overlay.addEventListener("click",()=>body.classList.remove("mobile-sidebar-open"));
+      const style=document.createElement("style");
+      style.textContent="@media(max-width:760px){.mobile-sidebar-open .sidebar-overlay{display:block!important}}";
+      document.head.appendChild(style);
+    }
+    icons();
+  }
+  document.addEventListener("DOMContentLoaded",()=>{bindNav();shell();icons();});
+})();

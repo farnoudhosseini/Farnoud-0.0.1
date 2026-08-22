@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}پنل مدیریت فرنود{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=8">
-    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2026-premium">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/logo.png') }}">
     <script>
         // اعمال سریع تم قبل از رندر برای جلوگیری از چشمک
@@ -32,7 +35,7 @@
         })();
     </script>
 </head>
-<body>
+<body class="app-body">
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             <div class="flash-container">
@@ -45,6 +48,6 @@
 
     {% block content %}{% endblock %}
 
-    <script src="{{ url_for('static', filename='js/main.js') }}?v=8"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=2026-premium"></script>
 </body>
 </html>

@@ -1,86 +1,88 @@
-<aside class="sidebar">
+<aside class="sidebar" id="appSidebar">
     <div class="sidebar-brand">
         <div class="logo-mini">
             <img src="{{ url_for('static', filename='images/logo.png') }}" alt="فرنود">
         </div>
-        <span class="brand-text">فرنود</span>
+        <div class="brand-copy">
+            <span class="brand-text">Farnoud</span>
+            <span class="brand-subtitle">Bot Admin</span>
+        </div>
+        <button class="sidebar-collapse" type="button" id="sidebarCollapse" aria-label="جمع کردن منو">
+            <i data-lucide="panel-left-close"></i>
+        </button>
     </div>
-    <nav class="nav">
-        <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'dashboard' %}active{% endif %}"><span>داشبورد</span></a>
 
-        <div class="nav-group {% if active in ['bot_messages','messages'] %}open{% endif %}" data-group="msgs">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>پیام‌های ربات</span><span class="chevron">▼</span>
-            </button>
+    <nav class="nav" aria-label="ناوبری اصلی">
+        <div class="nav-section-label">Overview</div>
+        <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'dashboard' %}active{% endif %}" data-tooltip="داشبورد">
+            <i data-lucide="layout-dashboard"></i><span>داشبورد</span>
+        </a>
+
+        <div class="nav-section-label">Management</div>
+        <div class="nav-group {% if active in ['bot_users'] %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="users"></i><span>کاربران</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
-                <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active in ['messages','bot_messages'] %}active{% endif %}"><span>تنظیم همه پیام‌ها</span></a>
+                <a href="{{ url_for('bot_users_list') }}" class="nav-item {% if active == 'bot_users' %}active{% endif %}"><i data-lucide="user-round"></i><span>کاربران ربات</span></a>
             </div>
         </div>
 
-        <div class="nav-group {% if active in ['bot_users'] %}open{% endif %}" data-group="users">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>کاربران</span><span class="chevron">▼</span>
-            </button>
+        <div class="nav-group {% if active in ['products','categories','orders'] %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="package"></i><span>فروش و محصولات</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
-                <a href="{{ url_for('bot_users_list') }}" class="nav-item {% if active == 'bot_users' %}active{% endif %}"><span>کاربران ربات</span></a>
+                <a href="{{ url_for('products_list') }}" class="nav-item {% if active == 'products' %}active{% endif %}"><i data-lucide="box"></i><span>محصولات</span></a>
+                <a href="{{ url_for('categories_list') }}" class="nav-item {% if active == 'categories' %}active{% endif %}"><i data-lucide="tags"></i><span>دسته‌بندی‌ها</span></a>
+                <a href="{{ url_for('orders_list') }}" class="nav-item {% if active == 'orders' %}active{% endif %}"><i data-lucide="receipt"></i><span>سفارش‌ها</span></a>
             </div>
         </div>
 
-        <div class="nav-group {% if active in ['cards','charges','gifts'] %}open{% endif %}" data-group="pay">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>مدیریت پرداخت‌ها</span><span class="chevron">▼</span>
-            </button>
+        <div class="nav-group {% if active in ['cards','charges','gifts'] %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="wallet-cards"></i><span>مالی</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
-                <a href="{{ url_for('cards_manage') }}" class="nav-item {% if active == 'cards' %}active{% endif %}"><span>کارت‌ها</span></a>
-                <a href="{{ url_for('charges_list') }}" class="nav-item {% if active == 'charges' %}active{% endif %}"><span>درخواست شارژ</span></a>
-                <a href="{{ url_for('gifts_manage') }}" class="nav-item {% if active == 'gifts' %}active{% endif %}"><span>کد هدیه</span></a>
+                <a href="{{ url_for('cards_manage') }}" class="nav-item {% if active == 'cards' %}active{% endif %}"><i data-lucide="credit-card"></i><span>کارت‌ها</span></a>
+                <a href="{{ url_for('charges_list') }}" class="nav-item {% if active == 'charges' %}active{% endif %}"><i data-lucide="circle-dollar-sign"></i><span>درخواست شارژ</span></a>
+                <a href="{{ url_for('gifts_manage') }}" class="nav-item {% if active == 'gifts' %}active{% endif %}"><i data-lucide="gift"></i><span>کد هدیه</span></a>
             </div>
         </div>
 
-        <div class="nav-group {% if active in ['products','categories','orders'] %}open{% endif %}" data-group="prod">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>محصولات</span><span class="chevron">▼</span>
-            </button>
+        <div class="nav-section-label">Network</div>
+        <div class="nav-group {% if active == 'panels' %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="server"></i><span>زیرساخت و پنل‌ها</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
-                <a href="{{ url_for('products_list') }}" class="nav-item {% if active == 'products' %}active{% endif %}"><span>لیست محصولات</span></a>
-                <a href="{{ url_for('categories_list') }}" class="nav-item {% if active == 'categories' %}active{% endif %}"><span>دسته‌بندی‌ها</span></a>
-                <a href="{{ url_for('orders_list') }}" class="nav-item {% if active == 'orders' %}active{% endif %}"><span>سرویس‌های فروخته‌شده</span></a>
+                <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><i data-lucide="server-cog"></i><span>پنل‌ها</span></a>
             </div>
         </div>
 
-        <div class="nav-group {% if active == 'panels' %}open{% endif %}" data-group="vpn">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>پنل‌ها</span><span class="chevron">▼</span>
-            </button>
+        <div class="nav-section-label">Communication</div>
+        <div class="nav-group {% if active in ['bot_messages','messages'] %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="messages-square"></i><span>پیام‌های ربات</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
-                <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><span>پنل‌ها</span></a>
+                <a href="{{ url_for('messages_manage') }}" class="nav-item {% if active in ['messages','bot_messages'] %}active{% endif %}"><i data-lucide="message-square-text"></i><span>مدیریت پیام‌ها</span></a>
+            </div>
+        </div>
+        <div class="nav-group {% if active in ['support'] %}open{% endif %}">
+            <button type="button" class="nav-group-btn"><i data-lucide="headset"></i><span>پشتیبانی</span><i class="chevron" data-lucide="chevron-down"></i></button>
+            <div class="nav-group-body">
+                <a href="{{ url_for('support_tickets') }}" class="nav-item"><i data-lucide="ticket"></i><span>تیکت‌ها</span></a>
+                <a href="{{ url_for('support_departments') }}" class="nav-item"><i data-lucide="layers-3"></i><span>دپارتمان‌ها</span></a>
             </div>
         </div>
 
-        <div class="nav-group {% if active == 'support' %}open{% endif %}">
-            <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>پشتیبانی</span><span class="chevron">▼</span>
-            </button>
-            <div class="nav-group-body">
-                <a href="{{ url_for('support_tickets') }}" class="nav-item"><span>تیکت‌ها</span></a>
-                <a href="{{ url_for('support_departments') }}" class="nav-item"><span>دپارتمان‌ها</span></a>
-            </div>
-        </div>
-        <a href="{{ url_for('growth_settings') }}" class="nav-item {% if active == 'growth' %}active{% endif %}"><span>احراز و رشد</span></a>
-        <a href="{{ url_for('referral_settings') }}" class="nav-item {% if active == 'referral' %}active{% endif %}"><span>رفرال / پورسانت</span></a>
-        <a href="{{ url_for('reseller_requests_page') }}" class="nav-item {% if active == 'reseller_requests' %}active{% endif %}"><span>درخواست نمایندگی</span></a>
-        <a href="{{ url_for('personalize') }}" class="nav-item {% if active == 'personalize' %}active{% endif %}"><span>شخصی‌سازی</span></a>
-        <a href="{{ url_for('premium_emojis_manage') }}" class="nav-item {% if active == 'premium_emojis' %}active{% endif %}"><span>ایموجی پریمیوم</span></a>
-        <a href="{{ url_for('menu_buttons_manage') }}" class="nav-item {% if active == 'menu_buttons' %}active{% endif %}"><span>کنترل دکمه‌ها</span></a>
+        <div class="nav-section-label">Growth</div>
+        <a href="{{ url_for('growth_settings') }}" class="nav-item {% if active == 'growth' %}active{% endif %}"><i data-lucide="chart-no-axes-combined"></i><span>رشد و احراز</span></a>
+        <a href="{{ url_for('referral_settings') }}" class="nav-item {% if active == 'referral' %}active{% endif %}"><i data-lucide="git-branch"></i><span>رفرال و پورسانت</span></a>
+        <a href="{{ url_for('reseller_requests_page') }}" class="nav-item {% if active == 'reseller_requests' %}active{% endif %}"><i data-lucide="briefcase-business"></i><span>درخواست نمایندگی</span></a>
+
+        <div class="nav-section-label">Settings</div>
+        <a href="{{ url_for('personalize') }}" class="nav-item {% if active == 'personalize' %}active{% endif %}"><i data-lucide="sliders-horizontal"></i><span>شخصی‌سازی</span></a>
+        <a href="{{ url_for('premium_emojis_manage') }}" class="nav-item {% if active == 'premium_emojis' %}active{% endif %}"><i data-lucide="sparkles"></i><span>ایموجی پریمیوم</span></a>
+        <a href="{{ url_for('menu_buttons_manage') }}" class="nav-item {% if active == 'menu_buttons' %}active{% endif %}"><i data-lucide="panel-top"></i><span>کنترل دکمه‌ها</span></a>
     </nav>
+
     <div class="sidebar-footer">
         <div class="user-chip">
             <div class="avatar">{{ username[0] | upper }}</div>
-            <div class="user-meta">
-                <span class="name">{{ username }}</span>
-                <span class="role">مدیر</span>
-            </div>
+            <div class="user-meta"><span class="name">{{ username }}</span><span class="role">Administrator</span></div>
         </div>
-        <a href="{{ url_for('logout') }}" class="btn-logout">خروج</a>
+        <a href="{{ url_for('logout') }}" class="btn-logout" data-tooltip="خروج"><i data-lucide="log-out"></i><span>خروج از حساب</span></a>
     </div>
 </aside>
