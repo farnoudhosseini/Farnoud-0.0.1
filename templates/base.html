@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}پنل مدیریت فرنود{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=8">
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/logo.png') }}">
     <script>
@@ -14,17 +14,21 @@
             var c = localStorage.getItem("farnoud_color") || "blue";
             document.documentElement.setAttribute("data-theme", t);
             var colors = {
-                blue: ["#0a84ff", "#0071e3"],
-                purple: ["#bf5af2", "#a33ad4"],
-                green: ["#30d158", "#28cd41"],
-                orange: ["#ff9f0a", "#e68600"],
-                pink: ["#ff375f", "#e01e45"],
-                teal: ["#64d2ff", "#3bb8eb"]
+                blue: ["#3b82f6","#2563eb","#38bdf8"],
+                purple: ["#a855f7","#9333ea","#c084fc"],
+                green: ["#22c55e","#16a34a","#4ade80"],
+                orange: ["#f59e0b","#d97706","#fbbf24"],
+                pink: ["#ec4899","#db2777","#f472b6"],
+                teal: ["#14b8a6","#0d9488","#2dd4bf"],
+                red: ["#ef4444","#dc2626","#f87171"],
+                indigo: ["#6366f1","#4f46e5","#818cf8"]
             };
             var col = colors[c] || colors.blue;
             document.documentElement.style.setProperty("--primary", col[0]);
             document.documentElement.style.setProperty("--primary-hover", col[1]);
-            document.documentElement.style.setProperty("--primary-soft", col[0] + "26");
+            document.documentElement.style.setProperty("--accent", col[2]);
+            document.documentElement.style.setProperty("--primary-soft", col[0] + "24");
+            document.documentElement.style.setProperty("--primary-glow", col[0] + "59");
         })();
     </script>
 </head>
@@ -41,6 +45,6 @@
 
     {% block content %}{% endblock %}
 
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=8"></script>
 </body>
 </html>

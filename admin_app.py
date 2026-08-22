@@ -17,6 +17,7 @@ from db_support import (
     ensure_support_tables, list_departments, add_department, delete_department,
     list_open_tickets, get_ticket, get_ticket_messages, add_ticket_message, close_ticket,
 )
+from db_stats import dashboard_counts, chart_series
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
 from db_users import (
     ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
@@ -81,8 +82,31 @@ def login():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    panels = list_panels()
-    return render_template("dashboard.html", username=session.get("admin_username"), active="dashboard", panels_count=len(panels))
+    stats = {}
+    try:
+        stats = dashboard_counts()
+    except Exception as e:
+        print("dashboard stats", e)
+        stats = {}
+    return render_template(
+        "dashboard.html",
+        username=session.get("admin_username"),
+        active="dashboard",
+        stats=stats,
+    )
+
+@app.route("/api/dashboard/chart")
+@login_required
+def api_dashboard_chart():
+    period = request.args.get("period", "7")
+    if period not in ("today", "7", "28", "all"):
+        period = "7"
+    try:
+        data = chart_series(period)
+        return jsonify({"ok": True, **data})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "labels": [], "users": [], "orders": [], "revenue": []})
+
 
 
 @app.route("/bot-messages", methods=["GET", "POST"])
