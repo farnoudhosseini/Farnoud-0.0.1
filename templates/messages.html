@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}پیام‌های ربات{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>پیام‌های کیف پول و متغیرها</h2></header>
+<div class="content">
+<div class="card">
+<div class="card-title">محدوده شارژ</div>
+<form method="post" style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
+<div class="form-group"><label>حداقل</label><input name="min_charge" value="{{ min_charge }}"></div>
+<div class="form-group"><label>حداکثر</label><input name="max_charge" value="{{ max_charge }}"></div>
+<button class="btn-primary inline" type="submit">ذخیره محدوده</button>
+</form>
+<p class="card-desc">متغیرها: [id] [username] [name] [balance] [role] [phone] [invite_link] [invite_code] [referrals] [refrals] [min_charge] [max_charge] [amount] [invoice_id] [card_number] [card_owner] [reason]</p>
+</div>
+{% for t in templates %}
+<div class="card">
+<form method="post">
+<input type="hidden" name="key" value="{{ t.key }}">
+<div class="card-title">{{ t.title }} <code style="font-size:0.75rem;color:var(--text-tertiary)">{{ t.key }}</code></div>
+<textarea name="body" rows="5">{{ t.body }}</textarea>
+<div class="card-actions"><button class="btn-primary inline" type="submit">ذخیره</button></div>
+</form>
+</div>
+{% endfor %}
+</div></main></div>
+{% endblock %}

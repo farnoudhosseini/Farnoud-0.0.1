@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}کاربران ربات{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>کاربران ربات</h2>
+<form method="get" style="display:flex;gap:8px">
+<input name="q" value="{{ q }}" placeholder="جستجو..." style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text)">
+<button class="btn-primary inline" type="submit">جستجو</button>
+</form></header>
+<div class="content">
+<div class="card" style="padding:0;overflow:auto">
+<table class="data-table">
+<thead><tr><th>آیدی</th><th>نام</th><th>یوزرنیم</th><th>نقش</th><th>موجودی</th><th>موبایل</th><th></th></tr></thead>
+<tbody>
+{% for u in users %}
+<tr>
+<td><code>{{ u.telegram_id }}</code></td>
+<td>{{ u.first_name or '' }} {{ u.last_name or '' }}</td>
+<td>@{{ u.username or '—' }}</td>
+<td>{{ roles.get(u.role, u.role) }}</td>
+<td>{{ "{:,.0f}".format(u.balance or 0) }}</td>
+<td>{{ u.phone or '—' }}</td>
+<td><a href="{{ url_for('bot_user_detail', telegram_id=u.telegram_id) }}">جزئیات</a></td>
+</tr>
+{% else %}
+<tr><td colspan="7">کاربری نیست — با /start ثبت می‌شوند</td></tr>
+{% endfor %}
+</tbody></table></div>
+<p style="color:var(--text-tertiary)">مجموع: {{ total }}</p>
+</div></main></div>
+{% endblock %}

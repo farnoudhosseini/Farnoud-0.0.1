@@ -40,6 +40,10 @@
                         </select>
                     </div>
                     <div class="form-group">
+                        <label for="on_hold_days">مدت on_hold (روز) — فقط اگر وضعیت on_hold باشد</label>
+                        <input type="number" min="1" id="on_hold_days" name="on_hold_days" value="30" placeholder="30">
+                    </div>
+                    <div class="form-group">
                         <label for="data_limit_gb">حد مصرف داده (گیگابایت) — 0 = نامحدود</label>
                         <input type="number" step="0.1" min="0" id="data_limit_gb" name="data_limit_gb"
                             value="{% if user and user.data_limit %}{{ bytes_to_gb(user.data_limit) }}{% else %}0{% endif %}">

@@ -17,6 +17,9 @@ def main_keyboard():
         [InlineKeyboardButton("📝 تنظیم پیام خوش‌آمد", callback_data="set_welcome")],
         [InlineKeyboardButton("📄 مشاهده پیام فعلی", callback_data="admin_view_welcome")],
         [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
+        [InlineKeyboardButton("👥 کاربران ربات", callback_data="admin_bot_users")],
+        [InlineKeyboardButton("💳 کارت‌ها / پرداخت", callback_data="admin_cards")],
+        [InlineKeyboardButton("🧾 درخواست‌های شارژ", callback_data="admin_charges")],
         [InlineKeyboardButton("🔙 بستن", callback_data="admin_close")],
     ])
 
@@ -234,6 +237,149 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return WAITING_USER_FIELD
 
+
+    if data == "admin_bot_users":
+        from db_users import list_bot_users, ROLE_LABELS
+        users, total = list_bot_users(limit=15)
+        lines = [f"👥 کاربران ربات (نمایش ۱۵ از {total})\n"]
+        rows = []
+        for u in users:
+            lines.append(f"• <code>{u['telegram_id']}</code> {u.get('username') or ''} — {ROLE_LABELS.get(u.get('role'), u.get('role'))} — {int(u.get('balance') or 0):,}")
+            rows.append([InlineKeyboardButton(f"👤 {u['telegram_id']}", callback_data=f"admin_bu_{u['telegram_id']}")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_bu_"):
+        from db_users import get_bot_user, ROLE_LABELS, count_referrals, get_user_activity
+        tid = int(data.replace("admin_bu_", ""))
+        u = get_bot_user(tid)
+        if not u:
+            await query.edit_message_text("کاربر یافت نشد")
+            return ConversationHandler.END
+        refs = count_referrals(tid)
+        text = (
+            f"👤 <b>{u.get('first_name') or ''} {u.get('last_name') or ''}</b>\n"
+            f"آیدی: <code>{u['telegram_id']}</code>\n"
+            f"یوزرنیم: @{u.get('username') or '—'}\n"
+            f"موبایل: {u.get('phone') or '—'}\n"
+            f"موجودی: <b>{int(u.get('balance') or 0):,}</b> تومان\n"
+            f"نقش: {ROLE_LABELS.get(u.get('role'), u.get('role'))}\n"
+            f"زیرمجموعه: {refs}\n"
+            f"مسدود: {'بله' if u.get('is_blocked') else 'خیر'}"
+        )
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("➕۱۰هزار", callback_data=f"admin_bal_{tid}_10000"),
+                InlineKeyboardButton("➕۵۰هزار", callback_data=f"admin_bal_{tid}_50000"),
+                InlineKeyboardButton("➕۱۰۰هزار", callback_data=f"admin_bal_{tid}_100000"),
+            ],
+            [
+                InlineKeyboardButton("عادی", callback_data=f"admin_role_{tid}_user"),
+                InlineKeyboardButton("نماینده", callback_data=f"admin_role_{tid}_reseller"),
+            ],
+            [
+                InlineKeyboardButton("نماینده ویژه", callback_data=f"admin_role_{tid}_reseller_vip"),
+                InlineKeyboardButton("VIP", callback_data=f"admin_role_{tid}_vip"),
+            ],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_bot_users")],
+        ])
+        await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_bal_"):
+        from db_users import add_balance, get_bot_user
+        parts = data.split("_")
+        tid, amt = int(parts[2]), int(parts[3])
+        add_balance(tid, amt, "admin_panel")
+        u = get_bot_user(tid)
+        await query.answer(f"موجودی: {int(u['balance']):,}", show_alert=True)
+        # refresh
+        query.data = f"admin_bu_{tid}"
+        return await admin_callback(update, context)
+
+    if data.startswith("admin_role_"):
+        from db_users import update_bot_user
+        parts = data.split("_")
+        # admin_role_{tid}_{role}  role may be reseller_vip
+        tid = int(parts[2])
+        role = "_".join(parts[3:])
+        update_bot_user(tid, role=role)
+        await query.answer("نقش به‌روز شد", show_alert=True)
+        query.data = f"admin_bu_{tid}"
+        return await admin_callback(update, context)
+
+    if data == "admin_cards":
+        from db_users import list_cards
+        cards = list_cards()
+        lines = ["💳 کارت‌های تعریف‌شده:\n"] + [
+            f"• {c['card_number']} — {c['owner_name']} ({'فعال' if c['is_active'] else 'غیرفعال'})"
+            for c in cards
+        ] or ["کارتی نیست. از پنل وب اضافه کنید."]
+        await query.edit_message_text(
+            "\n".join(lines) if cards else "کارتی ثبت نشده. از پنل وب اضافه کنید.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+        )
+        return ConversationHandler.END
+
+    if data == "admin_charges":
+        from db_users import list_pending_charges
+        pending = list_pending_charges()
+        if not pending:
+            await query.edit_message_text(
+                "درخواست معلقی نیست.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            )
+            return ConversationHandler.END
+        rows = []
+        lines = ["🧾 در انتظار تایید:\n"]
+        for ch in pending[:20]:
+            lines.append(f"#{ch['id']} — کاربر {ch['telegram_id']} — {int(ch['amount']):,} تومان")
+            rows.append([
+                InlineKeyboardButton(f"✅ #{ch['id']}", callback_data=f"adm_ch_ok_{ch['id']}"),
+                InlineKeyboardButton(f"❌ #{ch['id']}", callback_data=f"adm_ch_no_{ch['id']}"),
+            ])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
+        return ConversationHandler.END
+
+    if data.startswith("adm_ch_ok_"):
+        from db_users import approve_charge, render_template, user_vars, get_bot_user
+        cid = int(data.replace("adm_ch_ok_", ""))
+        user = approve_charge(cid)
+        if user:
+            try:
+                from db_users import get_charge
+                ch = get_charge(cid)
+                vars_ = user_vars(user)
+                vars_["amount"] = f"{int(ch['amount']):,}"
+                vars_["balance"] = f"{int(user['balance']):,}"
+                await context.bot.send_message(user["telegram_id"], render_template("charge_approved", vars_))
+            except Exception:
+                pass
+            await query.answer("تایید شد", show_alert=True)
+            await query.edit_message_text(f"✅ فاکتور #{cid} تایید شد.")
+        else:
+            await query.answer("ناموفق", show_alert=True)
+        return ConversationHandler.END
+
+    if data.startswith("adm_ch_no_"):
+        from db_users import reject_charge, get_charge, render_template, user_vars, get_bot_user
+        cid = int(data.replace("adm_ch_no_", ""))
+        ch = get_charge(cid)
+        if reject_charge(cid, "توسط ادمین"):
+            try:
+                u = get_bot_user(ch["telegram_id"])
+                vars_ = user_vars(u)
+                vars_["amount"] = f"{int(ch['amount']):,}"
+                vars_["reason"] = "توسط ادمین"
+                await context.bot.send_message(ch["telegram_id"], render_template("charge_rejected", vars_))
+            except Exception:
+                pass
+            await query.edit_message_text(f"❌ فاکتور #{cid} رد شد.")
+        return ConversationHandler.END
+
+
     return ConversationHandler.END
 
 async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -278,6 +424,23 @@ async def receive_user_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("فقط active / on_hold / disabled")
             return WAITING_USER_FIELD
         pdata["status"] = text
+        if text == "on_hold":
+            context.user_data["vpn_step"] = "on_hold_days"
+            await update.message.reply_text("مدت on_hold به روز (مثلاً 30):")
+            return WAITING_USER_FIELD
+        context.user_data["vpn_step"] = "data_limit"
+        await update.message.reply_text("حد حجم (گیگابایت) — 0 نامحدود:")
+        return WAITING_USER_FIELD
+
+    if step == "on_hold_days":
+        try:
+            days = int(text)
+            if days <= 0:
+                raise ValueError()
+            pdata["on_hold_expire_duration"] = days * 86400
+        except ValueError:
+            await update.message.reply_text("عدد روز معتبر بفرستید:")
+            return WAITING_USER_FIELD
         context.user_data["vpn_step"] = "data_limit"
         await update.message.reply_text("حد حجم (گیگابایت) — 0 نامحدود:")
         return WAITING_USER_FIELD
@@ -355,6 +518,7 @@ async def receive_user_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     group_ids=pdata.get("group_ids", []),
                     hwid_limit=pdata.get("hwid_limit"),
                     note=pdata.get("note"),
+                    on_hold_expire_duration=pdata.get("on_hold_expire_duration"),
                     for_create=True,
                 )
                 u = client.create_user(payload)
@@ -372,6 +536,7 @@ async def receive_user_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     group_ids=pdata.get("group_ids"),
                     hwid_limit=pdata.get("hwid_limit"),
                     note=pdata.get("note"),
+                    on_hold_expire_duration=pdata.get("on_hold_expire_duration"),
                     for_create=False,
                 )
                 client.modify_user(uname, payload)

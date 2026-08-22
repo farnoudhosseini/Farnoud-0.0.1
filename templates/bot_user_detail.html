@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}کاربر {{ user.telegram_id }}{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>کاربر {{ user.telegram_id }}</h2>
+<a href="{{ url_for('bot_users_list') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="stats">
+<div class="stat"><div class="stat-label">موجودی</div><div class="stat-value">{{ "{:,.0f}".format(user.balance or 0) }}</div></div>
+<div class="stat"><div class="stat-label">نقش</div><div class="stat-value" style="font-size:1rem">{{ roles.get(user.role, user.role) }}</div></div>
+<div class="stat"><div class="stat-label">زیرمجموعه</div><div class="stat-value">{{ refs }}</div></div>
+<div class="stat"><div class="stat-label">وضعیت</div><div class="stat-value">{% if user.is_blocked %}مسدود{% else %}<span class="ok">فعال</span>{% endif %}</div></div>
+</div>
+<div class="card">
+<form method="post">
+<input type="hidden" name="action" value="save">
+<div class="form-group"><label>نام</label><input value="{{ user.first_name or '' }} {{ user.last_name or '' }}" disabled></div>
+<div class="form-group"><label>یوزرنیم</label><input value="@{{ user.username or '' }}" disabled></div>
+<div class="form-group"><label>موبایل</label><input name="phone" value="{{ user.phone or '' }}"></div>
+<div class="form-group"><label>نقش</label>
+<select name="role" class="form-select">
+{% for k,v in roles.items() %}
+<option value="{{ k }}" {% if user.role==k %}selected{% endif %}>{{ v }}</option>
+{% endfor %}
+</select></div>
+<div class="form-group"><label><input type="checkbox" name="is_blocked" value="1" {% if user.is_blocked %}checked{% endif %}> مسدود</label></div>
+<button class="btn-primary inline" type="submit">ذخیره</button>
+</form>
+</div>
+<div class="card">
+<form method="post" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+<input type="hidden" name="action" value="add_balance">
+<div class="form-group" style="margin:0"><label>تغییر موجودی (+/-)</label>
+<input type="number" name="amount" placeholder="50000"></div>
+<button class="btn-primary inline" type="submit">اعمال</button>
+</form>
+</div>
+<div class="card">
+<div class="card-title">فعالیت‌ها</div>
+{% for a in activity %}
+<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-secondary)">
+<code>{{ a.created_at }}</code> — {{ a.action }} {% if a.detail %}({{ a.detail }}){% endif %}
+</div>
+{% else %}<p class="card-desc">فعالیتی ثبت نشده</p>{% endfor %}
+</div>
+</div></main></div>
+{% endblock %}

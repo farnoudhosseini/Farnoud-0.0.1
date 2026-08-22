@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}کارت‌ها{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>کارت به کارت</h2></header>
+<div class="content">
+<div class="card">
+<form method="post">
+<input type="hidden" name="action" value="add">
+<div class="form-group"><label>شماره کارت</label><input name="card_number" required placeholder="6037..."></div>
+<div class="form-group"><label>نام صاحب کارت</label><input name="owner_name" required></div>
+<div class="form-group"><label>بانک (اختیاری)</label><input name="bank_name"></div>
+<button class="btn-primary inline" type="submit">افزودن</button>
+</form>
+</div>
+{% for c in cards %}
+<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+<div>
+<strong>{{ c.card_number }}</strong> — {{ c.owner_name }}
+{% if c.bank_name %} ({{ c.bank_name }}){% endif %}
+<span class="badge">{% if c.is_active %}فعال{% else %}غیرفعال{% endif %}</span>
+</div>
+<div style="display:flex;gap:8px">
+<form method="post"><input type="hidden" name="action" value="toggle"><input type="hidden" name="card_id" value="{{ c.id }}">
+<input type="hidden" name="active" value="{{ 0 if c.is_active else 1 }}">
+<button class="btn-primary inline" type="submit">{% if c.is_active %}غیرفعال{% else %}فعال{% endif %}</button></form>
+<form method="post" onsubmit="return confirm('حذف؟')"><input type="hidden" name="action" value="delete"><input type="hidden" name="card_id" value="{{ c.id }}">
+<button class="btn-danger" type="submit">حذف</button></form>
+</div></div>
+{% else %}<div class="empty"><p>کارتی ثبت نشده</p></div>{% endfor %}
+</div></main></div>
+{% endblock %}

@@ -9,12 +9,20 @@ from database import (
     update_panel_status, delete_panel,
 )
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
+from db_users import (
+    ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
+    ROLE_LABELS, get_user_activity, count_referrals, list_templates, set_template,
+    list_cards, add_card, delete_card, toggle_card, list_gift_codes, create_gift_code,
+    list_pending_charges, approve_charge, reject_charge,
+)
+
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 try:
     ensure_tables_sync()
+    ensure_user_tables()
 except Exception:
     pass
 
@@ -217,8 +225,15 @@ def panel_user_add(slug):
                 group_ids=gids,
                 hwid_limit=request.form.get("hwid_limit") or None,
                 note=request.form.get("note") or None,
+                on_hold_expire_duration=request.form.get("on_hold_days") or None,
                 for_create=True,
             )
+            # on_hold_days از فرم به ثانیه
+            if payload.get("status") == "on_hold" and request.form.get("on_hold_days"):
+                try:
+                    payload["on_hold_expire_duration"] = int(float(request.form.get("on_hold_days")) * 86400)
+                except ValueError:
+                    pass
             user = client.create_user(payload)
             flash(f"کاربر «{user.get('username', payload['username'])}» ساخته شد", "success")
             return redirect(url_for("panel_users", slug=slug))
@@ -264,8 +279,14 @@ def panel_user_edit(slug, vpn_username):
                 group_ids=gids,
                 hwid_limit=request.form.get("hwid_limit") or None,
                 note=request.form.get("note") or None,
+                on_hold_expire_duration=request.form.get("on_hold_days") or None,
                 for_create=False,
             )
+            if payload.get("status") == "on_hold" and request.form.get("on_hold_days"):
+                try:
+                    payload["on_hold_expire_duration"] = int(float(request.form.get("on_hold_days")) * 86400)
+                except ValueError:
+                    pass
             # اگر تاریخ خالی بود برای نامحدود
             if not request.form.get("expire"):
                 payload["expire"] = None
@@ -296,6 +317,147 @@ def panel_user_delete(slug, vpn_username):
     except Exception as e:
         flash(f"خطا در حذف: {e}", "error")
     return redirect(url_for("panel_users", slug=slug))
+
+
+
+
+# ---------- کاربران ربات ----------
+@app.route("/users")
+@login_required
+def bot_users_list():
+    q = request.args.get("q", "").strip() or None
+    users, total = list_bot_users(limit=100, search=q)
+    return render_template(
+        "bot_users.html",
+        username=session.get("admin_username"), active="bot_users",
+        users=users, total=total, q=q or "", roles=ROLE_LABELS,
+    )
+
+@app.route("/users/<int:telegram_id>", methods=["GET", "POST"])
+@login_required
+def bot_user_detail(telegram_id):
+    user = get_bot_user(telegram_id)
+    if not user:
+        flash("کاربر یافت نشد", "error")
+        return redirect(url_for("bot_users_list"))
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "save":
+            update_bot_user(
+                telegram_id,
+                phone=request.form.get("phone") or None,
+                role=request.form.get("role") or "user",
+                is_blocked=1 if request.form.get("is_blocked") == "1" else 0,
+            )
+            flash("ذخیره شد", "success")
+        elif action == "add_balance":
+            try:
+                amt = int(request.form.get("amount", "0"))
+                if amt != 0:
+                    add_balance(telegram_id, amt, "admin_web")
+                    flash(f"موجودی تغییر کرد: {amt:+,}", "success")
+            except ValueError:
+                flash("مبلغ نامعتبر", "error")
+        return redirect(url_for("bot_user_detail", telegram_id=telegram_id))
+    activity = get_user_activity(telegram_id, 40)
+    refs = count_referrals(telegram_id)
+    return render_template(
+        "bot_user_detail.html",
+        username=session.get("admin_username"), active="bot_users",
+        user=user, activity=activity, refs=refs, roles=ROLE_LABELS,
+    )
+
+# ---------- پیام‌ها و کیف پول تنظیمات ----------
+@app.route("/messages", methods=["GET", "POST"])
+@login_required
+def messages_manage():
+    if request.method == "POST":
+        key = request.form.get("key")
+        body = request.form.get("body", "")
+        if key:
+            set_template(key, body)
+            flash("پیام ذخیره شد", "success")
+        if request.form.get("min_charge"):
+            set_setting_sync("min_charge", request.form.get("min_charge"))
+        if request.form.get("max_charge"):
+            set_setting_sync("max_charge", request.form.get("max_charge"))
+        return redirect(url_for("messages_manage"))
+    templates = list_templates()
+    return render_template(
+        "messages.html",
+        username=session.get("admin_username"), active="messages",
+        templates=templates,
+        min_charge=get_setting_sync("min_charge", "10000"),
+        max_charge=get_setting_sync("max_charge", "50000000"),
+    )
+
+# ---------- کارت‌ها ----------
+@app.route("/cards", methods=["GET", "POST"])
+@login_required
+def cards_manage():
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add":
+            add_card(
+                request.form.get("card_number", "").strip(),
+                request.form.get("owner_name", "").strip(),
+                request.form.get("bank_name") or None,
+            )
+            flash("کارت اضافه شد", "success")
+        elif action == "delete":
+            delete_card(int(request.form.get("card_id")))
+            flash("حذف شد", "success")
+        elif action == "toggle":
+            toggle_card(int(request.form.get("card_id")), request.form.get("active") == "1")
+        return redirect(url_for("cards_manage"))
+    return render_template(
+        "cards.html",
+        username=session.get("admin_username"), active="cards",
+        cards=list_cards(),
+    )
+
+@app.route("/charges")
+@login_required
+def charges_list():
+    pending = list_pending_charges()
+    return render_template(
+        "charges.html",
+        username=session.get("admin_username"), active="charges",
+        pending=pending,
+    )
+
+@app.route("/charges/<int:cid>/approve", methods=["POST"])
+@login_required
+def charge_approve(cid):
+    if approve_charge(cid):
+        flash("تایید شد", "success")
+    else:
+        flash("ناموفق", "error")
+    return redirect(url_for("charges_list"))
+
+@app.route("/charges/<int:cid>/reject", methods=["POST"])
+@login_required
+def charge_reject(cid):
+    reject_charge(cid, request.form.get("reason") or "رد شده")
+    flash("رد شد", "success")
+    return redirect(url_for("charges_list"))
+
+@app.route("/gifts", methods=["GET", "POST"])
+@login_required
+def gifts_manage():
+    if request.method == "POST":
+        ok = create_gift_code(
+            request.form.get("code", ""),
+            int(request.form.get("amount") or 0),
+            int(request.form.get("max_uses") or 1),
+        )
+        flash("کد ساخته شد" if ok else "خطا (شاید کد تکراری)", "success" if ok else "error")
+        return redirect(url_for("gifts_manage"))
+    return render_template(
+        "gifts.html",
+        username=session.get("admin_username"), active="gifts",
+        codes=list_gift_codes(),
+    )
 
 
 @app.route("/personalize")

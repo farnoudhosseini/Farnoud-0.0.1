@@ -208,6 +208,7 @@ class PasarGuardClient:
         group_ids=None,
         hwid_limit=None,
         note: str = None,
+        on_hold_expire_duration=None,
         for_create: bool = True,
     ) -> dict:
         payload = {}
@@ -241,4 +242,17 @@ class PasarGuardClient:
                 pass
         if note is not None:
             payload["note"] = note[:500] if note else None
+
+        # on_hold بدون مدت‌زمان در پاسارگارد 422 می‌دهد
+        if status == "on_hold":
+            duration = on_hold_expire_duration
+            if duration is None or str(duration).strip() == "":
+                duration = 30 * 24 * 3600  # پیش‌فرض ۳۰ روز (ثانیه)
+            try:
+                duration = int(duration)
+            except (TypeError, ValueError):
+                duration = 30 * 24 * 3600
+            if duration <= 0:
+                duration = 30 * 24 * 3600
+            payload["on_hold_expire_duration"] = duration
         return payload
