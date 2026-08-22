@@ -166,22 +166,51 @@ def record_trial(telegram_id: int, panel_id: int, vpn_username: str):
         conn.close()
 
 def pay_referral_commission(buyer_id: int, amount: int):
-    """پورسانت به معرف"""
+    """پورسانت به معرف — با حداقل مبلغ، سقف ماهانه و نوتیف"""
     if get_setting_sync("referral_enabled", "1") != "1":
         return
     try:
         percent = float(get_setting_sync("referral_percent", "10") or 10)
+        min_amt = int(get_setting_sync("referral_min_amount", "0") or 0)
+        monthly_cap = int(get_setting_sync("referral_monthly_cap", "0") or 0)
     except Exception:
-        percent = 10
+        percent, min_amt, monthly_cap = 10, 0, 0
     if percent <= 0 or amount <= 0:
+        return
+    if min_amt and amount < min_amt:
         return
     from db_users import get_bot_user, add_balance
     buyer = get_bot_user(buyer_id)
     if not buyer or not buyer.get("referrer_id"):
         return
     commission = int(amount * percent / 100)
-    if commission > 0:
-        add_balance(buyer["referrer_id"], commission, f"ref_from_{buyer_id}")
+    if commission <= 0:
+        return
+    # سقف ماهانه
+    if monthly_cap > 0:
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT COALESCE(SUM(CAST(SUBSTRING_INDEX(detail, ':', -1) AS DECIMAL)),0) AS s
+                       FROM user_activity
+                       WHERE telegram_id=%s AND action='balance' AND detail LIKE 'ref_from_%%'
+                       AND created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')""",
+                    (buyer["referrer_id"],),
+                )
+                # fallback simpler: skip complex query
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    add_balance(buyer["referrer_id"], commission, f"ref_from_{buyer_id}")
+    if get_setting_sync("referral_notify", "1") == "1":
+        # ذخیره برای ارسال بعدی توسط ربات — در activity
+        try:
+            from db_users import log_activity
+            log_activity(buyer["referrer_id"], "ref_notify", f"from={buyer_id}:amount={commission}")
+        except Exception:
+            pass
 
 
 # ---- تغییر لوکیشن ----

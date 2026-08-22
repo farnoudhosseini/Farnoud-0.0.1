@@ -51,7 +51,7 @@ def service_card_keyboard(order_id: int):
             InlineKeyboardButton("⚠️ گزارش اختلال", callback_data=f"svc_report_{order_id}"),
             InlineKeyboardButton("💸 بازگشت وجه", callback_data=f"svc_refund_{order_id}"),
         ],
-        [InlineKeyboardButton("⏹ توقف سرویس ساعتی", callback_data=f"svc_hstop_{order_id}")],
+        [InlineKeyboardButton("⏯ خاموش/روشن ساعتی", callback_data=f"svc_htoggle_{order_id}")],
         [InlineKeyboardButton("🔙 لیست سرویس‌ها", callback_data="svc_list")],
     ])
 
@@ -387,17 +387,32 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     # ---- توقف سرویس ساعتی ----
-    if data.startswith("svc_hstop_"):
-        oid = int(data.replace("svc_hstop_", ""))
-        from services.service_edit import stop_hourly_service
-        result = stop_hourly_service(oid, user.id)
-        if result.get("ok"):
-            await q.edit_message_text("✅ سرویس ساعتی متوقف شد و دیگر از موجودی کسر نمی‌شود.", reply_markup=back_main_kb())
-        else:
-            await q.edit_message_text(f"❌ {result.get('error')}", reply_markup=service_card_keyboard(oid))
+    if data.startswith("svc_htoggle_"):
+        oid = int(data.replace("svc_htoggle_", ""))
+        from db_products import get_order_full, update_order
+        from services.service_edit import _client_from_order
+        o = get_order_full(oid)
+        if not o or o.get("telegram_id") != user.id:
+            await q.edit_message_text("سرویس نامعتبر.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        if not o.get("is_hourly"):
+            await q.edit_message_text("این سرویس ساعتی نیست.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        active = int(o.get("hourly_active") or 0)
+        new_active = 0 if active else 1
+        try:
+            if o.get("vpn_username"):
+                client = _client_from_order(o)
+                client.modify_user(o["vpn_username"], {"status": "active" if new_active else "disabled"})
+            update_order(oid, hourly_active=new_active)
+            msg = "🟢 سرویس ساعتی روشن شد — کسر از موجودی ادامه می‌یابد." if new_active else "🔴 سرویس ساعتی خاموش شد — دیگر کسر نمی‌شود."
+            await q.edit_message_text(msg, reply_markup=service_card_keyboard(oid))
+        except Exception as e:
+            await q.edit_message_text(f"❌ خطا: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
-    # ---- تغییر لوکیشن ----
+
+    # ---- تغییر لوکیشن (بین پنل‌ها) ----
     if data.startswith("svc_loc_") and not data.startswith("svc_locset_"):
         oid = _oid("svc_loc_")
         o = get_user_order(oid, user.id)
@@ -408,6 +423,7 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("تغییر لوکیشن فعلاً غیرفعال است.", reply_markup=service_card_keyboard(oid))
             return ConversationHandler.END
         from db_growth import count_location_changes
+        from database import list_panels
         try:
             price = int(get_setting_sync("location_change_price", "0") or 0)
         except Exception:
@@ -423,64 +439,47 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=service_card_keyboard(oid),
             )
             return ConversationHandler.END
-        try:
-            client = _client(o)
-            groups = client.get_groups() or []
-            full = client.get_user(o["vpn_username"])
-            current_gids = set()
-            for g in (full.get("group_ids") or full.get("groups") or []):
-                if isinstance(g, dict):
-                    current_gids.add(int(g.get("id") or 0))
-                else:
-                    try:
-                        current_gids.add(int(g))
-                    except Exception:
-                        pass
-            rows = []
-            for g in groups:
-                gid = g.get("id")
-                gname = g.get("name") or g.get("title") or f"گروه {gid}"
-                if gid is None:
-                    continue
-                mark = " ✅" if int(gid) in current_gids else ""
-                rows.append([InlineKeyboardButton(
-                    f"{gname}{mark}"[:60],
-                    callback_data=f"svc_locset_{oid}_{gid}",
-                )])
-            if not rows:
-                await q.edit_message_text(
-                    "هیچ لوکیشنی در پنل یافت نشد.",
-                    reply_markup=service_card_keyboard(oid),
-                )
-                return ConversationHandler.END
-            rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"svc_open_{oid}")])
-            price_txt = f"{price:,} تومان" if price > 0 else "رایگان"
-            await q.edit_message_text(
-                f"🌍 تغییر لوکیشن\n\n"
-                f"قیمت هر بار: {price_txt}\n"
-                f"استفاده‌شده: {used}/{limit if limit > 0 else '∞'}\n\n"
-                f"لوکیشن جدید را انتخاب کنید:",
-                reply_markup=InlineKeyboardMarkup(rows),
-            )
-        except Exception as e:
-            await q.edit_message_text(
-                f"❌ خطا در دریافت لوکیشن‌ها: {e}",
-                reply_markup=service_card_keyboard(oid),
-            )
+        panels = list_panels() or []
+        # filter active
+        rows = []
+        current_pid = o.get("panel_id")
+        for pan in panels:
+            if not pan.get("is_active", 1):
+                continue
+            mark = " ✅" if pan["id"] == current_pid else ""
+            rows.append([InlineKeyboardButton(
+                f"{pan['name']}{mark}"[:60],
+                callback_data=f"svc_locset_{oid}_{pan['id']}",
+            )])
+        if not rows:
+            await q.edit_message_text("پنل دیگری یافت نشد.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"svc_open_{oid}")])
+        price_txt = f"{price:,} تومان" if price > 0 else "رایگان"
+        await q.edit_message_text(
+            f"🌍 تغییر لوکیشن (پنل)\n\n"
+            f"قیمت هر بار: {price_txt}\n"
+            f"استفاده‌شده: {used}/{limit if limit > 0 else '∞'}\n\n"
+            f"پنل مقصد را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
         return ConversationHandler.END
 
     if data.startswith("svc_locset_"):
-        # svc_locset_{orderId}_{groupId}
+        # svc_locset_{orderId}_{newPanelId}
         parts = data.replace("svc_locset_", "").split("_")
         if len(parts) < 2:
             return ConversationHandler.END
-        oid, gid = int(parts[0]), int(parts[1])
+        oid, new_panel_id = int(parts[0]), int(parts[1])
         o = get_user_order(oid, user.id)
         if not o or not o.get("vpn_username"):
             await q.edit_message_text("سرویس معتبر نیست.", reply_markup=back_main_kb())
             return ConversationHandler.END
         from db_growth import count_location_changes, record_location_change
         from db_users import get_bot_user, add_balance
+        from database import get_panel_by_id, list_panels
+        from services.pasarguard import PasarGuardClient, gb_to_bytes
+        from datetime import datetime, timedelta, timezone
         try:
             price = int(get_setting_sync("location_change_price", "0") or 0)
         except Exception:
@@ -491,43 +490,90 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             limit = 3
         used = count_location_changes(user.id)
         if limit > 0 and used >= limit:
-            await q.edit_message_text(
-                f"❌ به حد مجاز تغییر لوکیشن رسیده‌اید.",
-                reply_markup=service_card_keyboard(oid),
-            )
+            await q.edit_message_text("❌ به حد مجاز رسیده‌اید.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        if o.get("panel_id") == new_panel_id:
+            await q.edit_message_text("همین پنل فعال است.", reply_markup=service_card_keyboard(oid))
             return ConversationHandler.END
         bu = get_bot_user(user.id)
         balance = int((bu or {}).get("balance") or 0)
         if price > 0 and balance < price:
             await q.edit_message_text(
-                f"❌ موجودی کافی نیست.\nمبلغ لازم: {price:,} تومان\nموجودی: {balance:,} تومان",
+                f"❌ موجودی کافی نیست.\\nلازم: {price:,} / موجودی: {balance:,}",
                 reply_markup=service_card_keyboard(oid),
             )
             return ConversationHandler.END
+        new_panel = get_panel_by_id(new_panel_id)
+        if not new_panel:
+            await q.edit_message_text("پنل مقصد نامعتبر.", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
         try:
-            client = _client(o)
-            full = client.get_user(o["vpn_username"])
-            from_gids = full.get("group_ids") or []
-            from_gid = None
-            if from_gids:
-                g0 = from_gids[0]
-                from_gid = g0.get("id") if isinstance(g0, dict) else g0
-            groups = client.get_groups() or []
-            gname = next((g.get("name") or g.get("title") for g in groups if int(g.get("id") or 0) == gid), f"گروه {gid}")
-            client.modify_user(o["vpn_username"], {"group_ids": [gid]})
+            # خواندن وضعیت فعلی از پنل مبدا
+            old_client = _client(o)
+            full = old_client.get_user(o["vpn_username"])
+            used_traffic = full.get("used_traffic") or 0
+            data_limit = full.get("data_limit") or 0
+            expire = full.get("expire")
+            hwid = full.get("hwid_limit")
+            status = full.get("status") or "active"
+            # ساخت روی پنل جدید با همان مشخصات
+            new_client = PasarGuardClient(
+                new_panel["base_url"], new_panel["username"], new_panel["password"], verify_ssl=False
+            )
+            group_ids = []
+            try:
+                groups = new_client.get_groups() or []
+                if groups:
+                    group_ids = [groups[0].get("id") or groups[0]["id"]]
+            except Exception:
+                pass
+            # username جدید
+            import secrets, string
+            new_uname = "fn" + "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(8))
+            remain_gb = None
+            if data_limit and int(data_limit) > 0:
+                remain_bytes = max(0, int(data_limit) - int(used_traffic))
+                remain_gb = round(remain_bytes / (1024 ** 3), 2)
+            payload = new_client.build_user_payload(
+                username=new_uname,
+                status=status,
+                data_limit_gb=remain_gb if remain_gb is not None else 0,
+                expire=expire,
+                group_ids=group_ids,
+                hwid_limit=hwid,
+                note=f"reloc from order#{oid}",
+                for_create=True,
+            )
+            created = new_client.create_user(payload)
+            # حذف از پنل قدیم
+            try:
+                old_client.delete_user(o["vpn_username"])
+            except Exception:
+                pass
             if price > 0:
                 add_balance(user.id, -price, f"location_change#{oid}")
-            record_location_change(oid, user.id, from_gid=from_gid, to_gid=gid, to_name=gname, price=price)
+            from db_products import update_order
+            update_order(oid, vpn_username=created.get("username") or new_uname)
+            # به‌روزرسانی panel_id — اگر ستون قابل آپدیت نباشد از SQL مستقیم
+            try:
+                from database import get_sync_connection
+                conn = get_sync_connection()
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE service_orders SET panel_id=%s, vpn_username=%s WHERE id=%s",
+                                (new_panel_id, created.get("username") or new_uname, oid))
+                    conn.commit()
+                conn.close()
+            except Exception as e:
+                print("panel_id update", e)
+            record_location_change(oid, user.id, from_gid=o.get("panel_id"), to_gid=new_panel_id,
+                                   to_name=new_panel.get("name"), price=price)
             await q.edit_message_text(
-                f"✅ لوکیشن به «{gname}» تغییر کرد."
-                + (f"\n💸 مبلغ کسرشده: {price:,} تومان" if price > 0 else ""),
+                f"✅ لوکیشن به پنل «{new_panel.get('name')}» تغییر کرد."
+                + (f"\\n💸 مبلغ کسرشده: {price:,} تومان" if price > 0 else ""),
                 reply_markup=service_card_keyboard(oid),
             )
         except Exception as e:
-            await q.edit_message_text(
-                f"❌ تغییر لوکیشن ناموفق: {e}",
-                reply_markup=service_card_keyboard(oid),
-            )
+            await q.edit_message_text(f"❌ تغییر لوکیشن ناموفق: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
     if data.startswith("svc_report_"):

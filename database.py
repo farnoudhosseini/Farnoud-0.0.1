@@ -275,3 +275,16 @@ def delete_panel(panel_id: int) -> bool:
     finally:
         if connection:
             connection.close()
+
+
+def ensure_panel_max_sales():
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("ALTER TABLE vpn_panels ADD COLUMN max_sales INT DEFAULT NULL")
+                conn.commit()
+            except Exception:
+                pass
+    finally:
+        conn.close()

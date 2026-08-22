@@ -150,6 +150,26 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_activity(user.id, "buy_hourly", str(order_id))
             return ConversationHandler.END
 
+
+        # محدودیت فروش هر پنل
+        try:
+            max_s = panel.get("max_sales")
+            if max_s is not None and int(max_s) > 0:
+                from database import get_sync_connection
+                conn = get_sync_connection()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) AS c FROM service_orders WHERE panel_id=%s AND status IN ('paid','provisioned')",
+                        (panel_id,),
+                    )
+                    cnt = int((cur.fetchone() or {}).get("c") or 0)
+                conn.close()
+                if cnt >= int(max_s):
+                    await q.edit_message_text("❌ ظرفیت فروش این پنل تکمیل شده است.")
+                    return ConversationHandler.END
+        except Exception as e:
+            print("max_sales check", e)
+
         price = int(product["price"] or 0)
         balance = int(bu.get("balance") or 0)
         wallet_used = min(balance, price)
@@ -170,32 +190,19 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🧾 فاکتور\nمحصول: {product['name']}\nقیمت: {price:,}\nقابل پرداخت: {pay_amount:,}"
         )
 
-        # موجودی کافی → کسر + ساخت فوری سرویس
+        # موجودی کافی → اول تایید کاربر، بعد کسر و ساخت
         if pay_amount <= 0:
-            add_balance(user.id, -wallet_used, f"order#{order_id}")
-            update_order(order_id, status="paid", wallet_used=wallet_used, pay_amount=0)
-            await q.edit_message_text(text + "\n\n⏳ در حال ساخت سرویس...")
-            result = provision_order(order_id)
-            await send_service_to_user(context.bot, user.id, result)
-            try:
-                from db_growth import pay_referral_commission
-                pay_referral_commission(user.id, price)
-            except Exception:
-                pass
-            if result.get("ok"):
-                try:
-                    await context.bot.send_message(
-                        ADMIN_ID,
-                        f"✅ سفارش #{order_id} تحویل شد (کیف پول)\nکاربر: {user.id}\n{product['name']}",
-                    )
-                except Exception:
-                    pass
-            else:
-                await context.bot.send_message(
-                    user.id,
-                    f"پرداخت OK بود ولی ساخت سرویس خطا داد. با پشتیبانی تماس بگیرید.\n{result.get('error')}",
-                )
-            log_activity(user.id, "buy_instant", str(order_id))
+            context.user_data["buy_order_id"] = order_id
+            context.user_data["buy_price"] = price
+            rows = [
+                [InlineKeyboardButton("✅ تایید و پرداخت از کیف پول", callback_data=f"buy_confirm_{order_id}")],
+                [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
+                [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+            ]
+            await q.edit_message_text(
+                text + "\n\n⚠️ با تایید، مبلغ از کیف پول کسر و سرویس ساخته می‌شود.",
+                reply_markup=InlineKeyboardMarkup(rows),
+            )
             return ConversationHandler.END
 
         # کمبود موجودی → کارت به کارت + رسید + تایید ادمین
@@ -207,6 +214,40 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["buy_order_id"] = order_id
         context.user_data["buy_price"] = price
         await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+        return ConversationHandler.END
+
+
+    if data.startswith("buy_confirm_"):
+        oid = int(data.replace("buy_confirm_", ""))
+        order = get_order(oid)
+        if not order or order["telegram_id"] != user.id:
+            await q.edit_message_text("سفارش نامعتبر.")
+            return ConversationHandler.END
+        product = get_product(order["product_id"])
+        price = int(order.get("amount") or 0)
+        bu2 = get_bot_user(user.id) or {}
+        balance = int(bu2.get("balance") or 0)
+        if balance < price:
+            await q.edit_message_text(f"❌ موجودی کافی نیست.\nموجودی: {balance:,} / لازم: {price:,}")
+            return ConversationHandler.END
+        add_balance(user.id, -price, f"order#{oid}")
+        update_order(oid, status="paid", wallet_used=price, pay_amount=0)
+        await q.edit_message_text("⏳ در حال ساخت سرویس...")
+        result = provision_order(oid)
+        await send_service_to_user(context.bot, user.id, result)
+        try:
+            from db_growth import pay_referral_commission
+            pay_referral_commission(user.id, price)
+        except Exception:
+            pass
+        if result.get("ok"):
+            try:
+                await context.bot.send_message(ADMIN_ID, f"✅ سفارش #{oid} تحویل شد (کیف پول)\nکاربر: {user.id}")
+            except Exception:
+                pass
+        else:
+            await context.bot.send_message(user.id, f"ساخت سرویس خطا داد.\n{result.get('error')}")
+        log_activity(user.id, "buy_confirmed", str(oid))
         return ConversationHandler.END
 
     if data.startswith("buy_disc_"):

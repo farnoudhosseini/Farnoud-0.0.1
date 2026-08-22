@@ -9,7 +9,7 @@ from database import init_db, close_db
 from db_users import ensure_user_tables
 from db_products import ensure_product_tables
 from handlers.start import start_command, check_join_callback, contact_handler
-from handlers.trial import start_trial
+from handlers.trial import start_trial, trial_callback
 from handlers.reseller import (
     start_reseller_request, receive_reseller_desc, cancel_reseller, WAITING_RESELLER_DESC,
 )
@@ -43,6 +43,8 @@ async def post_init(application: Application):
         ensure_service_mgmt_columns()
         from db_extras import ensure_extras_tables
         ensure_extras_tables()
+        from database import ensure_panel_max_sales
+        ensure_panel_max_sales()
         from services.provision import ensure_service_template
         ensure_service_template()
     except Exception as e:
@@ -102,6 +104,12 @@ async def menu_callback(update, context):
         return await start_reseller_request(update, context)
     if data == "menu_admin" and uid == ADMIN_ID:
         return await admin_panel(update, context)
+    if data == "menu_home":
+        from handlers.start import start_command
+        # fake message path - send main keyboard
+        from handlers.wallet import main_user_keyboard
+        await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=main_user_keyboard(is_admin=(uid==ADMIN_ID)))
+        return None
     return None
 
 def create_bot() -> Application:
@@ -121,6 +129,7 @@ def create_bot() -> Application:
     from handlers.group_reports import setgroup_command
     application.add_handler(CommandHandler("setgroup", setgroup_command))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
+    application.add_handler(CallbackQueryHandler(trial_callback, pattern="^trial_"))
 
     # مکالمه کیف پول / شارژ / هدیه / رسید
     wallet_conv = ConversationHandler(

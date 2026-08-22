@@ -6,3 +6,4 @@ pymysql
 werkzeug
 requests
 qrcode[pil]>=7.4
+cryptography

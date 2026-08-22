@@ -739,6 +739,10 @@ def referral_settings():
             "1" if request.form.get("referral_enabled") == "1" else "0",
         )
         set_setting_sync("referral_percent", request.form.get("referral_percent") or "10")
+        set_setting_sync("referral_min_amount", request.form.get("referral_min_amount") or "0")
+        set_setting_sync("referral_signup_bonus", request.form.get("referral_signup_bonus") or "0")
+        set_setting_sync("referral_monthly_cap", request.form.get("referral_monthly_cap") or "0")
+        set_setting_sync("referral_notify", "1" if request.form.get("referral_notify") == "1" else "0")
         flash("تنظیمات رفرال ذخیره شد", "success")
         return redirect(url_for("referral_settings"))
     return render_template(
@@ -747,6 +751,10 @@ def referral_settings():
         s={
             "referral_enabled": get_setting_sync("referral_enabled", "1"),
             "referral_percent": get_setting_sync("referral_percent", "10"),
+            "referral_min_amount": get_setting_sync("referral_min_amount", "0"),
+            "referral_signup_bonus": get_setting_sync("referral_signup_bonus", "0"),
+            "referral_monthly_cap": get_setting_sync("referral_monthly_cap", "0"),
+            "referral_notify": get_setting_sync("referral_notify", "1"),
         },
     )
 

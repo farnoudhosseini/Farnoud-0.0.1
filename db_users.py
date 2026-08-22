@@ -328,6 +328,12 @@ def render_template(key: str, variables: dict) -> str:
     text = get_template(key) or ""
     for k, v in variables.items():
         text = text.replace(f"[{k}]", str(v if v is not None else ""))
+    # جایگزینی ایموجی پریمیوم p_...
+    try:
+        from db_extras import apply_premium_emojis
+        text = apply_premium_emojis(text)
+    except Exception:
+        pass
     return text
 
 def user_vars(user: dict, bot_username: str = "") -> dict:

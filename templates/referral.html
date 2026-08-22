@@ -12,6 +12,13 @@
 <p style="color:var(--text-tertiary);font-size:.85rem;margin:8px 0 16px">
 کاربران با لینک دعوت خود زیرمجموعه جذب می‌کنند. هنگام خرید سرویس توسط زیرمجموعه، درصد مشخص‌شده به کیف پول معرف واریز می‌شود.
 </p>
+<div class="form-group"><label>حداقل مبلغ خرید برای پورسانت (تومان)</label>
+<input name="referral_min_amount" value="{{ s.referral_min_amount }}" type="number" min="0"></div>
+<div class="form-group"><label>پاداش ثبت‌نام زیرمجموعه (تومان — یک‌بار)</label>
+<input name="referral_signup_bonus" value="{{ s.referral_signup_bonus }}" type="number" min="0"></div>
+<div class="form-group"><label>سقف پورسانت ماهانه هر معرف (۰=نامحدود)</label>
+<input name="referral_monthly_cap" value="{{ s.referral_monthly_cap }}" type="number" min="0"></div>
+<label class="check-item"><input type="checkbox" name="referral_notify" value="1" {% if s.referral_notify=='1' %}checked{% endif %}> اطلاع به معرف هنگام خرید زیرمجموعه</label>
 <button class="btn-primary inline" type="submit">ذخیره</button>
 </form>
 </div></main></div>

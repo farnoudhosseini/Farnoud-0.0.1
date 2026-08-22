@@ -51,10 +51,10 @@
 
         <div class="nav-group {% if active == 'panels' %}open{% endif %}" data-group="vpn">
             <button type="button" class="nav-group-btn" onclick="this.parentElement.classList.toggle('open')">
-                <span>پنل‌های VPN</span><span class="chevron">▼</span>
+                <span>پنل‌ها</span><span class="chevron">▼</span>
             </button>
             <div class="nav-group-body">
-                <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><span>مدیریت پنل‌ها</span></a>
+                <a href="{{ url_for('panels_list') }}" class="nav-item {% if active == 'panels' %}active{% endif %}"><span>پنل‌ها</span></a>
             </div>
         </div>
 
