@@ -63,11 +63,12 @@ async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     rows = []
     for o in orders:
-        title = o.get("product_name") or f"سفارش #{o['id']}"
-        uname = o.get("vpn_username") or "—"
-        rows.append([InlineKeyboardButton(f"🔷 {title} · {uname}", callback_data=f"svc_open_{o['id']}")])
-    rows.append([InlineKeyboardButton("🛒 خرید سرویس جدید", callback_data="buy_go")])
-    text = "📱 سرویس‌های من\nیکی را انتخاب کنید:"
+        product = o.get("product_name") or "محصول"
+        uname = o.get("vpn_username") or f"#{o['id']}"
+        # «نام سرویس» - نام محصول
+        label = f"{uname} - {product}"
+        rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_open_{o['id']}")])
+    text = "📱 سرویس‌های من\nسرویس خریداری‌شده را انتخاب کنید:"
     kb = InlineKeyboardMarkup(rows)
     if update.callback_query:
         await update.callback_query.answer()
@@ -97,15 +98,46 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("سرویس پیدا نشد.", reply_markup=back_main_kb())
             return ConversationHandler.END
         text = (
-            f"🔷 <b>{o.get('product_name') or 'سرویس'}</b>\n\n"
-            f"شماره: <code>{o['id']}</code>\n"
-            f"یوزرنیم: <code>{o.get('vpn_username') or '—'}</code>\n"
+            f"🔷 <b>{o.get('vpn_username') or 'سرویس'}</b> — {o.get('product_name') or ''}\n\n"
+            f"شماره سرویس: <code>{o['id']}</code>\n"
             f"پنل: {o.get('panel_name') or '—'}\n"
-            f"حجم: {o.get('volume_gb') or '—'} GB\n"
-            f"مدت: {o.get('duration_days') or '—'} روز\n"
+            f"حجم پلن: {o.get('volume_gb') or '—'} GB\n"
+            f"مدت پلن: {o.get('duration_days') or '—'} روز\n"
             f"وضعیت سفارش: {o.get('status')}"
         )
-        await q.edit_message_text(text, reply_markup=service_card_keyboard(oid), parse_mode="HTML")
+        # تلاش برای مشخصات زنده از پاسارگارد
+        if o.get("vpn_username"):
+            try:
+                client = _client(o)
+                full = client.get_user(o["vpn_username"])
+                raw = full.get("subscription_url") or full.get("subscription_link") or ""
+                if not raw and full.get("subscription_token"):
+                    raw = f"/sub/{full['subscription_token']}"
+                base, _, _ = _panel_creds(o)
+                link = fix_subscription_url(base, raw)
+                st = full.get("status") or "—"
+                hwid = full.get("hwid_limit")
+                if hwid is None: hwid = "—"
+                used = full.get("used_traffic") or 0
+                limit = full.get("data_limit") or 0
+                remain = "∞"
+                if limit and int(limit) > 0:
+                    remain = f"{round(max(0, (int(limit)-int(used))/(1024**3)), 2)}"
+                text = (
+                    f"سرویس {o.get('volume_gb') or remain} گیگابایت\n"
+                    f"وضعیت: {st}\n"
+                    f"تعداد دستگاه‌های متصل: {hwid}\n"
+                    f"شماره سرویس: {o['id']}\n"
+                    f"نام سرویس: <code>{o.get('vpn_username')}</code>\n"
+                    f"محصول: {o.get('product_name') or '—'}\n"
+                    f"حجم باقی‌مانده: {remain} گیگابایت\n"
+                    f"لینک اتصال:\n{link or '—'}"
+                )
+            except Exception as e:
+                text += f"\n\n⚠️ دریافت وضعیت زنده: {e}"
+        # کیبورد: تمدید به پلن دیگر هم
+        kb = service_card_keyboard(oid)
+        await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
         return ConversationHandler.END
 
     # ---- actions need order ----
@@ -183,8 +215,50 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(f"❌ خطا: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
+    if data.startswith("svc_plan_"):
+        # svc_plan_{orderId}_{productId}
+        parts = data.replace("svc_plan_", "").split("_")
+        oid, pid = int(parts[0]), int(parts[1])
+        o = get_user_order(oid, user.id)
+        product = get_product(pid)
+        if not o or not product or not o.get("vpn_username"):
+            await q.edit_message_text("نامعتبر.", reply_markup=back_main_kb())
+            return ConversationHandler.END
+        price = int(product.get("price") or 0)
+        days = int(product.get("duration_days") or 30)
+        volume = float(product.get("volume_gb") or 0)
+        bu = get_bot_user(user.id)
+        balance = int((bu or {}).get("balance") or 0)
+        if price > balance:
+            await q.edit_message_text(f"موجودی کم است. نیاز: {price:,}", reply_markup=service_card_keyboard(oid))
+            return ConversationHandler.END
+        try:
+            if price > 0:
+                add_balance(user.id, -price, f"renew_plan#{oid}")
+            client = _client(o)
+            uname = o["vpn_username"]
+            from datetime import datetime, timedelta, timezone
+            new_exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            payload = {"expire": new_exp, "status": "active", "data_limit": int(volume * 1024**3) if volume > 0 else 0}
+            try:
+                client._request("POST", f"/api/user/{uname}/reset")
+            except Exception:
+                pass
+            client.modify_user(uname, payload)
+            await q.edit_message_text(
+                f"✅ تمدید با پلن «{product['name']}» انجام شد.\n{days} روز / {volume} GB / {price:,} تومان",
+                reply_markup=service_card_keyboard(oid),
+            )
+        except Exception as e:
+            if price > 0:
+                try: add_balance(user.id, price, f"renew_plan_refund#{oid}")
+                except Exception: pass
+            await q.edit_message_text(f"❌ {e}", reply_markup=service_card_keyboard(oid))
+        return ConversationHandler.END
+
     if data.startswith("svc_renew_"):
         oid = _oid("svc_renew_")
+
         o = get_user_order(oid, user.id)
         if not o or not o.get("vpn_username"):
             await q.edit_message_text("اکانت نیست.", reply_markup=back_main_kb())

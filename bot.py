@@ -8,7 +8,9 @@ from config import BOT_TOKEN, ADMIN_ID
 from database import init_db, close_db
 from db_users import ensure_user_tables
 from db_products import ensure_product_tables
-from handlers.start import start_command
+from handlers.start import start_command, check_join_callback, contact_handler
+from handlers.trial import start_trial
+from db_growth import ensure_growth_tables
 from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message,
     receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD,
@@ -33,6 +35,7 @@ async def post_init(application: Application):
         ensure_user_tables()
         ensure_product_tables()
         ensure_support_tables()
+        ensure_growth_tables()
         from services.provision import ensure_service_template
         ensure_service_template()
     except Exception as e:
@@ -55,6 +58,8 @@ async def text_router(update, context):
         return await show_support(update, context)
     if "آموزش" in text:
         return await show_education(update, context)
+    if "تست" in text or "رایگان" in text:
+        return await start_trial(update, context)
     if text == "⚙️ مدیریت" and uid == ADMIN_ID:
         return await admin_panel(update, context)
     return None
@@ -69,6 +74,8 @@ def create_bot() -> Application:
     )
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
+    application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("wallet", show_wallet))
 

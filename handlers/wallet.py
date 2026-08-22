@@ -21,8 +21,8 @@ def main_user_keyboard(is_admin: bool = False):
         return t.split("\n")[0][:40]
     rows = [
         [KeyboardButton(btn("btn_buy", "🛒 خرید سرویس جدید")), KeyboardButton(btn("btn_services", "📱 سرویس‌های من"))],
-        [KeyboardButton(btn("btn_wallet", "💰 کیف پول من")), KeyboardButton(btn("btn_support", "🛠 پشتیبانی"))],
-        [KeyboardButton(btn("btn_education", "📚 آموزش"))],
+        [KeyboardButton(btn("btn_wallet", "💰 کیف پول من")), KeyboardButton(btn("btn_trial", "🎁 تست رایگان"))],
+        [KeyboardButton(btn("btn_support", "🛠 پشتیبانی")), KeyboardButton(btn("btn_education", "📚 آموزش"))],
     ]
     if is_admin:
         rows.append([KeyboardButton("⚙️ مدیریت")])

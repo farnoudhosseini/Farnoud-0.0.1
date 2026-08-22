@@ -18,6 +18,8 @@ from db_support import (
     list_open_tickets, get_ticket, get_ticket_messages, add_ticket_message, close_ticket,
 )
 from db_stats import dashboard_counts, chart_series
+from db_growth import ensure_growth_tables, list_discounts, create_discount
+from database import list_panels as db_list_panels
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
 from db_users import (
     ensure_user_tables, list_bot_users, get_bot_user, update_bot_user, add_balance,
@@ -35,6 +37,7 @@ try:
     ensure_user_tables()
     ensure_product_tables()
     ensure_support_tables()
+    ensure_growth_tables()
 except Exception:
     pass
 
@@ -644,6 +647,56 @@ def support_ticket_detail(tid):
         "support_ticket_detail.html",
         username=session.get("admin_username"), active="support",
         ticket=t, messages=get_ticket_messages(tid),
+    )
+
+
+
+@app.route("/growth", methods=["GET", "POST"])
+@login_required
+def growth_settings():
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "settings":
+            for key in [
+                "force_join_enabled", "force_join_channel", "force_phone_enabled",
+                "referral_enabled", "referral_percent",
+                "trial_enabled", "trial_panel_id", "trial_volume_gb", "trial_days",
+                "location_change_price", "location_change_limit",
+            ]:
+                val = request.form.get(key)
+                if val is not None:
+                    # checkboxes
+                    if key.endswith("_enabled"):
+                        val = "1" if request.form.get(key) == "1" else "0"
+                    set_setting_sync(key, val)
+            flash("تنظیمات ذخیره شد", "success")
+        elif action == "discount":
+            ok = create_discount(
+                request.form.get("code", ""),
+                percent=float(request.form.get("percent") or 0) or None,
+                amount=int(request.form.get("amount") or 0) or None,
+                max_uses=int(request.form.get("max_uses") or 0),
+            )
+            flash("کد ساخته شد" if ok else "خطا", "success" if ok else "error")
+        return redirect(url_for("growth_settings"))
+    return render_template(
+        "growth.html",
+        username=session.get("admin_username"), active="growth",
+        panels=list_panels(),
+        discounts=list_discounts(),
+        s={
+            "force_join_enabled": get_setting_sync("force_join_enabled", "0"),
+            "force_join_channel": get_setting_sync("force_join_channel", ""),
+            "force_phone_enabled": get_setting_sync("force_phone_enabled", "0"),
+            "referral_enabled": get_setting_sync("referral_enabled", "1"),
+            "referral_percent": get_setting_sync("referral_percent", "10"),
+            "trial_enabled": get_setting_sync("trial_enabled", "0"),
+            "trial_panel_id": get_setting_sync("trial_panel_id", ""),
+            "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
+            "trial_days": get_setting_sync("trial_days", "1"),
+            "location_change_price": get_setting_sync("location_change_price", "0"),
+            "location_change_limit": get_setting_sync("location_change_limit", "3"),
+        },
     )
 
 

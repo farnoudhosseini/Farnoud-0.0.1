@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}رشد و احراز{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>رشد، احراز، تست و تخفیف</h2></header>
+<div class="content">
+<form method="post" class="card">
+<input type="hidden" name="action" value="settings">
+<div class="card-title">عضویت اجباری کانال</div>
+<label class="check-item"><input type="checkbox" name="force_join_enabled" value="1" {% if s.force_join_enabled=='1' %}checked{% endif %}> فعال</label>
+<div class="form-group"><label>آیدی عددی یا یوزرنیم کانال (@channel)</label>
+<input name="force_join_channel" value="{{ s.force_join_channel }}"></div>
+<div class="card-title" style="margin-top:16px">احراز موبایل</div>
+<label class="check-item"><input type="checkbox" name="force_phone_enabled" value="1" {% if s.force_phone_enabled=='1' %}checked{% endif %}> فعال</label>
+<div class="card-title" style="margin-top:16px">زیرمجموعه / پورسانت</div>
+<label class="check-item"><input type="checkbox" name="referral_enabled" value="1" {% if s.referral_enabled=='1' %}checked{% endif %}> فعال</label>
+<div class="form-group"><label>درصد پورسانت</label><input name="referral_percent" value="{{ s.referral_percent }}"></div>
+<div class="card-title" style="margin-top:16px">تست رایگان</div>
+<label class="check-item"><input type="checkbox" name="trial_enabled" value="1" {% if s.trial_enabled=='1' %}checked{% endif %}> فعال</label>
+<div class="form-group"><label>پنل تست</label>
+<select name="trial_panel_id" class="form-select">
+<option value="">—</option>
+{% for p in panels %}
+<option value="{{ p.id }}" {% if s.trial_panel_id==p.id|string %}selected{% endif %}>{{ p.name }}</option>
+{% endfor %}
+</select></div>
+<div class="form-group"><label>حجم (GB)</label><input name="trial_volume_gb" value="{{ s.trial_volume_gb }}"></div>
+<div class="form-group"><label>روز</label><input name="trial_days" value="{{ s.trial_days }}"></div>
+<div class="card-title" style="margin-top:16px">تغییر لوکیشن</div>
+<div class="form-group"><label>قیمت هر بار (تومان)</label><input name="location_change_price" value="{{ s.location_change_price }}"></div>
+<div class="form-group"><label>حد مجاز هر کاربر</label><input name="location_change_limit" value="{{ s.location_change_limit }}"></div>
+<button class="btn-primary inline" type="submit">ذخیره تنظیمات</button>
+</form>
+<div class="card">
+<div class="card-title">کد تخفیف جدید</div>
+<form method="post">
+<input type="hidden" name="action" value="discount">
+<div class="form-group"><label>کد</label><input name="code" required></div>
+<div class="form-group"><label>درصد</label><input name="percent" placeholder="10"></div>
+<div class="form-group"><label>یا مبلغ ثابت</label><input name="amount"></div>
+<div class="form-group"><label>حداکثر استفاده (0=نامحدود)</label><input name="max_uses" value="0"></div>
+<button class="btn-primary inline" type="submit">ساخت</button>
+</form>
+{% for d in discounts %}
+<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.9rem">
+<code>{{ d.code }}</code> —
+{% if d.percent %}{{ d.percent }}%{% endif %}
+{% if d.amount %}{{ d.amount }} تومان{% endif %}
+— {{ d.used_count }}/{% if d.max_uses %}{{ d.max_uses }}{% else %}∞{% endif %}
+</div>
+{% endfor %}
+</div>
+</div></main></div>
+{% endblock %}

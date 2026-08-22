@@ -110,6 +110,11 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(text + "\n\n⏳ در حال ساخت سرویس...")
             result = provision_order(order_id)
             await send_service_to_user(context.bot, user.id, result)
+            try:
+                from db_growth import pay_referral_commission
+                pay_referral_commission(user.id, price)
+            except Exception:
+                pass
             if result.get("ok"):
                 try:
                     await context.bot.send_message(
@@ -127,9 +132,21 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         # کمبود موجودی → کارت به کارت + رسید + تایید ادمین
-        rows = [[InlineKeyboardButton("💳 کارت به کارت", callback_data=f"buy_pay_card_{order_id}")]]
-        rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
+        rows = [
+            [InlineKeyboardButton("💳 کارت به کارت", callback_data=f"buy_pay_card_{order_id}")],
+            [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
+            [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+        ]
+        context.user_data["buy_order_id"] = order_id
+        context.user_data["buy_price"] = price
         await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+        return ConversationHandler.END
+
+    if data.startswith("buy_disc_"):
+        oid = int(data.replace("buy_disc_", ""))
+        context.user_data["buy_order_id"] = oid
+        context.user_data["waiting_discount"] = True
+        await q.edit_message_text("کد تخفیف را ارسال کنید:\n(یا /start انصراف)")
         return ConversationHandler.END
 
     if data.startswith("buy_pay_card_"):

@@ -131,13 +131,26 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users = s.get("users") or {}
             total_u = s.get("total_user", s.get("users_total", users.get("total", "—")))
             active_u = s.get("users_active", s.get("active_users", users.get("active", "—")))
+            mem = s.get("mem_used") or s.get("memory_used")
+            mem_t = s.get("mem_total") or s.get("memory_total")
+            mem_s = f"{mem}/{mem_t}" if mem is not None else "—"
             text = (
-                f"📊 <b>{panel['name']}</b> — آنلاین\n\n"
+                f"📊 <b>{panel['name']}</b>\n"
+                f"وضعیت: ✅ آنلاین\n"
+                f"آدرس: <code>{panel['base_url']}</code>\n"
+                f"نوع: {panel.get('panel_type')}\n\n"
                 f"CPU: <code>{cpu}</code>\n"
-                f"کاربران: <code>{total_u}</code> (فعال: <code>{active_u}</code>)"
+                f"رم: <code>{mem_s}</code>\n"
+                f"کاربران کل: <code>{total_u}</code>\n"
+                f"کاربران فعال: <code>{active_u}</code>"
             )
         except Exception as e:
-            text = f"❌ آفلاین\n<code>{e}</code>"
+            text = (
+                f"📊 <b>{panel['name']}</b>\n"
+                f"وضعیت: ❌ آفلاین\n"
+                f"آدرس: <code>{panel['base_url']}</code>\n"
+                f"خطا: <code>{e}</code>"
+            )
         await query.edit_message_text(
             text,
             reply_markup=panel_menu_keyboard(pid),
