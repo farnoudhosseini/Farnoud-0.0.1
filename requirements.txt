@@ -1,3 +1,6 @@
 python-telegram-bot==21.6
 aiomysql
 python-dotenv
+flask
+pymysql
+werkzeug
