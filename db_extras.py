@@ -257,27 +257,50 @@ def set_buttons_per_row(n: int):
 
 def build_menu_rows(items: Optional[List[Dict]] = None, per_row: Optional[int] = None) -> List[List[Dict]]:
     """
-    دکمه‌های فعال را بر اساس فیلد row گروه‌بندی می‌کند.
-    اگر row نباشد، بر اساس per_row (پیش‌فرض ۳) می‌چیند.
+    دکمه‌های فعال را بر اساس row و col می‌چیند.
+    - row: شماره سطر (بالا/پایین)
+    - col: ترتیب داخل سطر (چپ/راست) — عدد کمتر = سمت راست در RTL تلگرام،
+      ولی برای ثبات، بر اساس col صعودی مرتب می‌شود.
+    اگر row/col نباشد، با per_row (پیش‌فرض ۳) خودکار چیده می‌شود.
     """
     if items is None:
         items = get_menu_buttons()
-    active = [x for x in items if x.get("enabled", True)]
+    active = [dict(x) for x in items if x.get("enabled", True)]
     if not active:
         return []
 
-    has_row = any("row" in x and x.get("row") is not None for x in active)
+    # نرمال‌سازی col
+    for i, x in enumerate(active):
+        if x.get("col") is None:
+            x["col"] = i
+        try:
+            x["col"] = int(x["col"])
+        except Exception:
+            x["col"] = i
+        try:
+            x["row"] = int(x["row"]) if x.get("row") is not None else None
+        except Exception:
+            x["row"] = None
+
+    has_row = any(x.get("row") is not None for x in active)
     if has_row:
+        for x in active:
+            if x["row"] is None:
+                x["row"] = 0
         groups: Dict[int, List[Dict]] = {}
         for x in active:
-            r = int(x.get("row") or 0)
-            groups.setdefault(r, []).append(x)
-        return [groups[k] for k in sorted(groups.keys())]
+            groups.setdefault(x["row"], []).append(x)
+        out = []
+        for k in sorted(groups.keys()):
+            out.append(sorted(groups[k], key=lambda z: z.get("col", 0)))
+        return out
 
     pr = per_row if per_row is not None else get_buttons_per_row()
+    # مرتب‌سازی کلی بر اساس col سپس برش به سطرها
+    active_sorted = sorted(active, key=lambda z: z.get("col", 0))
     rows: List[List[Dict]] = []
     row: List[Dict] = []
-    for x in active:
+    for x in active_sorted:
         row.append(x)
         if len(row) >= pr:
             rows.append(row)
@@ -285,3 +308,77 @@ def build_menu_rows(items: Optional[List[Dict]] = None, per_row: Optional[int] =
     if row:
         rows.append(row)
     return rows
+
+
+# ---- ادمین‌های ربات (تلگرام) ----
+
+def ensure_bot_admins_table():
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_admins (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                telegram_id BIGINT NOT NULL UNIQUE,
+                title VARCHAR(100) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def list_bot_admins() -> list:
+    ensure_bot_admins_table()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM bot_admins ORDER BY id")
+            return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def add_bot_admin(telegram_id: int, title: str = None) -> bool:
+    ensure_bot_admins_table()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO bot_admins (telegram_id, title) VALUES (%s,%s)",
+                (int(telegram_id), title),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def remove_bot_admin(telegram_id: int) -> bool:
+    ensure_bot_admins_table()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM bot_admins WHERE telegram_id=%s", (int(telegram_id),))
+            conn.commit()
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def is_bot_admin_id(telegram_id: int) -> bool:
+    """بررسی ادمین بودن (بدون در نظر گرفتن ADMIN_ID اصلی)."""
+    try:
+        ensure_bot_admins_table()
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM bot_admins WHERE telegram_id=%s LIMIT 1", (int(telegram_id),))
+                return cur.fetchone() is not None
+        finally:
+            conn.close()
+    except Exception:
+        return False

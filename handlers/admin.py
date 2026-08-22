@@ -11,28 +11,41 @@ WAITING_USER_FIELD = 2  # ساخت/ویرایش کاربر چندمرحله‌ا
 WAITING_ADMIN_TEXT = 41  # جستجو/ارسال همگانی/تنظیمات مدیریت
 
 def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_ID
+    if not user_id:
+        return False
+    if user_id == ADMIN_ID:
+        return True
+    try:
+        from db_extras import is_bot_admin_id
+        return is_bot_admin_id(user_id)
+    except Exception:
+        return False
 
 def main_keyboard():
+    def btn(text, data, style=None):
+        kw = {"text": text, "callback_data": data}
+        if style:
+            kw["style"] = style
+        try:
+            return InlineKeyboardButton(**kw)
+        except TypeError:
+            return InlineKeyboardButton(text, callback_data=data)
+
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 تنظیم پیام‌های ربات", callback_data="admin_msgs"),
-         InlineKeyboardButton("👋 خوش‌آمدگویی", callback_data="admin_welcome")],
-        [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
-        [InlineKeyboardButton("📦 محصولات", callback_data="admin_products")],
-        [InlineKeyboardButton("📋 سرویس‌های فروخته‌شده", callback_data="admin_orders")],
-        [InlineKeyboardButton("👥 کاربران ربات", callback_data="admin_bot_users")],
-        [InlineKeyboardButton("📣 ارسال همگانی", callback_data="admin_broadcast"),
-         InlineKeyboardButton("🔎 جستجوی کاربر", callback_data="admin_user_search")],
-        [InlineKeyboardButton("🛠 وب‌پنل", callback_data="admin_web"),
-         InlineKeyboardButton("🎁 رفرال", callback_data="admin_referral")],
-        [InlineKeyboardButton("💳 کارت‌ها / پرداخت", callback_data="admin_cards")],
-        [InlineKeyboardButton("🧾 درخواست‌های شارژ", callback_data="admin_charges")],
-        [
-            InlineKeyboardButton("✨ ایموجی پریمیوم", callback_data="admin_premiji"),
-            InlineKeyboardButton("⌨️ منوی شیشه‌ای", callback_data="admin_inline_menu"),
-        ],
-        [InlineKeyboardButton("⏱ سرویس ساعتی", callback_data="admin_hourly")],
-        [InlineKeyboardButton("🔙 بستن", callback_data="admin_close")],
+        [btn("📊 آمار ربات", "admin_stats", "primary")],
+        [btn("📝 تنظیم پیام‌ها", "admin_msgs"), btn("👋 خوش‌آمدگویی", "admin_welcome")],
+        [btn("🖥 مدیریت پنل‌ها", "admin_panels")],
+        [btn("📦 محصولات", "admin_products")],
+        [btn("📋 سرویس‌های فروخته‌شده", "admin_orders")],
+        [btn("👥 کاربران ربات", "admin_bot_users")],
+        [btn("📣 ارسال همگانی", "admin_broadcast"), btn("🔎 جستجوی کاربر", "admin_user_search")],
+        [btn("🛠 وب‌پنل", "admin_web"), btn("🎁 رفرال", "admin_referral")],
+        [btn("💳 کارت‌ها / پرداخت", "admin_cards")],
+        [btn("🧾 درخواست‌های شارژ", "admin_charges")],
+        [btn("✨ ایموجی پریمیوم", "admin_premiji"), btn("⌨️ منوی شیشه‌ای", "admin_inline_menu")],
+        [btn("👮 ادمین‌های ربات", "admin_botadmins")],
+        [btn("⏱ سرویس ساعتی", "admin_hourly")],
+        [btn("🔙 بستن", "admin_close")],
     ])
 
 def panels_keyboard(panels):
@@ -725,15 +738,70 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]))
         return ConversationHandler.END
 
+
+    # ---- آمار ----
+    if data == "admin_stats":
+        import time
+        from db_stats import bot_full_stats, format_bot_stats_text
+        t0 = time.perf_counter()
+        stats = bot_full_stats()
+        ping_ms = int((time.perf_counter() - t0) * 1000)
+        text = format_bot_stats_text(stats, ping_ms=ping_ms)
+        await query.edit_message_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 بروزرسانی", callback_data="admin_stats")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    # ---- ادمین‌های ربات ----
+    if data == "admin_botadmins":
+        from db_extras import list_bot_admins
+        from config import ADMIN_ID as MAIN_ADMIN
+        lines = ["👮 <b>ادمین‌های ربات</b>\n", f"⭐ ادمین اصلی: <code>{MAIN_ADMIN}</code>\n"]
+        rows = []
+        for a in list_bot_admins():
+            lines.append(f"• <code>{a['telegram_id']}</code> {a.get('title') or ''}")
+            rows.append([InlineKeyboardButton(
+                f"🗑 حذف {a['telegram_id']}",
+                callback_data=f"admin_badm_del_{a['telegram_id']}",
+            )])
+        rows.insert(0, [InlineKeyboardButton("➕ افزودن ادمین", callback_data="admin_badm_add")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+        return ConversationHandler.END
+
+    if data == "admin_badm_add":
+        context.user_data["admin_input_mode"] = "bot_admin_add"
+        await query.edit_message_text("آیدی عددی تلگرام ادمین جدید را بفرستید:")
+        return WAITING_ADMIN_TEXT
+
+    if data.startswith("admin_badm_del_"):
+        from db_extras import remove_bot_admin
+        tid = int(data.replace("admin_badm_del_", ""))
+        remove_bot_admin(tid)
+        await query.edit_message_text(
+            f"✅ ادمین <code>{tid}</code> حذف شد.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 لیست", callback_data="admin_botadmins")]]),
+        )
+        return ConversationHandler.END
+
     # ---- منوی شیشه‌ای ----
     if data == "admin_inline_menu":
         from database import get_setting_sync, set_setting_sync
         cur = get_setting_sync("inline_main_menu", "0")
         new = "0" if cur == "1" else "1"
         set_setting_sync("inline_main_menu", new)
-        state = "شیشه‌ای (اینلاین) ✅" if new == "1" else "دکمه‌ای (ریپلای) ✅"
+        if new == "1":
+            state = "شیشه‌ای (اینلاین) ✅\nکیبورد دکمه‌ای کاملاً خاموش می‌شود."
+        else:
+            state = "دکمه‌ای (ریپلای) ✅\nمنوی شیشه‌ای خاموش است."
         await query.edit_message_text(
-            f"⌨️ منوی اصلی ربات: <b>{state}</b>\n\nکاربران با /start منوی جدید را می‌بینند.",
+            f"⌨️ منوی اصلی ربات:\n<b>{state}</b>\n\nکاربران با /start منوی جدید را می‌بینند.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
             parse_mode="HTML",
         )
@@ -838,6 +906,17 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from db_users import add_card
         add_card(parts[0],parts[1],parts[2] if len(parts)>2 and parts[2] else None)
         await update.message.reply_text("✅ کارت اضافه شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها",callback_data="admin_cards")]]))
+        return ConversationHandler.END
+
+    if mode == "bot_admin_add":
+        from db_extras import add_bot_admin
+        tid = text.strip().lstrip("@")
+        if not tid.isdigit():
+            await update.message.reply_text("❌ فقط آیدی عددی بفرستید (مثال: 123456789)")
+            return WAITING_ADMIN_TEXT
+        ok = add_bot_admin(int(tid))
+        msg = f"✅ ادمین <code>{tid}</code> اضافه شد." if ok else f"ℹ️ <code>{tid}</code> از قبل ادمین بود یا خطا رخ داد."
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=main_keyboard())
         return ConversationHandler.END
 
     if mode=="web_user":

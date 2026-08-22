@@ -69,35 +69,55 @@ async def _send_welcome(update, context, user):
         welcome = apply_premium_emojis(welcome)
     except Exception:
         pass
-    is_adm = user and user.id == ADMIN_ID
+    is_adm = user and is_admin_user(user.id)
     from handlers.wallet import main_user_keyboard
     from database import get_setting_sync
+    from telegram import ReplyKeyboardRemove
 
-    # همیشه کیبورد دکمه‌ای (Reply) فعال باشد
-    reply_kb = main_user_keyboard(is_admin=is_adm, force_inline=False)
-    await context.bot.send_message(
-        user.id,
-        welcome,
-        reply_markup=reply_kb,
-        parse_mode="HTML",
-    )
+    use_glass = get_setting_sync("inline_main_menu", "0") == "1"
 
-    # اگر منوی شیشه‌ای روشن است، یک پیام جدا با دکمه‌های اینلاین هم بفرست
-    if get_setting_sync("inline_main_menu", "0") == "1":
+    if use_glass:
+        # فقط منوی شیشه‌ای — کیبورد دکمه‌ای کاملاً حذف می‌شود
+        await context.bot.send_message(
+            user.id,
+            welcome,
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode="HTML",
+        )
         glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
         await context.bot.send_message(
             user.id,
-            "🎛 منوی سریع:",
+            "🎛 منوی اصلی:",
             reply_markup=glass,
         )
-    elif is_adm:
+    else:
+        # فقط کیبورد دکمه‌ای
+        reply_kb = main_user_keyboard(is_admin=is_adm, force_inline=False)
         await context.bot.send_message(
             user.id,
-            "⚙️ دسترسی ادمین فعال است.",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("⚙️ مدیریت", callback_data="admin_panel")]]
-            ),
+            welcome,
+            reply_markup=reply_kb,
+            parse_mode="HTML",
         )
+        if is_adm:
+            await context.bot.send_message(
+                user.id,
+                "⚙️ دسترسی ادمین فعال است.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⚙️ مدیریت", callback_data="admin_panel")]]
+                ),
+            )
+
+
+def is_admin_user(uid: int) -> bool:
+    try:
+        from handlers.admin import is_admin
+        return is_admin(uid)
+    except Exception:
+        from config import ADMIN_ID
+        return uid == ADMIN_ID
+
+
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

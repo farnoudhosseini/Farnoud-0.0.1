@@ -6,32 +6,50 @@
 <main class="main">
 <header class="topbar">
   <h2>شخصی‌سازی</h2>
-  <div class="topbar-actions"><button type="button" class="theme-toggle" id="themeToggle">🌓</button></div>
+  <div class="topbar-actions"><button type="button" class="theme-toggle" id="themeToggle" aria-label="تم">🌓</button></div>
 </header>
 <div class="content">
   <div class="card">
     <div class="card-title">تم روشن / تیره</div>
-    <div class="card-desc">در همه صفحات اعمال می‌شود</div>
-    <div class="theme-grid">
-      <div class="theme-option" data-theme="dark">تیره</div>
-      <div class="theme-option" data-theme="light">روشن</div>
+    <div class="card-desc">در همه صفحات اعمال می‌شود و در همین مرورگر ذخیره می‌گردد</div>
+    <div class="theme-grid" style="display:flex;gap:.75rem;margin-top:1rem;flex-wrap:wrap">
+      <button type="button" class="theme-option" data-theme="dark" style="padding:.75rem 1.25rem;border-radius:12px;border:1px solid var(--border,rgba(255,255,255,.12));cursor:pointer;background:var(--card-bg,#111)">🌙 تیره</button>
+      <button type="button" class="theme-option" data-theme="light" style="padding:.75rem 1.25rem;border-radius:12px;border:1px solid var(--border,rgba(0,0,0,.12));cursor:pointer;background:#f8fafc;color:#111">☀️ روشن</button>
     </div>
   </div>
-  <div class="card">
+  <div class="card" style="margin-top:1rem">
     <div class="card-title">رنگ اصلی پنل</div>
-    <div class="card-desc">دکمه‌ها، هایلایت منو، نمودار و گرادیان پس‌زمینه با این رنگ هماهنگ می‌شوند</div>
-    <div class="color-grid">
-      <div class="color-swatch" data-color="blue" style="background:#3b82f6" title="آبی"></div>
-      <div class="color-swatch" data-color="purple" style="background:#a855f7" title="بنفش"></div>
-      <div class="color-swatch" data-color="green" style="background:#22c55e" title="سبز"></div>
-      <div class="color-swatch" data-color="orange" style="background:#f59e0b" title="نارنجی"></div>
-      <div class="color-swatch" data-color="pink" style="background:#ec4899" title="صورتی"></div>
-      <div class="color-swatch" data-color="teal" style="background:#14b8a6" title="فیروزه‌ای"></div>
-      <div class="color-swatch" data-color="red" style="background:#ef4444" title="قرمز"></div>
-      <div class="color-swatch" data-color="indigo" style="background:#6366f1" title="ایندیگو"></div>
+    <div class="card-desc">دکمه‌ها، هایلایت منو و گرادیان با این رنگ هماهنگ می‌شوند</div>
+    <div class="color-grid" style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem">
+      <button type="button" class="color-swatch" data-color="blue" title="آبی" style="width:42px;height:42px;border-radius:50%;background:#3b82f6;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="purple" title="بنفش" style="width:42px;height:42px;border-radius:50%;background:#a855f7;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="green" title="سبز" style="width:42px;height:42px;border-radius:50%;background:#22c55e;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="orange" title="نارنجی" style="width:42px;height:42px;border-radius:50%;background:#f59e0b;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="pink" title="صورتی" style="width:42px;height:42px;border-radius:50%;background:#ec4899;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="teal" title="فیروزه‌ای" style="width:42px;height:42px;border-radius:50%;background:#14b8a6;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="red" title="قرمز" style="width:42px;height:42px;border-radius:50%;background:#ef4444;border:3px solid transparent;cursor:pointer"></button>
+      <button type="button" class="color-swatch" data-color="indigo" title="نیلی" style="width:42px;height:42px;border-radius:50%;background:#6366f1;border:3px solid transparent;cursor:pointer"></button>
     </div>
+    <p class="muted" style="margin-top:1rem" id="colorHint">رنگ فعال در localStorage مرورگر ذخیره می‌شود.</p>
   </div>
 </div>
 </main>
 </div>
+<script>
+(function(){
+  // اطمینان از اعمال تم/رنگ حتی اگر main.js زودتر لود شده باشد
+  if (typeof initPreferences === "function") initPreferences();
+  document.querySelectorAll(".color-swatch").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      if (typeof applyColor === "function") applyColor(el.dataset.color);
+      document.getElementById("colorHint").textContent = "رنگ «" + el.dataset.color + "» اعمال شد.";
+    });
+  });
+  document.querySelectorAll(".theme-option").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      if (typeof applyTheme === "function") applyTheme(el.dataset.theme);
+    });
+  });
+})();
+</script>
 {% endblock %}

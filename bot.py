@@ -41,8 +41,9 @@ async def post_init(application: Application):
         ensure_growth_tables()
         from db_products import ensure_service_mgmt_columns
         ensure_service_mgmt_columns()
-        from db_extras import ensure_extras_tables
+        from db_extras import ensure_extras_tables, ensure_bot_admins_table
         ensure_extras_tables()
+        ensure_bot_admins_table()
         from database import ensure_panel_max_sales
         ensure_panel_max_sales()
         from services.provision import ensure_service_template
@@ -95,8 +96,10 @@ async def text_router(update, context):
         return await show_education(update, context)
     if "تست" in text or "رایگان" in text:
         return await start_trial(update, context)
-    if text == "⚙️ مدیریت" and uid == ADMIN_ID:
-        return await admin_panel(update, context)
+    if text == "⚙️ مدیریت":
+        from handlers.admin import is_admin
+        if is_admin(uid):
+            return await admin_panel(update, context)
     return None
 
 

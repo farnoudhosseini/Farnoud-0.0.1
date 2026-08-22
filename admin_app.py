@@ -897,6 +897,7 @@ def menu_buttons_manage():
                 "enabled":bool(x.get("enabled",True)),
                 "color":color,
                 "row":row,
+                "col": int(x.get("col", i) or i),
             })
         set_menu_buttons(clean)
         if data and data.get("per_row") is not None:
