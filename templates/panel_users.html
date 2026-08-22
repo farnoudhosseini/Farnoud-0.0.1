@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}کاربران VPN — {{ panel.name }}{% endblock %}
+{% block content %}
+<div class="dashboard">
+    {% include "_sidebar.html" %}
+    <main class="main">
+        <header class="topbar">
+            <h2>کاربران VPN — {{ panel.name }}</h2>
+            <div class="topbar-actions">
+                <a href="{{ url_for('panel_user_add', slug=panel.slug) }}" class="btn-primary inline">+ کاربر جدید</a>
+                <a href="{{ url_for('panel_detail', slug=panel.slug) }}" class="greeting">جزئیات پنل</a>
+                <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+            </div>
+        </header>
+        <div class="content">
+            {% if error %}
+            <div class="card"><div class="card-title" style="color:var(--error)">خطا</div><p class="card-desc">{{ error }}</p></div>
+            {% endif %}
+
+            {% if users %}
+            <div class="card" style="padding:0;overflow:hidden">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>نام کاربری</th>
+                            <th>وضعیت</th>
+                            <th>حجم</th>
+                            <th>انقضا</th>
+                            <th>HWID</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td><strong>{{ u.username }}</strong></td>
+                            <td><span class="badge">{{ u.status or '—' }}</span></td>
+                            <td>
+                                {% set used = u.used_traffic or 0 %}
+                                {% set lim = u.data_limit or 0 %}
+                                {{ bytes_to_gb(used) }}
+                                {% if lim %}/ {{ bytes_to_gb(lim) }} GB{% else %}/ ∞{% endif %}
+                            </td>
+                            <td style="font-size:0.85rem;color:var(--text-secondary)">
+                                {% if u.expire %}{{ u.expire }}{% else %}نامحدود{% endif %}
+                            </td>
+                            <td>{{ u.hwid_limit if u.hwid_limit is not none else '—' }}</td>
+                            <td class="actions">
+                                <a href="{{ url_for('panel_user_edit', slug=panel.slug, vpn_username=u.username) }}">ویرایش</a>
+                                <form method="POST" action="{{ url_for('panel_user_delete', slug=panel.slug, vpn_username=u.username) }}" style="display:inline" onsubmit="return confirm('حذف شود؟');">
+                                    <button type="submit" class="link-danger">حذف</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p style="color:var(--text-tertiary);font-size:0.85rem">مجموع: {{ total }}</p>
+            {% else %}
+            <div class="empty">
+                <h3>کاربری وجود ندارد</h3>
+                <p>اولین کلاینت VPN را بسازید.</p>
+                <a href="{{ url_for('panel_user_add', slug=panel.slug) }}" class="btn-primary inline" style="margin-top:16px;display:inline-block">+ کاربر جدید</a>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}

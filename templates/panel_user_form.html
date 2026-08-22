@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'add' %}کاربر جدید{% else %}ویرایش کاربر{% endif %} | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">
+    {% include "_sidebar.html" %}
+    <main class="main">
+        <header class="topbar">
+            <h2>{% if mode == 'add' %}افزودن کاربر VPN{% else %}ویرایش {{ user.username }}{% endif %}</h2>
+            <div class="topbar-actions">
+                <a href="{{ url_for('panel_users', slug=panel.slug) }}" class="greeting">بازگشت</a>
+                <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+            </div>
+        </header>
+        <div class="content">
+            <div class="card" style="max-width:560px">
+                <div class="card-title">{{ panel.name }} — پاسارگارد</div>
+                <div class="card-desc">فیلدها مطابق پنل پاسارگارد (کاربران / افزودن کاربر) هستند.</div>
+                {% if groups_error %}
+                <p class="card-desc" style="color:var(--error)">گروه‌ها دریافت نشد: {{ groups_error }}</p>
+                {% endif %}
+                <form method="POST">
+                    {% if mode == 'add' %}
+                    <div class="form-group">
+                        <label for="username">نام کاربری *</label>
+                        <input type="text" id="username" name="username" required pattern="[a-zA-Z0-9_]{3,32}" placeholder="user_001">
+                    </div>
+                    {% endif %}
+                    <div class="form-group">
+                        <label for="status">وضعیت</label>
+                        <select id="status" name="status" class="form-select">
+                            {% set st = (user.status if user else 'active') %}
+                            <option value="active" {% if st == 'active' %}selected{% endif %}>active</option>
+                            <option value="on_hold" {% if st == 'on_hold' %}selected{% endif %}>on_hold</option>
+                            {% if mode == 'edit' %}
+                            <option value="disabled" {% if st == 'disabled' %}selected{% endif %}>disabled</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_limit_gb">حد مصرف داده (گیگابایت) — 0 = نامحدود</label>
+                        <input type="number" step="0.1" min="0" id="data_limit_gb" name="data_limit_gb"
+                            value="{% if user and user.data_limit %}{{ bytes_to_gb(user.data_limit) }}{% else %}0{% endif %}">
+                    </div>
+                    <div class="form-group">
+                        <label for="expire">تاریخ پایان (خالی = نامحدود)</label>
+                        <input type="datetime-local" id="expire" name="expire"
+                            value="{% if user and user.expire %}{{ user.expire[:16]|replace('Z','') }}{% endif %}">
+                    </div>
+                    <div class="form-group">
+                        <label>گروه‌ها</label>
+                        <div class="checkbox-list">
+                            {% set selected = user.group_ids if user and user.group_ids else [] %}
+                            {% for g in groups %}
+                            {% set gid = g.id if g.id is defined else g['id'] %}
+                            {% set gname = g.name if g.name is defined else g['name'] %}
+                            <label class="check-item">
+                                <input type="checkbox" name="group_ids" value="{{ gid }}"
+                                    {% if gid in selected %}checked{% endif %}>
+                                {{ gname }} <span style="color:var(--text-tertiary)">({{ gid }})</span>
+                            </label>
+                            {% else %}
+                            <span style="color:var(--text-tertiary);font-size:0.85rem">گروهی یافت نشد</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="hwid_limit">محدودیت HWID (تعداد دستگاه)</label>
+                        <input type="number" min="0" id="hwid_limit" name="hwid_limit"
+                            value="{% if user and user.hwid_limit is not none %}{{ user.hwid_limit }}{% endif %}"
+                            placeholder="خالی = پیش‌فرض پنل">
+                    </div>
+                    <div class="form-group">
+                        <label for="note">توضیحات</label>
+                        <textarea id="note" name="note" rows="3">{{ user.note if user and user.note else '' }}</textarea>
+                    </div>
+                    <div class="card-actions">
+                        <button type="submit" class="btn-primary inline">{% if mode == 'add' %}ساخت کاربر{% else %}ذخیره{% endif %}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

@@ -1,33 +1,24 @@
 # فایل اصلی ربات تلگرام فرنود
 
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    filters,
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ConversationHandler, filters,
 )
-from config import BOT_TOKEN, ADMIN_ID
+from config import BOT_TOKEN
 from database import init_db, close_db
 from handlers.start import start_command
 from handlers.admin import (
-    admin_panel,
-    admin_callback,
-    receive_welcome_message,
-    WAITING_WELCOME,
+    admin_panel, admin_callback, receive_welcome_message,
+    receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD,
 )
 
 async def post_init(application: Application):
-    """بعد از راه‌اندازی ربات"""
     await init_db()
 
 async def post_shutdown(application: Application):
-    """هنگام خاموش شدن ربات"""
     await close_db()
 
 def create_bot() -> Application:
-    """ساخت شیء اصلی ربات و ثبت هندلرها"""
     application = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -36,31 +27,26 @@ def create_bot() -> Application:
         .build()
     )
 
-    # دستور /start
     application.add_handler(CommandHandler("start", start_command))
 
-    # مکالمه تنظیم پیام خوش‌آمدگویی (ادمین)
-    welcome_conv = ConversationHandler(
+    conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^set_welcome$"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_padduser_|admin_pedit_)"),
         ],
         states={
-            WAITING_WELCOME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message),
-            ],
+            WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],
+            WAITING_USER_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_user_field)],
         },
         fallbacks=[
-            CallbackQueryHandler(admin_callback, pattern="^admin_back$"),
+            CallbackQueryHandler(admin_callback, pattern="^admin_"),
             CommandHandler("start", start_command),
+            CommandHandler("admin", admin_panel),
         ],
         allow_reentry=True,
+        per_message=False,
     )
-    application.add_handler(welcome_conv)
-
-    # سایر دکمه‌های پنل ادمین داخل ربات
+    application.add_handler(conv)
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
-
-    # دستور /admin برای باز کردن پنل مدیریت داخل ربات
     application.add_handler(CommandHandler("admin", admin_panel))
 
     return application

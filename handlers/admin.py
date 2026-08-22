@@ -1,116 +1,388 @@
-# پنل مدیریت داخل ربات تلگرام
-# فقط برای ادمین اصلی قابل دسترسی است
+# پنل مدیریت داخل ربات تلگرام — شامل مدیریت پنل‌های VPN و کاربران پاسارگارد
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
-from database import get_setting, set_setting
+from database import get_setting, set_setting, list_panels, get_panel_by_id
+from services.pasarguard import PasarGuardClient, bytes_to_gb
 
-# حالت مکالمه برای دریافت پیام خوش‌آمدگویی جدید
 WAITING_WELCOME = 1
+WAITING_USER_FIELD = 2  # ساخت/ویرایش کاربر چندمرحله‌ای
 
 def is_admin(user_id: int) -> bool:
-    """بررسی اینکه کاربر ادمین است یا نه"""
     return user_id == ADMIN_ID
 
-def admin_keyboard():
-    """کیبورد اصلی پنل مدیریت داخل ربات"""
+def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 تنظیم پیام خوش‌آمدگویی", callback_data="set_welcome")],
+        [InlineKeyboardButton("📝 تنظیم پیام خوش‌آمد", callback_data="set_welcome")],
         [InlineKeyboardButton("📄 مشاهده پیام فعلی", callback_data="admin_view_welcome")],
+        [InlineKeyboardButton("🖥 مدیریت پنل‌ها", callback_data="admin_panels")],
         [InlineKeyboardButton("🔙 بستن", callback_data="admin_close")],
     ])
 
+def panels_keyboard(panels):
+    rows = []
+    for p in panels:
+        status = "🟢" if p.get("last_status") in ("online", "connected") else "⚪"
+        rows.append([InlineKeyboardButton(
+            f"{status} {p['name']} ({p['panel_type']})",
+            callback_data=f"admin_panel_{p['id']}"
+        )])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(rows)
+
+def panel_menu_keyboard(panel_id: int):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 وضعیت / آمار", callback_data=f"admin_pstats_{panel_id}")],
+        [InlineKeyboardButton("👥 لیست کاربران VPN", callback_data=f"admin_pusers_{panel_id}")],
+        [InlineKeyboardButton("➕ افزودن کاربر VPN", callback_data=f"admin_padduser_{panel_id}")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panels")],
+    ])
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """باز کردن پنل مدیریت با دستور /admin یا دکمه"""
     user = update.effective_user
     if not user or not is_admin(user.id):
         if update.message:
-            await update.message.reply_text("⛔️ شما دسترسی به این بخش را ندارید.")
+            await update.message.reply_text("⛔️ دسترسی ندارید.")
         return
-
-    text = (
-        "⚙️ <b>پنل مدیریت فرنود</b>\n\n"
-        "از دکمه‌های زیر برای مدیریت ربات استفاده کنید."
-    )
-
+    text = "⚙️ <b>پنل مدیریت فرنود</b>\n\nاز دکمه‌های زیر استفاده کنید."
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
-            text, reply_markup=admin_keyboard(), parse_mode="HTML"
-        )
+        await update.callback_query.edit_message_text(text, reply_markup=main_keyboard(), parse_mode="HTML")
     else:
-        await update.message.reply_text(
-            text, reply_markup=admin_keyboard(), parse_mode="HTML"
-        )
+        await update.message.reply_text(text, reply_markup=main_keyboard(), parse_mode="HTML")
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت دکمه‌های پنل ادمین"""
     query = update.callback_query
     await query.answer()
     user = update.effective_user
-
     if not user or not is_admin(user.id):
         await query.edit_message_text("⛔️ دسترسی ندارید.")
         return ConversationHandler.END
 
     data = query.data
 
-    # باز کردن پنل
     if data == "admin_panel":
         await admin_panel(update, context)
         return ConversationHandler.END
 
-    # مشاهده پیام فعلی
     if data == "admin_view_welcome":
         current = await get_setting("welcome_message", "—")
         await query.edit_message_text(
-            f"📄 <b>پیام خوش‌آمدگویی فعلی:</b>\n\n{current}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
-            ]),
+            f"📄 <b>پیام خوش‌آمد فعلی:</b>\n\n{current}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
             parse_mode="HTML",
         )
         return ConversationHandler.END
 
-    # شروع تنظیم پیام جدید
     if data == "set_welcome":
         await query.edit_message_text(
-            "📝 لطفاً پیام خوش‌آمدگویی جدید را ارسال کنید.\n\n"
-            "می‌توانید از HTML ساده استفاده کنید (مثل &lt;b&gt;متن&lt;/b&gt;).\n\n"
-            "برای انصراف /start را بزنید.",
+            "📝 پیام خوش‌آمد جدید را ارسال کنید.\nبرای انصراف /start بزنید.",
             parse_mode="HTML",
         )
         return WAITING_WELCOME
 
-    # بستن پنل
     if data == "admin_close":
-        await query.edit_message_text("✅ پنل مدیریت بسته شد.")
+        await query.edit_message_text("✅ پنل بسته شد.")
         return ConversationHandler.END
 
-    # بازگشت به پنل
-    if data == "admin_back":
-        await admin_panel(update, context)
+    # ---- پنل‌ها ----
+    if data == "admin_panels":
+        panels = list_panels()
+        if not panels:
+            await query.edit_message_text(
+                "هنوز پنلی متصل نیست.\nاز پنل وب اضافه کنید.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
+            )
+            return ConversationHandler.END
+        await query.edit_message_text(
+            "🖥 <b>انتخاب پنل VPN:</b>",
+            reply_markup=panels_keyboard(panels),
+            parse_mode="HTML",
+        )
         return ConversationHandler.END
+
+    if data.startswith("admin_panel_"):
+        pid = int(data.replace("admin_panel_", ""))
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        await query.edit_message_text(
+            f"🖥 <b>{panel['name']}</b>\n<code>{panel['base_url']}</code>\n\nیک گزینه را انتخاب کنید:",
+            reply_markup=panel_menu_keyboard(pid),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_pstats_"):
+        pid = int(data.replace("admin_pstats_", ""))
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        try:
+            client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+            s = client.get_system_stats()
+            cpu = s.get("cpu_usage", s.get("cpu", "—"))
+            users = s.get("users") or {}
+            total_u = s.get("total_user", s.get("users_total", users.get("total", "—")))
+            active_u = s.get("users_active", s.get("active_users", users.get("active", "—")))
+            text = (
+                f"📊 <b>{panel['name']}</b> — آنلاین\n\n"
+                f"CPU: <code>{cpu}</code>\n"
+                f"کاربران: <code>{total_u}</code> (فعال: <code>{active_u}</code>)"
+            )
+        except Exception as e:
+            text = f"❌ آفلاین\n<code>{e}</code>"
+        await query.edit_message_text(
+            text,
+            reply_markup=panel_menu_keyboard(pid),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_pusers_"):
+        pid = int(data.replace("admin_pusers_", ""))
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        try:
+            client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+            data_u = client.get_users(offset=0, limit=20)
+            users = data_u.get("users") or []
+            if not users:
+                text = "لیست کاربران خالی است."
+                kb = panel_menu_keyboard(pid)
+            else:
+                rows = []
+                lines = [f"👥 <b>کاربران {panel['name']}</b> (۲۰ تای اول)\n"]
+                for u in users:
+                    uname = u.get("username", "?")
+                    st = u.get("status", "?")
+                    lines.append(f"• <code>{uname}</code> — {st}")
+                    rows.append([
+                        InlineKeyboardButton(f"✏️ {uname}", callback_data=f"admin_pedit_{pid}_{uname}"),
+                        InlineKeyboardButton("🗑", callback_data=f"admin_pdel_{pid}_{uname}"),
+                    ])
+                rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_panel_{pid}")])
+                text = "\n".join(lines)
+                kb = InlineKeyboardMarkup(rows)
+        except Exception as e:
+            text = f"❌ خطا: <code>{e}</code>"
+            kb = panel_menu_keyboard(pid)
+        await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_pdel_"):
+        # admin_pdel_{pid}_{username}
+        rest = data.replace("admin_pdel_", "", 1)
+        pid_str, _, uname = rest.partition("_")
+        pid = int(pid_str)
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        try:
+            PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False).delete_user(uname)
+            await query.edit_message_text(
+                f"✅ کاربر <code>{uname}</code> حذف شد.",
+                reply_markup=panel_menu_keyboard(pid),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ خطا: {e}", reply_markup=panel_menu_keyboard(pid))
+        return ConversationHandler.END
+
+    if data.startswith("admin_padduser_"):
+        pid = int(data.replace("admin_padduser_", ""))
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        context.user_data["vpn_panel_id"] = pid
+        context.user_data["vpn_mode"] = "create"
+        context.user_data["vpn_user"] = {}
+        context.user_data["vpn_step"] = "username"
+        await query.edit_message_text(
+            "➕ <b>ساخت کاربر VPN</b>\n\n"
+            "نام کاربری را بفرستید (۳ تا ۳۲ کاراکتر، حروف/عدد/_):\n"
+            "برای انصراف /start",
+            parse_mode="HTML",
+        )
+        return WAITING_USER_FIELD
+
+    if data.startswith("admin_pedit_"):
+        rest = data.replace("admin_pedit_", "", 1)
+        pid_str, _, uname = rest.partition("_")
+        pid = int(pid_str)
+        panel = get_panel_by_id(pid)
+        if not panel:
+            await query.edit_message_text("پنل یافت نشد.")
+            return ConversationHandler.END
+        context.user_data["vpn_panel_id"] = pid
+        context.user_data["vpn_mode"] = "edit"
+        context.user_data["vpn_edit_username"] = uname
+        context.user_data["vpn_user"] = {}
+        context.user_data["vpn_step"] = "data_limit"
+        await query.edit_message_text(
+            f"✏️ ویرایش <code>{uname}</code>\n\n"
+            "حد حجم را به گیگابایت بفرستید (0 = نامحدود):\n"
+            "یا بنویسید <code>-</code> برای رد کردن این فیلد.",
+            parse_mode="HTML",
+        )
+        return WAITING_USER_FIELD
 
     return ConversationHandler.END
 
 async def receive_welcome_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت و ذخیره پیام خوش‌آمدگویی جدید از ادمین"""
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return ConversationHandler.END
+    new_message = update.message.text.strip()
+    if not new_message:
+        await update.message.reply_text("❌ پیام خالی است.")
+        return WAITING_WELCOME
+    await set_setting("welcome_message", new_message)
+    await update.message.reply_text("✅ ذخیره شد.", reply_markup=main_keyboard(), parse_mode="HTML")
+    return ConversationHandler.END
+
+async def receive_user_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """جمع‌آوری فیلدهای ساخت/ویرایش کاربر VPN به‌صورت گفتگو"""
     user = update.effective_user
     if not user or not is_admin(user.id):
         return ConversationHandler.END
 
-    new_message = update.message.text.strip()
-    if not new_message:
-        await update.message.reply_text("❌ پیام نمی‌تواند خالی باشد. دوباره ارسال کنید.")
-        return WAITING_WELCOME
+    text = (update.message.text or "").strip()
+    step = context.user_data.get("vpn_step")
+    mode = context.user_data.get("vpn_mode")
+    pdata = context.user_data.setdefault("vpn_user", {})
+    pid = context.user_data.get("vpn_panel_id")
+    panel = get_panel_by_id(pid) if pid else None
+    if not panel:
+        await update.message.reply_text("پنل نامعتبر. از /admin دوباره شروع کنید.")
+        return ConversationHandler.END
 
-    await set_setting("welcome_message", new_message)
-    await update.message.reply_text(
-        "✅ پیام خوش‌آمدگویی با موفقیت ذخیره شد.\n\n"
-        f"📄 پیام جدید:\n{new_message}",
-        reply_markup=admin_keyboard(),
-        parse_mode="HTML",
-    )
+    if step == "username":
+        if len(text) < 3 or len(text) > 32:
+            await update.message.reply_text("نام کاربری نامعتبر. دوباره بفرستید:")
+            return WAITING_USER_FIELD
+        pdata["username"] = text
+        context.user_data["vpn_step"] = "status"
+        await update.message.reply_text("وضعیت را بفرستید:\n<code>active</code> یا <code>on_hold</code>", parse_mode="HTML")
+        return WAITING_USER_FIELD
+
+    if step == "status":
+        if text not in ("active", "on_hold", "disabled"):
+            await update.message.reply_text("فقط active / on_hold / disabled")
+            return WAITING_USER_FIELD
+        pdata["status"] = text
+        context.user_data["vpn_step"] = "data_limit"
+        await update.message.reply_text("حد حجم (گیگابایت) — 0 نامحدود:")
+        return WAITING_USER_FIELD
+
+    if step == "data_limit":
+        if text != "-":
+            try:
+                pdata["data_limit_gb"] = float(text)
+            except ValueError:
+                await update.message.reply_text("عدد معتبر بفرستید:")
+                return WAITING_USER_FIELD
+        context.user_data["vpn_step"] = "expire"
+        await update.message.reply_text(
+            "تاریخ پایان (مثال <code>2026-12-31</code>) یا 0 برای نامحدود:",
+            parse_mode="HTML",
+        )
+        return WAITING_USER_FIELD
+
+    if step == "expire":
+        if text not in ("0", "-"):
+            pdata["expire"] = text
+        else:
+            pdata["expire"] = None
+        context.user_data["vpn_step"] = "groups"
+        # لیست گروه‌ها
+        try:
+            client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+            groups = client.get_groups()
+            context.user_data["vpn_groups"] = groups
+            if groups:
+                lines = ["شناسه گروه‌ها را با ویرگول بفرستید (یا 0 برای هیچ):"]
+                for g in groups[:30]:
+                    gid = g.get("id", g.get("id"))
+                    lines.append(f"• {g.get('name', '?')} → <code>{gid}</code>")
+                await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+            else:
+                await update.message.reply_text("گروهی نیست. 0 بفرستید:")
+        except Exception as e:
+            await update.message.reply_text(f"گروه دریافت نشد ({e}). 0 بفرستید:")
+        return WAITING_USER_FIELD
+
+    if step == "groups":
+        if text not in ("0", "-"):
+            ids = [int(x) for x in text.replace(" ", "").split(",") if x.isdigit()]
+            pdata["group_ids"] = ids
+        else:
+            pdata["group_ids"] = []
+        context.user_data["vpn_step"] = "hwid"
+        await update.message.reply_text("محدودیت HWID (تعداد دستگاه) یا 0 برای رد:")
+        return WAITING_USER_FIELD
+
+    if step == "hwid":
+        if text not in ("0", "-"):
+            try:
+                pdata["hwid_limit"] = int(text)
+            except ValueError:
+                await update.message.reply_text("عدد معتبر:")
+                return WAITING_USER_FIELD
+        context.user_data["vpn_step"] = "note"
+        await update.message.reply_text("توضیحات (یا - برای خالی):")
+        return WAITING_USER_FIELD
+
+    if step == "note":
+        if text != "-":
+            pdata["note"] = text
+        # اجرا
+        try:
+            client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+            if mode == "create":
+                payload = client.build_user_payload(
+                    username=pdata.get("username"),
+                    status=pdata.get("status", "active"),
+                    data_limit_gb=pdata.get("data_limit_gb", 0),
+                    expire=pdata.get("expire"),
+                    group_ids=pdata.get("group_ids", []),
+                    hwid_limit=pdata.get("hwid_limit"),
+                    note=pdata.get("note"),
+                    for_create=True,
+                )
+                u = client.create_user(payload)
+                await update.message.reply_text(
+                    f"✅ کاربر <code>{u.get('username', pdata.get('username'))}</code> ساخته شد.",
+                    reply_markup=panel_menu_keyboard(pid),
+                    parse_mode="HTML",
+                )
+            else:
+                uname = context.user_data.get("vpn_edit_username")
+                payload = client.build_user_payload(
+                    status=pdata.get("status"),
+                    data_limit_gb=pdata.get("data_limit_gb"),
+                    expire=pdata.get("expire"),
+                    group_ids=pdata.get("group_ids"),
+                    hwid_limit=pdata.get("hwid_limit"),
+                    note=pdata.get("note"),
+                    for_create=False,
+                )
+                client.modify_user(uname, payload)
+                await update.message.reply_text(
+                    f"✅ کاربر <code>{uname}</code> ویرایش شد.",
+                    reply_markup=panel_menu_keyboard(pid),
+                    parse_mode="HTML",
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا: {e}", reply_markup=panel_menu_keyboard(pid))
+        context.user_data.pop("vpn_step", None)
+        return ConversationHandler.END
+
     return ConversationHandler.END

@@ -7,6 +7,7 @@
         <header class="topbar">
             <h2>{{ panel.name }}</h2>
             <div class="topbar-actions">
+                <a href="{{ url_for('panel_users', slug=panel.slug) }}" class="btn-primary inline">کاربران VPN</a>
                 <a href="{{ url_for('panels_list') }}" class="greeting">همه پنل‌ها</a>
                 <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
                     <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -23,107 +24,38 @@
                     </div>
                     <div>
                         <div class="stat-label">آدرس</div>
-                        <div class="stat-value" style="font-size:0.9rem;word-break:break-all">{{ panel.base_url }}</div>
-                    </div>
-                    <div>
-                        <div class="stat-label">مسیر جزئیات</div>
-                        <div class="stat-value" style="font-size:0.9rem">/panels/{{ panel.slug }}</div>
+                        <div class="stat-value" style="font-size:0.85rem;word-break:break-all">{{ panel.base_url }}</div>
                     </div>
                     <div>
                         <div class="stat-label">وضعیت</div>
-                        <div class="stat-value ok" style="font-size:1rem">
-                            {% if error %}آفلاین{% else %}آنلاین{% endif %}
+                        <div class="stat-value" style="font-size:1rem" id="liveStatus">
+                            {% if error %}<span style="color:var(--error)">آفلاین</span>{% else %}<span class="ok">آنلاین</span>{% endif %}
                         </div>
                     </div>
+                    <div>
+                        <div class="stat-label">بروزرسانی</div>
+                        <div class="stat-value" style="font-size:0.85rem;color:var(--text-secondary)" id="liveUpdated">—</div>
+                    </div>
                 </div>
             </div>
 
-            {% if error %}
-            <div class="card" style="border-color:color-mix(in srgb, var(--error) 40%, transparent)">
-                <div class="card-title" style="color:var(--error)">خطا در دریافت آمار</div>
-                <p class="card-desc">{{ error }}</p>
+            <div id="liveError" class="card" style="{% if not error %}display:none;{% endif %}border-color:color-mix(in srgb, var(--error) 40%, transparent)">
+                <div class="card-title" style="color:var(--error)">خطا</div>
+                <p class="card-desc" id="liveErrorText">{{ error or '' }}</p>
             </div>
-            {% endif %}
 
-            {% if stats %}
+            <div class="stats" id="statsHardware">
+                <div class="stat"><div class="stat-label">CPU</div><div class="stat-value" id="sCpu">—</div></div>
+                <div class="stat"><div class="stat-label">رم</div><div class="stat-value" id="sMem">—</div></div>
+                <div class="stat"><div class="stat-label">دیسک</div><div class="stat-value" id="sDisk">—</div></div>
+                <div class="stat"><div class="stat-label">کاربران کل</div><div class="stat-value" id="sUsers">—</div></div>
+            </div>
             <div class="stats">
-                <div class="stat">
-                    <div class="stat-label">CPU</div>
-                    <div class="stat-value">
-                        {% if stats.cpu_usage is defined %}{{ '%.1f'|format(stats.cpu_usage) }}%{% elif stats.cpu is defined %}{{ stats.cpu }}{% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">رم</div>
-                    <div class="stat-value">
-                        {% if stats.mem_used is defined and stats.mem_total is defined %}
-                            {{ (stats.mem_used / 1024 / 1024 / 1024)|round(1) }} / {{ (stats.mem_total / 1024 / 1024 / 1024)|round(1) }} GB
-                        {% elif stats.memory is defined %}
-                            {{ stats.memory }}
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">دیسک</div>
-                    <div class="stat-value">
-                        {% if stats.disk_used is defined and stats.disk_total is defined %}
-                            {{ (stats.disk_used / 1024 / 1024 / 1024)|round(1) }} / {{ (stats.disk_total / 1024 / 1024 / 1024)|round(1) }} GB
-                        {% elif stats.disk is defined %}
-                            {{ stats.disk }}
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">کاربران کل</div>
-                    <div class="stat-value">
-                        {% if stats.total_user is defined %}{{ stats.total_user }}
-                        {% elif stats.users_total is defined %}{{ stats.users_total }}
-                        {% elif stats.users is defined and stats.users.total is defined %}{{ stats.users.total }}
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
+                <div class="stat"><div class="stat-label">فعال</div><div class="stat-value ok" id="sActive">—</div></div>
+                <div class="stat"><div class="stat-label">منقضی / محدود</div><div class="stat-value" id="sExpired">—</div></div>
+                <div class="stat"><div class="stat-label">ترافیک ورودی</div><div class="stat-value" style="font-size:1rem" id="sIn">—</div></div>
+                <div class="stat"><div class="stat-label">ترافیک خروجی</div><div class="stat-value" style="font-size:1rem" id="sOut">—</div></div>
             </div>
-
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-label">فعال</div>
-                    <div class="stat-value ok">
-                        {% if stats.users_active is defined %}{{ stats.users_active }}
-                        {% elif stats.active_users is defined %}{{ stats.active_users }}
-                        {% elif stats.users is defined and stats.users.active is defined %}{{ stats.users.active }}
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">آفلاین / منقضی</div>
-                    <div class="stat-value">
-                        {% if stats.users_expired is defined %}{{ stats.users_expired }}
-                        {% elif stats.expired_users is defined %}{{ stats.expired_users }}
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">ترافیک کل</div>
-                    <div class="stat-value" style="font-size:1.1rem">
-                        {% if stats.incoming_bandwidth is defined %}
-                            ↓ {{ (stats.incoming_bandwidth / 1024 / 1024 / 1024)|round(2) }} GB
-                        {% else %}—{% endif %}
-                    </div>
-                </div>
-                <div class="stat">
-                    <div class="stat-label">نسخه / نسخه هسته</div>
-                    <div class="stat-value" style="font-size:0.95rem">
-                        {% if stats.version is defined %}{{ stats.version }}{% else %}—{% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">داده خام API</div>
-                <div class="card-desc">برای دیباگ — ساختار پاسخ /api/system</div>
-                <pre class="raw-json">{{ stats | tojson(indent=2) }}</pre>
-            </div>
-            {% endif %}
 
             <div class="card">
                 <form method="POST" action="{{ url_for('panels_delete', panel_id=panel.id) }}" onsubmit="return confirm('پنل حذف شود؟');">
@@ -133,4 +65,65 @@
         </div>
     </main>
 </div>
+<script>
+(function() {
+    const slug = {{ panel.slug|tojson }};
+    const url = "/api/panels/" + slug + "/stats";
+
+    function fmtGB(n) {
+        if (n == null || isNaN(n)) return "—";
+        return (Number(n) / 1024 / 1024 / 1024).toFixed(1) + " GB";
+    }
+    function pick(obj, keys, def) {
+        for (const k of keys) {
+            if (obj && obj[k] != null) return obj[k];
+        }
+        return def;
+    }
+    function render(data) {
+        const el = (id) => document.getElementById(id);
+        const now = new Date().toLocaleTimeString("fa-IR");
+        el("liveUpdated").textContent = now;
+
+        if (!data.ok) {
+            el("liveStatus").innerHTML = '<span style="color:var(--error)">آفلاین</span>';
+            el("liveError").style.display = "";
+            el("liveErrorText").textContent = data.error || "خطا";
+            return;
+        }
+        el("liveStatus").innerHTML = '<span class="ok">آنلاین</span>';
+        el("liveError").style.display = "none";
+        const s = data.stats || {};
+        const cpu = pick(s, ["cpu_usage", "cpu"], null);
+        el("sCpu").textContent = cpu != null ? (Number(cpu).toFixed(1) + "%") : "—";
+
+        const memUsed = pick(s, ["mem_used", "memory_used"], null);
+        const memTotal = pick(s, ["mem_total", "memory_total"], null);
+        el("sMem").textContent = (memUsed != null && memTotal != null) ? (fmtGB(memUsed) + " / " + fmtGB(memTotal)) : "—";
+
+        const diskUsed = pick(s, ["disk_used"], null);
+        const diskTotal = pick(s, ["disk_total"], null);
+        el("sDisk").textContent = (diskUsed != null && diskTotal != null) ? (fmtGB(diskUsed) + " / " + fmtGB(diskTotal)) : "—";
+
+        const users = s.users || {};
+        el("sUsers").textContent = pick(s, ["total_user", "users_total"], pick(users, ["total"], "—"));
+        el("sActive").textContent = pick(s, ["users_active", "active_users"], pick(users, ["active"], "—"));
+        el("sExpired").textContent = pick(s, ["users_expired", "expired_users"], pick(users, ["expired"], "—"));
+        el("sIn").textContent = fmtGB(pick(s, ["incoming_bandwidth", "bandwidth_in"], null));
+        el("sOut").textContent = fmtGB(pick(s, ["outgoing_bandwidth", "bandwidth_out"], null));
+    }
+
+    async function tick() {
+        try {
+            const res = await fetch(url, { credentials: "same-origin" });
+            const data = await res.json();
+            render(data);
+        } catch (e) {
+            render({ ok: false, error: "خطا در دریافت آمار" });
+        }
+    }
+    tick();
+    setInterval(tick, 5000);
+})();
+</script>
 {% endblock %}
