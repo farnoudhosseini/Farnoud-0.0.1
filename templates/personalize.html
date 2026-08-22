@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}شخصی‌سازی | پنل مدیریت فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">
+    {% include "_sidebar.html" %}
+    <main class="main">
+        <header class="topbar">
+            <h2>شخصی‌سازی</h2>
+            <div class="topbar-actions">
+                <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+            </div>
+        </header>
+        <div class="content">
+            <div class="card">
+                <div class="card-title">تم پنل</div>
+                <div class="card-desc">حالت تیره یا روشن را انتخاب کنید. تنظیمات در مرورگر شما ذخیره می‌شود.</div>
+                <div class="theme-options">
+                    <div class="theme-option" data-theme="dark">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        تیره
+                    </div>
+                    <div class="theme-option" data-theme="light">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                        روشن
+                    </div>
+                </div>
+            </div>
+
+            <div class="card section-gap">
+                <div class="card-title">رنگ اصلی</div>
+                <div class="card-desc">رنگ دکمه‌ها، هایلایت منو و المان‌های فعال را تغییر دهید.</div>
+                <div class="color-options">
+                    <div class="color-swatch" data-color="blue" title="آبی"><span style="background:#0a84ff"></span></div>
+                    <div class="color-swatch" data-color="purple" title="بنفش"><span style="background:#bf5af2"></span></div>
+                    <div class="color-swatch" data-color="green" title="سبز"><span style="background:#30d158"></span></div>
+                    <div class="color-swatch" data-color="orange" title="نارنجی"><span style="background:#ff9f0a"></span></div>
+                    <div class="color-swatch" data-color="pink" title="صورتی"><span style="background:#ff375f"></span></div>
+                    <div class="color-swatch" data-color="teal" title="فیروزه‌ای"><span style="background:#64d2ff"></span></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

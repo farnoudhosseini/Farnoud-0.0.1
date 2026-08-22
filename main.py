@@ -1,18 +1,10 @@
-# نقطه شروع اجرای ربات
-# فقط ربات را اجرا می‌کند و هیچ منطق دیگری ندارد
+# نقطه شروع اجرای ربات فرنود
 
 from bot import create_bot
 
 def main():
-    """
-    تابع اصلی اجرای ربات
-    """
-    print("🚀 در حال راه‌اندازی ربات فروش VPN...")
-    
-    # ساخت ربات
+    print("🚀 در حال راه‌اندازی ربات فرنود...")
     application = create_bot()
-    
-    # شروع polling
     print("✅ ربات آماده است و در حال گوش دادن به پیام‌ها...")
     application.run_polling(drop_pending_updates=True)
 

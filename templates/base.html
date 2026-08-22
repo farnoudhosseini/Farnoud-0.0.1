@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,26 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/logo.png') }}">
+    <script>
+        // اعمال سریع تم قبل از رندر برای جلوگیری از چشمک
+        (function() {
+            var t = localStorage.getItem("farnoud_theme") || "dark";
+            var c = localStorage.getItem("farnoud_color") || "blue";
+            document.documentElement.setAttribute("data-theme", t);
+            var colors = {
+                blue: ["#0a84ff", "#0071e3"],
+                purple: ["#bf5af2", "#a33ad4"],
+                green: ["#30d158", "#28cd41"],
+                orange: ["#ff9f0a", "#e68600"],
+                pink: ["#ff375f", "#e01e45"],
+                teal: ["#64d2ff", "#3bb8eb"]
+            };
+            var col = colors[c] || colors.blue;
+            document.documentElement.style.setProperty("--primary", col[0]);
+            document.documentElement.style.setProperty("--primary-hover", col[1]);
+            document.documentElement.style.setProperty("--primary-soft", col[0] + "26");
+        })();
+    </script>
 </head>
 <body>
     {% with messages = get_flashed_messages(with_categories=true) %}

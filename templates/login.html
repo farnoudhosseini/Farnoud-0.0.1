@@ -1,7 +1,5 @@
 {% extends "base.html" %}
-
 {% block title %}ورود | پنل مدیریت فرنود{% endblock %}
-
 {% block content %}
 <div class="login-wrapper">
     <div class="login-card">
@@ -12,18 +10,15 @@
             <h1>فرنود</h1>
             <p>ورود به پنل مدیریت</p>
         </div>
-
         <form method="POST" action="{{ url_for('login') }}">
             <div class="form-group">
                 <label for="username">نام کاربری</label>
                 <input type="text" id="username" name="username" placeholder="نام کاربری" required autocomplete="username">
             </div>
-
             <div class="form-group">
                 <label for="password">رمز عبور</label>
                 <input type="password" id="password" name="password" placeholder="رمز عبور" required autocomplete="current-password">
             </div>
-
             <button type="submit" class="btn-primary">ورود</button>
         </form>
     </div>
