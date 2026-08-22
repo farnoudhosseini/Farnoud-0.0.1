@@ -468,7 +468,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if data == "admin_web":
-        from database import get_sync_connection
+        from database import get_sync_connection, get_setting_sync
         conn=get_sync_connection()
         try:
             with conn.cursor() as cur:
@@ -476,18 +476,36 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row=cur.fetchone()
         finally:
             conn.close()
+        panel_url = (
+            get_setting_sync("web_panel_url", "")
+            or get_setting_sync("admin_panel_url", "")
+            or "http://YOUR_SERVER_IP:5000"
+        )
         await query.edit_message_text(
             f"🛠 <b>مدیریت وب‌پنل</b>\n\n"
+            f"🌐 آدرس ورود:\n<code>{panel_url}</code>\n\n"
             f"نام کاربری فعلی: <code>{(row or {}).get('username','—')}</code>\n"
+            "اطلاعات ورود را در مرورگر وارد کنید.\n"
             "از گزینه‌های زیر می‌توانید اعتبار ورود را تغییر دهید.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✏️ تغییر نام کاربری", callback_data="admin_web_user")],
                 [InlineKeyboardButton("🔐 تغییر رمز عبور", callback_data="admin_web_pass")],
+                [InlineKeyboardButton("🔗 تنظیم آدرس وب‌پنل", callback_data="admin_web_url")],
                 [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
             ]),
         )
         return ConversationHandler.END
+
+    if data == "admin_web_url":
+        context.user_data["admin_input_mode"] = "web_url"
+        await query.edit_message_text(
+            "🔗 آدرس کامل وب‌پنل را بفرستید.\n"
+            "مثال: <code>https://panel.example.com</code> یا <code>http://1.2.3.4:5000</code>\n"
+            "/cancel برای انصراف",
+            parse_mode="HTML",
+        )
+        return WAITING_ADMIN_TEXT
 
     if data in ("admin_web_user","admin_web_pass"):
         context.user_data["admin_input_mode"]="web_user" if data.endswith("user") else "web_pass"
@@ -786,19 +804,24 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_orders":
         from db_products import list_all_orders
         orders = list_all_orders(status="provisioned", limit=15)
-        if not orders:
-            await query.edit_message_text(
-                "سرویس فعالی نیست.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]),
-            )
-            return ConversationHandler.END
         rows = []
-        for o in orders:
+        for o in orders or []:
             label = f"#{o['id']} {o.get('vpn_username') or '—'} ({o.get('product_name') or ''})"
             rows.append([InlineKeyboardButton(label[:50], callback_data=f"admin_ord_{o['id']}")])
+        rows.append([InlineKeyboardButton("🔎 جستجوی سرویس", callback_data="admin_order_search")])
         rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
-        await query.edit_message_text("📋 سرویس‌های فعال (آخرین ۱۵):", reply_markup=InlineKeyboardMarkup(rows))
+        text = "📋 سرویس‌های فعال (آخرین ۱۵):" if orders else "سرویس فعالی نیست."
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
         return ConversationHandler.END
+
+    if data == "admin_order_search":
+        context.user_data["admin_input_mode"] = "order_search"
+        await query.edit_message_text(
+            "🔎 جستجوی سرویس فروخته‌شده\n"
+            "آیدی سفارش، یوزرنیم VPN، یا آیدی تلگرام کاربر را بفرستید:\n"
+            "/cancel برای انصراف"
+        )
+        return WAITING_ADMIN_TEXT
 
     if data.startswith("admin_ord_") and not data.startswith("admin_ordedit_"):
         from db_products import get_order_full
@@ -1005,6 +1028,51 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ لغو شد.", reply_markup=main_keyboard())
         return ConversationHandler.END
     mode=context.user_data.pop("admin_input_mode",None)
+
+    if mode == "web_url":
+        from database import set_setting_sync
+        url = text.strip()
+        if not url.startswith("http"):
+            await update.message.reply_text("آدرس باید با http:// یا https:// شروع شود.")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("web_panel_url", url)
+        await update.message.reply_text(
+            f"✅ آدرس وب‌پنل ذخیره شد:\n<code>{url}</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛠 وب‌پنل", callback_data="admin_web")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "order_search":
+        from db_products import list_all_orders
+        orders = list_all_orders(search=text, limit=20)
+        if not orders:
+            await update.message.reply_text(
+                "نتیجه‌ای یافت نشد.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔎 دوباره", callback_data="admin_order_search")],
+                    [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_orders")],
+                ]),
+            )
+            return ConversationHandler.END
+        rows = []
+        lines = [f"🔎 نتیجه: {len(orders)} مورد\n"]
+        for o in orders:
+            lines.append(
+                f"• #{o['id']} {o.get('vpn_username') or '—'} "
+                f"| tg:{o.get('telegram_id')} | {o.get('product_name') or ''}"
+            )
+            rows.append([InlineKeyboardButton(
+                f"#{o['id']} {o.get('vpn_username') or ''}"[:40],
+                callback_data=f"admin_ord_{o['id']}",
+            )])
+        rows.append([InlineKeyboardButton("🔎 جستجوی دوباره", callback_data="admin_order_search")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_orders")])
+        await update.message.reply_text(
+            "\n".join(lines)[:3500],
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return ConversationHandler.END
 
     if mode=="search_users":
         from db_users import list_bot_users, ROLE_LABELS

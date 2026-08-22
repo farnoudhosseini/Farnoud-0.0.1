@@ -873,45 +873,59 @@ def personalize():
 @app.route("/menu-buttons", methods=["GET", "POST"])
 @login_required
 def menu_buttons_manage():
-    from db_extras import get_menu_buttons, set_menu_buttons
+    from db_extras import get_menu_buttons, set_menu_buttons, DEFAULT_MENU_BUTTONS
     if request.method=="POST":
-        data=request.get_json(silent=True)
-        if data and isinstance(data.get("items"),list):
-            items=data["items"]
+        data=request.get_json(silent=True) or {}
+        if data.get("reset_default"):
+            set_menu_buttons([dict(x) for x in DEFAULT_MENU_BUTTONS])
+            if request.is_json:
+                return jsonify({"ok": True})
+            flash("چیدمان به پیش‌فرض برگشت", "success")
+            return redirect(url_for("menu_buttons_manage"))
+        if isinstance(data.get("items"), list):
+            items = data["items"]
         else:
             import json
-            try: items=json.loads(request.form.get("items","[]"))
-            except Exception: items=[]
-        clean=[]
-        allowed_colors={"green","red","blue","none","primary","success","danger"}
-        for i,x in enumerate(items):
-            if not isinstance(x,dict): continue
-            color=str(x.get("color") or "none").lower()
-            if color not in allowed_colors: color="none"
-            try: row=int(x.get("row", i//3))
-            except Exception: row=i//3
+            try:
+                items = json.loads(request.form.get("items", "[]"))
+            except Exception:
+                items = []
+        clean = []
+        allowed_colors = {"green", "red", "blue", "none", "primary", "success", "danger"}
+        for i, x in enumerate(items):
+            if not isinstance(x, dict):
+                continue
+            color = str(x.get("color") or "none").lower()
+            if color not in allowed_colors:
+                color = "none"
+            try:
+                row = int(x.get("row", i // 2))
+            except Exception:
+                row = i // 2
+            try:
+                col = int(x.get("col", i))
+            except Exception:
+                col = i
             clean.append({
-                "key":str(x.get("key",""))[:40] or f"btn_{i}",
-                "label":str(x.get("label",""))[:120],
-                "callback":str(x.get("callback","menu_home"))[:60],
-                "enabled":bool(x.get("enabled",True)),
-                "color":color,
-                "row":row,
-                "col": int(x.get("col", i) or i),
+                "key": str(x.get("key", ""))[:40] or f"btn_{i}",
+                "label": str(x.get("label", ""))[:120],
+                "callback": str(x.get("callback", "menu_home"))[:60],
+                "enabled": bool(x.get("enabled", True)),
+                "color": color,
+                "row": row,
+                "col": col,
             })
         set_menu_buttons(clean)
-        if data and data.get("per_row") is not None:
-            try:
-                from db_extras import set_buttons_per_row
-                set_buttons_per_row(int(data.get("per_row")))
-            except Exception:
-                pass
-        if request.is_json: return jsonify({"ok":True})
-        flash("چیدمان دکمه‌ها ذخیره شد","success")
+        if request.is_json:
+            return jsonify({"ok": True})
+        flash("چیدمان دکمه‌ها ذخیره شد", "success")
         return redirect(url_for("menu_buttons_manage"))
-    from db_extras import get_buttons_per_row
-    return render_template("menu_buttons.html",username=session.get("admin_username"),
-                           active="menu_buttons",items=get_menu_buttons(),per_row=get_buttons_per_row())
+    return render_template(
+        "menu_buttons.html",
+        username=session.get("admin_username"),
+        active="menu_buttons",
+        items=get_menu_buttons(),
+    )
 
 @app.route("/premium-emojis", methods=["GET", "POST"])
 @login_required

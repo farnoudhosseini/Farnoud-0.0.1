@@ -5,94 +5,184 @@
 <header class="topbar">
   <h2>کنترل دکمه‌ها</h2>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn-primary inline" type="button" id="addBtn">➕ افزودن</button>
+    <button class="btn-primary inline" type="button" id="addBtn">➕ افزودن دکمه</button>
+    <button class="btn-primary inline" type="button" id="addRow">➕ سطر جدید</button>
     <button class="btn-primary inline" type="button" id="saveMenu">💾 ذخیره چیدمان</button>
+    <button class="btn-danger inline" type="button" id="resetDefault">↺ برگشت به پیش‌فرض</button>
   </div>
 </header>
 <div class="content">
 <div class="card">
 <p class="muted">
-  هر دکمه <b>سطر</b> (بالا/پایین) و <b>ستون</b> (چپ/راست) دارد. Drag & Drop هم ترتیب را عوض می‌کند.
-  رنگ‌ها روی منوی شیشه‌ای تلگرام: آبی=primary · سبز=success · قرمز=danger.
-  کد <code>p_xxxxxxxx</code> در نام دکمه → آیکون پریمیوم.
+  دکمه‌ها را <b>درگ کنید</b> تا جایشان عوض شود — هم بین سطرها، هم کنار هم در یک سطر.
+  رنگ‌ها روی منوی شیشه‌ای تلگرام اعمال می‌شود؛ روی کیبورد با نشانگر رنگی نمایش داده می‌شود.
+  کد <code>p_xxxxxxxx</code> در نام → ایموجی پریمیوم روی دکمه شیشه‌ای.
 </p>
-<label style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
-  حداکثر دکمه در هر سطر (اگر سطر دستی نباشد):
-  <input type="number" id="perRow" min="1" max="8" value="{{ per_row or 3 }}" style="width:4rem">
-</label>
-<div id="menuItems" data-sortable class="premium-list">
+<div id="menuRows" class="menu-layout">
+{% set grouped = {} %}
 {% for x in items %}
-<div class="premium-row" data-sort-item data-id="{{ x.key }}" draggable="true"
-     style="display:grid;grid-template-columns:1fr 1.6fr 1fr 0.6fr 0.6fr auto auto;gap:.45rem;align-items:center;margin-bottom:.5rem;padding:.6rem;border-radius:12px;background:var(--card-bg,rgba(255,255,255,.04))">
-  <input class="mi-key" value="{{ x.key }}" placeholder="key">
-  <input class="mi-label" value="{{ x.label }}" placeholder="متن (می‌تواند p_xxx داشته باشد)">
-  <select class="mi-color">
-    <option value="blue" {% if x.color in ['blue','primary'] %}selected{% endif %}>آبی</option>
-    <option value="green" {% if x.color in ['green','success'] %}selected{% endif %}>سبز</option>
-    <option value="red" {% if x.color in ['red','danger'] %}selected{% endif %}>قرمز</option>
-    <option value="none" {% if x.color not in ['blue','primary','green','success','red','danger'] %}selected{% endif %}>بی‌رنگ</option>
-  </select>
-  <input class="mi-row" type="number" min="0" value="{{ x.row if x.row is defined else loop.index0 // 3 }}" title="سطر" placeholder="سطر">
-  <input class="mi-col" type="number" min="0" value="{{ x.col if x.col is defined else loop.index0 % 3 }}" title="ستون" placeholder="ستون">
-  <label style="white-space:nowrap"><input class="mi-enabled" type="checkbox" {% if x.enabled %}checked{% endif %}> فعال</label>
-  <input type="hidden" class="mi-callback" value="{{ x.callback }}">
-  <button type="button" class="btn-danger mi-delete">حذف</button>
-</div>
+  {% set r = (x.row if x.row is defined else (loop.index0 // 2))|int %}
+  {% if r not in grouped %}{% set _ = grouped.update({r: []}) %}{% endif %}
+  {% set _ = grouped[r].append(x) %}
+{% endfor %}
+{% for r in grouped.keys()|sort %}
+  <div class="menu-row-box" data-row="{{ r }}">
+    <div class="menu-row-label">سطر {{ loop.index }}</div>
+    <div class="menu-row-items" data-row-items>
+      {% for x in grouped[r] %}
+      <div class="menu-btn-chip" data-sort-item data-id="{{ x.key }}" draggable="true">
+        <input class="mi-key" type="hidden" value="{{ x.key }}">
+        <input class="mi-callback" type="hidden" value="{{ x.callback }}">
+        <input class="mi-label" value="{{ x.label }}" placeholder="متن دکمه" title="متن دکمه">
+        <select class="mi-color" title="رنگ">
+          <option value="blue" {% if x.color in ['blue','primary'] %}selected{% endif %}>🔵 آبی</option>
+          <option value="green" {% if x.color in ['green','success'] %}selected{% endif %}>🟢 سبز</option>
+          <option value="red" {% if x.color in ['red','danger'] %}selected{% endif %}>🔴 قرمز</option>
+          <option value="none" {% if x.color not in ['blue','primary','green','success','red','danger'] %}selected{% endif %}>⚪ بی‌رنگ</option>
+        </select>
+        <label class="mi-en-wrap"><input class="mi-enabled" type="checkbox" {% if x.enabled %}checked{% endif %}> فعال</label>
+        <button type="button" class="btn-danger mi-delete" title="حذف">×</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+{% else %}
+  <div class="menu-row-box" data-row="0">
+    <div class="menu-row-label">سطر 1</div>
+    <div class="menu-row-items" data-row-items></div>
+  </div>
 {% endfor %}
 </div>
 </div>
 </div>
-<script>
-function bindDeletes(){
-  document.querySelectorAll('.mi-delete').forEach(b=>{
-    b.onclick=()=>b.closest('[data-sort-item]').remove();
-  });
+<style>
+.menu-layout{display:flex;flex-direction:column;gap:1rem}
+.menu-row-box{
+  border:1px dashed rgba(255,255,255,.15);
+  border-radius:16px;padding:.75rem;background:rgba(255,255,255,.03);
+  min-height:4rem;
 }
-bindDeletes();
-document.getElementById('addBtn').onclick=()=>{
-  const key='custom_'+Date.now().toString(36);
-  const wrap=document.createElement('div');
-  wrap.className='premium-row';
-  wrap.dataset.sortItem='';
-  wrap.dataset.id=key;
-  wrap.draggable=true;
-  wrap.style.cssText='display:grid;grid-template-columns:1fr 1.6fr 1fr 0.6fr 0.6fr auto auto;gap:.45rem;align-items:center;margin-bottom:.5rem;padding:.6rem;border-radius:12px;background:var(--card-bg,rgba(255,255,255,.04))';
-  wrap.innerHTML=`
-    <input class="mi-key" value="${key}" placeholder="key">
-    <input class="mi-label" value="دکمه جدید" placeholder="متن">
-    <select class="mi-color">
-      <option value="blue">آبی</option>
-      <option value="green">سبز</option>
-      <option value="red">قرمز</option>
-      <option value="none" selected>بی‌رنگ</option>
-    </select>
-    <input class="mi-row" type="number" min="0" value="0" placeholder="سطر">
-    <input class="mi-col" type="number" min="0" value="0" placeholder="ستون">
-    <label style="white-space:nowrap"><input class="mi-enabled" type="checkbox" checked> فعال</label>
-    <input type="hidden" class="mi-callback" value="menu_home">
-    <button type="button" class="btn-danger mi-delete">حذف</button>`;
-  document.getElementById('menuItems').appendChild(wrap);
+.menu-row-label{font-size:.75rem;opacity:.6;margin-bottom:.5rem}
+.menu-row-items{display:flex;flex-wrap:wrap;gap:.5rem;min-height:2.5rem;align-items:stretch}
+.menu-btn-chip{
+  display:flex;flex-direction:column;gap:.35rem;
+  padding:.55rem .65rem;border-radius:12px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  cursor:grab;min-width:9rem;max-width:14rem;flex:1 1 9rem;
+}
+.menu-btn-chip.dragging{opacity:.45;outline:2px dashed var(--accent,#6cf)}
+.menu-btn-chip input.mi-label{width:100%;font-size:.9rem;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.15);color:inherit;padding:.2rem 0}
+.menu-btn-chip select.mi-color{font-size:.8rem;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(255,255,255,.1);color:inherit;padding:.2rem}
+.menu-btn-chip .mi-en-wrap{font-size:.75rem;display:flex;align-items:center;gap:.3rem}
+.menu-btn-chip .mi-delete{align-self:flex-end;padding:.15rem .5rem;font-size:.9rem}
+.menu-row-items.drag-over{background:rgba(100,180,255,.08);border-radius:10px}
+</style>
+<script>
+(function(){
+  const rowsRoot=document.getElementById('menuRows');
+  function bindDeletes(){
+    rowsRoot.querySelectorAll('.mi-delete').forEach(b=>{
+      b.onclick=()=>{ b.closest('[data-sort-item]').remove(); };
+    });
+  }
   bindDeletes();
-};
-document.getElementById('saveMenu').onclick=async()=>{
-  const items=[...document.querySelectorAll('#menuItems [data-sort-item]')].map((x,idx)=>({
-    key:(x.querySelector('.mi-key')?.value||x.dataset.id||('btn_'+idx)).trim(),
-    label:x.querySelector('.mi-label').value,
-    callback:x.querySelector('.mi-callback').value||'menu_home',
-    color:x.querySelector('.mi-color').value,
-    enabled:x.querySelector('.mi-enabled').checked,
-    row:(()=>{const v=parseInt(x.querySelector('.mi-row')?.value,10);return Number.isFinite(v)?v:Math.floor(idx/3);})(),
-    col:(()=>{const v=parseInt(x.querySelector('.mi-col')?.value,10);return Number.isFinite(v)?v:(idx%3);})()
-  }));
-  const perRow=parseInt(document.getElementById('perRow').value||'3',10);
-  const r=await fetch('{{ url_for("menu_buttons_manage") }}',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({items, per_row: perRow})
-  });
-  if(r.ok) location.reload();
-  else alert('خطا در ذخیره');
-};
+  function makeChip(key,label){
+    const wrap=document.createElement('div');
+    wrap.className='menu-btn-chip';
+    wrap.dataset.sortItem='';
+    wrap.dataset.id=key;
+    wrap.draggable=true;
+    wrap.innerHTML=`
+      <input class="mi-key" type="hidden" value="${key}">
+      <input class="mi-callback" type="hidden" value="menu_home">
+      <input class="mi-label" value="${label||'دکمه جدید'}" placeholder="متن دکمه">
+      <select class="mi-color">
+        <option value="blue">🔵 آبی</option>
+        <option value="green">🟢 سبز</option>
+        <option value="red">🔴 قرمز</option>
+        <option value="none" selected>⚪ بی‌رنگ</option>
+      </select>
+      <label class="mi-en-wrap"><input class="mi-enabled" type="checkbox" checked> فعال</label>
+      <button type="button" class="btn-danger mi-delete" title="حذف">×</button>`;
+    return wrap;
+  }
+  document.getElementById('addBtn').onclick=()=>{
+    const key='custom_'+Date.now().toString(36);
+    let target=rowsRoot.querySelector('[data-row-items]');
+    if(!target){ document.getElementById('addRow').click(); target=rowsRoot.querySelector('[data-row-items]'); }
+    target.appendChild(makeChip(key,'دکمه جدید'));
+    bindDeletes(); bindDnD();
+  };
+  document.getElementById('addRow').onclick=()=>{
+    const idx=rowsRoot.querySelectorAll('.menu-row-box').length;
+    const box=document.createElement('div');
+    box.className='menu-row-box';
+    box.dataset.row=String(idx);
+    box.innerHTML=`<div class="menu-row-label">سطر ${idx+1}</div><div class="menu-row-items" data-row-items></div>`;
+    rowsRoot.appendChild(box);
+    bindDnD();
+  };
+  let dragged=null;
+  function bindDnD(){
+    rowsRoot.querySelectorAll('[data-sort-item]').forEach(item=>{
+      item.draggable=true;
+      item.ondragstart=e=>{
+        dragged=item; item.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain', item.dataset.id||'');
+      };
+      item.ondragend=()=>{ item.classList.remove('dragging'); dragged=null;
+        rowsRoot.querySelectorAll('.drag-over').forEach(x=>x.classList.remove('drag-over'));
+      };
+    });
+    rowsRoot.querySelectorAll('[data-row-items]').forEach(zone=>{
+      zone.ondragover=e=>{
+        e.preventDefault();
+        zone.classList.add('drag-over');
+        if(!dragged) return;
+        const after=Array.from(zone.querySelectorAll('[data-sort-item]')).find(ch=>{
+          if(ch===dragged) return false;
+          const r=ch.getBoundingClientRect();
+          return e.clientX < r.left + r.width/2;
+        });
+        if(after) zone.insertBefore(dragged, after);
+        else zone.appendChild(dragged);
+      };
+      zone.ondragleave=()=>zone.classList.remove('drag-over');
+      zone.ondrop=e=>{ e.preventDefault(); zone.classList.remove('drag-over'); };
+    });
+  }
+  bindDnD();
+  document.getElementById('saveMenu').onclick=async()=>{
+    const items=[];
+    rowsRoot.querySelectorAll('.menu-row-box').forEach((box,rowIdx)=>{
+      box.querySelectorAll('[data-sort-item]').forEach((x,colIdx)=>{
+        items.push({
+          key:(x.querySelector('.mi-key')?.value||x.dataset.id||('btn_'+rowIdx+'_'+colIdx)).trim(),
+          label:x.querySelector('.mi-label').value,
+          callback:x.querySelector('.mi-callback').value||'menu_home',
+          color:x.querySelector('.mi-color').value,
+          enabled:!!x.querySelector('.mi-enabled')?.checked,
+          row:rowIdx,
+          col:colIdx
+        });
+      });
+    });
+    const r=await fetch('{{ url_for("menu_buttons_manage") }}',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({items})
+    });
+    if(r.ok) location.reload(); else alert('خطا در ذخیره');
+  };
+  document.getElementById('resetDefault').onclick=async()=>{
+    if(!confirm('چیدمان دکمه‌ها به حالت پیش‌فرض برگردد؟')) return;
+    const r=await fetch('{{ url_for("menu_buttons_manage") }}',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({reset_default:true})
+    });
+    if(r.ok) location.reload(); else alert('خطا');
+  };
+})();
 </script>
 </main></div>
 {% endblock %}

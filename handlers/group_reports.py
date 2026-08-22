@@ -128,12 +128,42 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
     from services.service_edit import process_hourly_charges
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     results = process_hourly_charges()
-    stopped = [r for r in results if r.get("stopped")]
-    if stopped:
-        for r in stopped:
+    for r in results:
+        oid = r.get("order_id")
+        tid = r.get("telegram_id")
+        if r.get("stopped") and tid:
+            try:
+                await context.bot.send_message(
+                    tid,
+                    f"⏹ سرویس ساعتی #{oid} به دلیل کمبود موجودی متوقف شد.",
+                )
+            except Exception:
+                pass
             await send_report(
                 context.bot,
                 "errors",
-                f"⏹ سرویس ساعتی #{r['order_id']} به دلیل کمبود موجودی متوقف شد.",
+                f"⏹ سرویس ساعتی #{oid} به دلیل کمبود موجودی متوقف شد.",
             )
+        elif r.get("charged") and tid and not r.get("mute_notify"):
+            charge = int(r.get("charged") or 0)
+            hours = int(r.get("hours") or 1)
+            bal = r.get("balance_after")
+            bal_txt = f"\nموجودی باقی‌مانده: {int(bal):,} تومان" if bal is not None else ""
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "🔕 قطع اعلان کسر این سرویس",
+                    callback_data=f"svc_mutehourly_{oid}",
+                )],
+            ])
+            try:
+                await context.bot.send_message(
+                    tid,
+                    f"⏱ کسر هزینه ساعتی\n"
+                    f"سرویس #{oid}\n"
+                    f"مبلغ: {charge:,} تومان ({hours} ساعت){bal_txt}",
+                    reply_markup=kb,
+                )
+            except Exception:
+                pass

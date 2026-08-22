@@ -479,6 +479,20 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(f"❌ خطا: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
+    # ---- قطع اعلان کسر ساعتی ----
+    if data.startswith("svc_mutehourly_"):
+        oid = int(data.replace("svc_mutehourly_", ""))
+        o = get_user_order(oid, user.id)
+        if not o:
+            await q.answer("سرویس نامعتبر", show_alert=True)
+            return ConversationHandler.END
+        from db_products import update_order
+        update_order(oid, hourly_notify_mute=1)
+        await q.edit_message_text(
+            f"🔕 اعلان کسر ساعتی برای سرویس #{oid} غیرفعال شد.\n"
+            "کسر از موجودی ادامه دارد؛ فقط پیام اطلاع‌رسانی قطع شد."
+        )
+        return ConversationHandler.END
 
     # ---- تغییر لوکیشن (بین پنل‌ها) ----
     if data.startswith("svc_loc_") and not data.startswith("svc_locset_"):

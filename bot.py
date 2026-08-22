@@ -67,6 +67,11 @@ async def text_router(update, context):
     """مسیریابی دکمه‌های کیبورد اصلی"""
     text = (update.message.text or "").strip()
     uid = update.effective_user.id if update.effective_user else 0
+    # حذف نشانگر رنگ از متن کیبورد
+    for pfx in ("🔵 ", "🟢 ", "🔴 ", "⚪ "):
+        if text.startswith(pfx):
+            text = text[len(pfx):].strip()
+            break
     try:
         from db_extras import get_menu_buttons, strip_premium_codes
         for item in get_menu_buttons():
@@ -129,21 +134,27 @@ async def menu_callback(update, context):
     if data == "menu_home":
         from handlers.wallet import main_user_keyboard
         from database import get_setting_sync
-        is_adm = uid == ADMIN_ID
-        # ویرایش پیام اینلاین
-        glass = main_user_keyboard(is_admin=is_adm, force_inline=True) if get_setting_sync("inline_main_menu","0")=="1" else None
-        if glass:
-            await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=glass)
+        from handlers.admin import is_admin as _is_admin
+        is_adm = _is_admin(uid)
+        use_glass = get_setting_sync("inline_main_menu", "0") == "1"
+        if use_glass:
+            glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
+            try:
+                await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=glass)
+            except Exception:
+                await context.bot.send_message(uid, "🏠 منوی اصلی", reply_markup=glass)
         else:
-            await update.callback_query.edit_message_text("🏠 منوی اصلی")
-        # کیبورد دکمه‌ای پایین چت را هم تازه کن
-        try:
-            await context.bot.send_message(
-                uid, "👇 منوی دکمه‌ای:",
-                reply_markup=main_user_keyboard(is_admin=is_adm, force_inline=False),
-            )
-        except Exception:
-            pass
+            try:
+                await update.callback_query.edit_message_text("🏠 منوی اصلی")
+            except Exception:
+                pass
+            try:
+                await context.bot.send_message(
+                    uid, "🏠 منوی اصلی",
+                    reply_markup=main_user_keyboard(is_admin=is_adm, force_inline=False),
+                )
+            except Exception:
+                pass
         return None
     return None
 
@@ -157,6 +168,11 @@ def create_bot() -> Application:
     )
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("restart", start_command))
+    application.add_handler(MessageHandler(
+        filters.Regex(r"^/(استارت|restart|Restart|START)(@\w+)?(\s|$)"),
+        start_command,
+    ))
     application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     application.add_handler(CommandHandler("admin", admin_panel))

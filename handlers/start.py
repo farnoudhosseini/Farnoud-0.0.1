@@ -77,21 +77,22 @@ async def _send_welcome(update, context, user):
     use_glass = get_setting_sync("inline_main_menu", "0") == "1"
 
     if use_glass:
-        # فقط منوی شیشه‌ای — کیبورد دکمه‌ای کاملاً حذف می‌شود
+        # فقط شیشه‌ای — کیبورد حذف؛ دکمه‌ها روی پیام خوش‌آمد
+        glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
+        try:
+            await context.bot.send_message(
+                user.id, "‎", reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception:
+            pass
         await context.bot.send_message(
             user.id,
             welcome,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=glass,
             parse_mode="HTML",
         )
-        glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
-        await context.bot.send_message(
-            user.id,
-            "🎛 منوی اصلی:",
-            reply_markup=glass,
-        )
     else:
-        # فقط کیبورد دکمه‌ای
+        # فقط کیبورد دکمه‌ای — بدون اینلاین
         reply_kb = main_user_keyboard(is_admin=is_adm, force_inline=False)
         await context.bot.send_message(
             user.id,

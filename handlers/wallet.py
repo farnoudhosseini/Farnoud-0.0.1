@@ -58,14 +58,18 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
             rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
         return InlineKeyboardMarkup(rows)
 
-    # Reply keyboard — همیشه کار می‌کند
+    # Reply keyboard — رنگ با نشانگر؛ ایموجی پریمیوم روی ReplyKeyboard پشتیبانی نمی‌شود
+    COLOR_PREFIX = {"blue": "🔵", "primary": "🔵", "green": "🟢", "success": "🟢",
+                    "red": "🔴", "danger": "🔴"}
     rows = []
     for group in menu_rows:
         row = []
         for item in group:
             raw_label = (item.get("label") or item.get("key") or "—").split("\n")[0]
-            clean = strip_premium_codes(raw_label)[:40] or "•"
-            row.append(KeyboardButton(clean))
+            clean = strip_premium_codes(raw_label)[:36] or "•"
+            prefix = COLOR_PREFIX.get((item.get("color") or "none").lower(), "")
+            text = f"{prefix} {clean}".strip() if prefix else clean
+            row.append(KeyboardButton(text[:40]))
         if row:
             rows.append(row)
     if is_admin:
@@ -174,7 +178,26 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         vars_["card_number"] = card["card_number"]
         vars_["card_owner"] = card["owner_name"]
         text = render_template("charge_card_info", vars_)
-        await q.edit_message_text(text)
+        card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
+        try:
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
+        except TypeError:
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
+        kb = InlineKeyboardMarkup([
+            [copy_btn],
+            [InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")],
+        ])
+        await q.edit_message_text(text, reply_markup=kb)
+        # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
+        try:
+            await context.bot.send_message(
+                user.id,
+                f"`{card_num}`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[copy_btn]]),
+            )
+        except Exception:
+            pass
         context.user_data["waiting_receipt_charge_id"] = charge_id
         return WAITING_RECEIPT
 

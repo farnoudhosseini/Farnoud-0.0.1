@@ -356,6 +356,7 @@ def ensure_service_mgmt_columns():
                 ("duration_days_override", "INT DEFAULT NULL"),
                 ("expire_at", "TIMESTAMP NULL DEFAULT NULL"),
                 ("custom_name", "VARCHAR(100) DEFAULT NULL"),
+                ("hourly_notify_mute", "TINYINT(1) NOT NULL DEFAULT 0"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
@@ -442,6 +443,7 @@ def update_order(oid: int, **fields):
         "wallet_used", "pay_amount", "is_hourly", "hourly_rate", "hourly_active",
         "hourly_started_at", "hourly_last_charge_at", "volume_gb_override",
         "duration_days_override", "expire_at", "custom_name", "panel_id", "product_id",
+        "hourly_notify_mute",
     }
     sets, vals = [], []
     for k, v in fields.items():

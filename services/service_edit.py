@@ -156,7 +156,12 @@ def process_hourly_charges() -> list:
             except Exception as e:
                 results.append({"order_id": o["id"], "error": str(e)})
             update_order(o["id"], hourly_active=0)
-            results.append({"order_id": o["id"], "stopped": True, "reason": "insufficient_balance"})
+            results.append({
+                "order_id": o["id"],
+                "telegram_id": o["telegram_id"],
+                "stopped": True,
+                "reason": "insufficient_balance",
+            })
             continue
 
         add_balance(o["telegram_id"], -charge, f"hourly#{o['id']}x{hours}")
@@ -164,7 +169,16 @@ def process_hourly_charges() -> list:
             o["id"],
             hourly_last_charge_at=now.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        results.append({"order_id": o["id"], "charged": charge, "hours": hours})
+        bu2 = get_bot_user(o["telegram_id"])
+        mute = bool(o.get("hourly_notify_mute"))
+        results.append({
+            "order_id": o["id"],
+            "telegram_id": o["telegram_id"],
+            "charged": charge,
+            "hours": hours,
+            "balance_after": int((bu2 or {}).get("balance") or 0),
+            "mute_notify": mute,
+        })
     return results
 
 

@@ -272,13 +272,22 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         card = cards[0]
         update_order(order_id, method_key="card", card_id=card["id"], status="waiting_receipt")
+        card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
         msg = (
             f"💳 مبلغ {int(order['pay_amount']):,} تومان را واریز کنید:\n\n"
-            f"شماره کارت: `{card['card_number']}`\n"
+            f"شماره کارت: `{card_num}`\n"
             f"به نام: {card['owner_name']}\n\n"
             f"سپس تصویر رسید را ارسال کنید."
         )
-        await q.edit_message_text(msg, parse_mode="Markdown")
+        try:
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
+        except TypeError:
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
+        kb = InlineKeyboardMarkup([
+            [copy_btn],
+            [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+        ])
+        await q.edit_message_text(msg, parse_mode="Markdown", reply_markup=kb)
         context.user_data["waiting_buy_receipt"] = order_id
         return WAITING_BUY_RECEIPT
 
