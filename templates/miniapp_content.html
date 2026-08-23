@@ -8,20 +8,65 @@
 <div class="content">
 
 <div class="card" style="margin-bottom:16px">
-  <div class="card-title">اتصال به وب‌پنل / HTTPS</div>
-  <p class="muted" style="font-size:.88rem;margin-bottom:12px">
-    آدرس عمومی مینی‌اپ باید <strong>HTTPS</strong> باشد (مثلاً پشت Nginx). همین آدرس در دکمه WebApp ربات استفاده می‌شود.
-  </p>
-  <form method="post" action="{{ url_for('miniapp_settings_save') }}" class="inline-form" style="flex-wrap:wrap;gap:10px">
-    <input name="miniapp_url" value="{{ miniapp_url }}" placeholder="https://YOUR-IP-OR-DOMAIN/miniapp/" style="flex:1;min-width:240px">
+  <div class="card-title">اتصال HTTPS</div>
+  <p class="muted" style="font-size:.88rem;margin-bottom:12px">آدرس عمومی مینی‌اپ (HTTPS) برای دکمه WebApp ربات.</p>
+  <form method="post" action="{{ url_for('miniapp_settings_save') }}" style="display:flex;gap:10px;flex-wrap:wrap">
+    <input name="miniapp_url" value="{{ miniapp_url }}" placeholder="https://YOUR-DOMAIN/miniapp/" style="flex:1;min-width:240px">
     <button class="btn-primary inline" type="submit">ذخیره آدرس</button>
   </form>
   {% if miniapp_url %}
-  <p style="margin-top:10px;font-size:.85rem">لینک فعلی: <a href="{{ miniapp_url }}" target="_blank" rel="noopener">{{ miniapp_url }}</a></p>
-  {% else %}
-  <p class="muted" style="margin-top:10px;color:var(--danger,#f87171)">آدرس مینی‌اپ هنوز تنظیم نشده — دکمه اپ در ربات نمایش داده نمی‌شود.</p>
+  <p style="margin-top:10px;font-size:.85rem">لینک: <a href="{{ miniapp_url }}" target="_blank">{{ miniapp_url }}</a></p>
   {% endif %}
-  <p class="muted" style="font-size:.8rem;margin-top:8px">نمونه با SSL شما: <code>https://155.117.5.201/miniapp/</code></p>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">شخصی‌سازی کامل مینی‌اپ</div>
+  <p class="muted" style="font-size:.85rem;margin-bottom:14px">با تغییر این‌ها ظاهر، متن‌ها و رفتار اپ عوض می‌شود — مثل یک اپ اختصاصی.</p>
+  <form method="post" action="{{ url_for('miniapp_theme_save') }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+      <div class="form-group"><label>نام برند</label><input name="brand_name" value="{{ theme.brand_name }}"></div>
+      <div class="form-group"><label>زیرعنوان</label><input name="brand_sub" value="{{ theme.brand_sub }}"></div>
+      <div class="form-group"><label>حرف لوگو (اگر تصویر نباشد)</label><input name="brand_mark" value="{{ theme.brand_mark }}" maxlength="2"></div>
+      <div class="form-group"><label>آدرس لوگو (URL)</label><input name="logo_url" value="{{ theme.logo_url }}" placeholder="https://..."></div>
+      <div class="form-group"><label>عنوان خوش‌آمد ({name} = نام کاربر)</label><input name="welcome_title" value="{{ theme.welcome_title }}"></div>
+      <div class="form-group"><label>توضیح خوش‌آمد</label><input name="welcome_subtitle" value="{{ theme.welcome_subtitle }}"></div>
+      <div class="form-group"><label>رنگ اصلی</label><input type="color" name="primary" value="{{ theme.primary }}"></div>
+      <div class="form-group"><label>رنگ اصلی ۲</label><input type="color" name="primary_2" value="{{ theme.primary_2 }}"></div>
+      <div class="form-group"><label>پس‌زمینه</label><input type="color" name="bg" value="{{ theme.bg }}"></div>
+      <div class="form-group"><label>سطح کارت‌ها</label><input type="color" name="surface" value="{{ theme.surface }}"></div>
+      <div class="form-group"><label>رنگ متن</label><input type="color" name="text" value="{{ theme.text }}"></div>
+      <div class="form-group"><label>متن کم‌رنگ</label><input type="color" name="muted" value="{{ theme.muted }}"></div>
+      <div class="form-group"><label>موفق</label><input type="color" name="success" value="{{ theme.success }}"></div>
+      <div class="form-group"><label>خطر</label><input type="color" name="danger" value="{{ theme.danger }}"></div>
+      <div class="form-group"><label>هشدار</label><input type="color" name="warning" value="{{ theme.warning }}"></div>
+      <div class="form-group"><label>شعاع گوشه (px)</label><input type="number" name="radius" value="{{ theme.radius }}" min="8" max="32"></div>
+      <div class="form-group"><label>فونت</label>
+        <select name="font" class="form-select">
+          <option value="Vazirmatn" {% if theme.font=='Vazirmatn' %}selected{% endif %}>وزیرمتن</option>
+          <option value="Tahoma" {% if theme.font=='Tahoma' %}selected{% endif %}>Tahoma</option>
+          <option value="system-ui" {% if theme.font=='system-ui' %}selected{% endif %}>سیستمی</option>
+        </select>
+      </div>
+      <div class="form-group"><label>تب خانه</label><input name="tab_home" value="{{ theme.tab_home }}"></div>
+      <div class="form-group"><label>تب سرویس</label><input name="tab_services" value="{{ theme.tab_services }}"></div>
+      <div class="form-group"><label>تب کیف پول</label><input name="tab_wallet" value="{{ theme.tab_wallet }}"></div>
+      <div class="form-group"><label>تب باشگاه</label><input name="tab_rewards" value="{{ theme.tab_rewards }}"></div>
+      <div class="form-group"><label>تب پروفایل</label><input name="tab_profile" value="{{ theme.tab_profile }}"></div>
+      <div class="form-group"><label>لینک پشتیبانی</label><input name="support_url" value="{{ theme.support_url }}" placeholder="https://t.me/..."></div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0">
+      <label><input type="checkbox" name="show_rewards" value="1" {% if theme.show_rewards=='1' %}checked{% endif %}> نمایش باشگاه</label>
+      <label><input type="checkbox" name="show_news" value="1" {% if theme.show_news=='1' %}checked{% endif %}> نمایش اخبار</label>
+      <label><input type="checkbox" name="show_banners" value="1" {% if theme.show_banners=='1' %}checked{% endif %}> نمایش بنر</label>
+    </div>
+    <div class="form-group"><label>CSS سفارشی (پیشرفته)</label>
+      <textarea name="custom_css" rows="4" placeholder=".topbar{...}">{{ theme.custom_css }}</textarea>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn-primary inline" type="submit">ذخیره شخصی‌سازی</button>
+      <button class="btn-danger inline" type="submit" name="reset_theme" value="1" onclick="return confirm('بازگشت به پیش‌فرض؟')">بازنشانی تم</button>
+    </div>
+  </form>
 </div>
 
 <div class="cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
@@ -31,8 +76,8 @@
       <div class="form-group"><input name="title" placeholder="عنوان" required></div>
       <div class="form-group"><input name="image_url" placeholder="آدرس تصویر"></div>
       <div class="form-group"><input name="summary" placeholder="خلاصه"></div>
-      <div class="form-group"><textarea name="content" placeholder="متن خبر" rows="3"></textarea></div>
-      <button class="btn-primary inline" type="submit">انتشار خبر</button>
+      <div class="form-group"><textarea name="content" placeholder="متن" rows="3"></textarea></div>
+      <button class="btn-primary inline" type="submit">انتشار</button>
     </form>
   </div>
   <div class="card">
@@ -40,36 +85,29 @@
     <form method="post" action="{{ url_for('miniapp_banner_create') }}">
       <div class="form-group"><input name="title" placeholder="عنوان" required></div>
       <div class="form-group"><input name="description" placeholder="توضیح"></div>
-      <div class="form-group"><input name="image_url" placeholder="آدرس تصویر"></div>
+      <div class="form-group"><input name="image_url" placeholder="تصویر"></div>
       <div class="form-group"><input name="cta" placeholder="متن دکمه"></div>
       <div class="form-group"><input name="link" placeholder="لینک"></div>
-      <div class="form-group"><input name="priority" type="number" value="0" placeholder="اولویت"></div>
-      <button class="btn-primary inline" type="submit">ذخیره بنر</button>
+      <div class="form-group"><input name="priority" type="number" value="0"></div>
+      <button class="btn-primary inline" type="submit">ذخیره</button>
     </form>
   </div>
   <div class="card">
     <h3>اعلان</h3>
     <form method="post" action="{{ url_for('miniapp_notification_create') }}">
-      <div class="form-group"><input name="telegram_id" placeholder="Telegram ID — خالی = همه"></div>
+      <div class="form-group"><input name="telegram_id" placeholder="Telegram ID خالی=همه"></div>
       <div class="form-group"><input name="title" placeholder="عنوان" required></div>
-      <div class="form-group"><textarea name="body" placeholder="متن اعلان" required rows="3"></textarea></div>
-      <button class="btn-primary inline" type="submit">ارسال اعلان</button>
+      <div class="form-group"><textarea name="body" required rows="3"></textarea></div>
+      <button class="btn-primary inline" type="submit">ارسال</button>
     </form>
   </div>
 </div>
 
 <div class="card" style="margin-top:16px">
-  <h3>خبرهای اخیر</h3>
+  <h3>خبرها</h3>
   <table class="data-table"><thead><tr><th>عنوان</th><th>وضعیت</th><th>تاریخ</th></tr></thead><tbody>
-  {% for n in news %}<tr><td>{{ n.title }}</td><td>{{ 'فعال' if n.is_active else 'خاموش' }}</td><td>{{ n.created_at }}</td></tr>{% else %}<tr><td colspan="3">خبری ثبت نشده</td></tr>{% endfor %}
+  {% for n in news %}<tr><td>{{ n.title }}</td><td>{{ 'فعال' if n.is_active else 'خاموش' }}</td><td>{{ n.created_at }}</td></tr>{% else %}<tr><td colspan="3">خالی</td></tr>{% endfor %}
   </tbody></table>
 </div>
-<div class="card" style="margin-top:16px">
-  <h3>بنرهای اخیر</h3>
-  <table class="data-table"><thead><tr><th>عنوان</th><th>اولویت</th><th>وضعیت</th></tr></thead><tbody>
-  {% for b in banners %}<tr><td>{{ b.title }}</td><td>{{ b.priority }}</td><td>{{ 'فعال' if b.is_active else 'خاموش' }}</td></tr>{% else %}<tr><td colspan="3">بنری ثبت نشده</td></tr>{% endfor %}
-  </tbody></table>
-</div>
-
 </div></main></div>
 {% endblock %}

@@ -62,3 +62,12 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 #sheet.is-open{display:flex!important;align-items:flex-end}
 .sheet-close{cursor:pointer;background:transparent;border:0;line-height:1;padding:4px 8px}
 .toast{pointer-events:none}
+
+.nav-ico{display:flex;align-items:center;justify-content:center;line-height:0}
+.nav-ico svg{display:block}
+.bottom-nav button span.nav-ico{font-size:0}
+.brand-mark{overflow:hidden}
+.brand-mark img{display:block}
+#notifyBtn{display:flex;align-items:center;justify-content:center;position:relative}
+#notifyBtn svg{display:block}
+#notifyBadge{position:absolute;top:2px;left:2px}

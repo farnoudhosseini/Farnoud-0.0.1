@@ -6,6 +6,69 @@ if(tg){
   }catch(e){}
 }
 const state={data:null,tab:'home'};
+
+const ICONS = {
+  home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>',
+  services: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H19a1 1 0 0 1 1 1v2"/><path d="M3 7.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6H11a2 2 0 0 0-2 2v1"/><path d="M16 13.5h2"/></svg>',
+  rewards: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.2 4.5 5 .7-3.6 3.5.9 5L12 14.8 7.5 16.7l.9-5L4.8 8.2l5-.7L12 3z"/></svg>',
+  profile: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 19.5c1.8-3.2 4.2-4.5 7-4.5s5.2 1.3 7 4.5"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 7 3 7 3 7H3s3 0 3-7"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 10-12h-7l1-8z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>',
+  support: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a9 9 0 1 0-9-9"/><path d="M8 14v-2a4 4 0 0 1 8 0v2"/><path d="M8 14h-1a2 2 0 0 0 0 4h1"/><path d="M16 14h1a2 2 0 0 1 0 4h-1"/></svg>'
+};
+
+function applyTheme(theme){
+  if(!theme) return;
+  state.theme = theme;
+  const root = document.documentElement;
+  const map = {
+    primary:'--accent', primary_2:'--accent-2', bg:'--bg', surface:'--surface',
+    text:'--text', muted:'--muted', success:'--success', danger:'--danger', warning:'--warning'
+  };
+  Object.keys(map).forEach(k=>{ if(theme[k]) root.style.setProperty(map[k], theme[k]); });
+  if(theme.surface) root.style.setProperty('--surface-2', theme.surface);
+  if(theme.radius) root.style.setProperty('--radius', theme.radius+'px');
+  if(theme.font) document.body.style.fontFamily = theme.font + ', Vazirmatn, Tahoma, sans-serif';
+  if(theme.bg){ try{ tg?.setBackgroundColor(theme.bg); tg?.setHeaderColor(theme.bg);}catch(e){} }
+  // brand
+  const brand = document.querySelector('.brand');
+  if(brand){
+    const mark = brand.querySelector('.brand-mark');
+    const strong = brand.querySelector('strong');
+    const small = brand.querySelector('small');
+    if(theme.logo_url){
+      if(mark) mark.innerHTML = '<img src="'+esc(theme.logo_url)+'" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">';
+    } else if(mark && theme.brand_mark){ mark.textContent = theme.brand_mark; }
+    if(strong && theme.brand_name) strong.textContent = theme.brand_name;
+    if(small && theme.brand_sub) small.textContent = theme.brand_sub;
+  }
+  // tabs
+  const tabs = document.querySelectorAll('.bottom-nav button');
+  const labels = [theme.tab_home, theme.tab_services, theme.tab_wallet, theme.tab_rewards, theme.tab_profile];
+  const iconKeys = ['home','services','wallet','rewards','profile'];
+  tabs.forEach((btn,i)=>{
+    const lab = labels[i] || btn.querySelector('small')?.textContent;
+    btn.innerHTML = '<span class="nav-ico">'+ICONS[iconKeys[i]]+'</span><small>'+esc(lab)+'</small>';
+    if(iconKeys[i]==='rewards' && theme.show_rewards==='0') btn.style.display='none';
+    else btn.style.display='';
+  });
+  // bell icon
+  const nb = document.getElementById('notifyBtn');
+  if(nb){
+    const badge = document.getElementById('notifyBadge');
+    nb.innerHTML = ICONS.bell + (badge ? badge.outerHTML : '');
+  }
+  // custom css
+  let st = document.getElementById('themeCustomCss');
+  if(!st){ st=document.createElement('style'); st.id='themeCustomCss'; document.head.appendChild(st); }
+  st.textContent = theme.custom_css || '';
+}
+
 const app=document.getElementById('app');
 const loading=document.getElementById('loading');
 const API_BASE = (location.pathname.indexOf('/miniapp')===0 ? '' : '') + '/miniapp/api';
@@ -107,8 +170,13 @@ function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=hom
 async function refresh(){
   closeSheet();
   state.data = await api('/bootstrap');
+  if(state.data.theme) applyTheme(state.data.theme);
   const unread = (state.data.notifications && state.data.notifications.unread) || 0;
-  const badge = document.getElementById('notifyBadge');
+  let badge = document.getElementById('notifyBadge');
+  if(!badge){
+    const nb=document.getElementById('notifyBtn');
+    if(nb){ nb.insertAdjacentHTML('beforeend','<b id="notifyBadge" hidden>0</b>'); badge=document.getElementById('notifyBadge'); }
+  }
   if(badge){ badge.hidden = !(unread>0); badge.textContent = num(unread); }
   if(loading && loading.parentNode) loading.remove();
   render();

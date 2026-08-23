@@ -1180,11 +1180,35 @@ def miniapp_content():
             banners = cur.fetchall() or []
         return render_template("miniapp_content.html", username=session.get("admin_username"),
                                active="miniapp", news=news, banners=banners,
-                               miniapp_url=get_setting_sync("miniapp_url", "") or "")
+                               miniapp_url=get_setting_sync("miniapp_url", "") or "",
+                               theme=__import__("miniapp", fromlist=["get_miniapp_theme"]).get_miniapp_theme())
     finally:
         conn.close()
 
 
+
+
+@app.route("/miniapp-content/theme", methods=["POST"])
+@login_required
+def miniapp_theme_save():
+    from miniapp import DEFAULT_MINIAPP_THEME, save_miniapp_theme, get_miniapp_theme
+    data = {}
+    for k in DEFAULT_MINIAPP_THEME.keys():
+        if k in request.form:
+            data[k] = request.form.get(k, "")
+    # checkboxes
+    data["show_rewards"] = "1" if request.form.get("show_rewards") == "1" else "0"
+    data["show_news"] = "1" if request.form.get("show_news") == "1" else "0"
+    data["show_banners"] = "1" if request.form.get("show_banners") == "1" else "0"
+    if request.form.get("reset_theme") == "1":
+        save_miniapp_theme(dict(__import__("miniapp", fromlist=["DEFAULT_MINIAPP_THEME"]).DEFAULT_MINIAPP_THEME))
+        flash("تم به حالت پیش‌فرض برگشت", "success")
+    else:
+        cur = get_miniapp_theme()
+        cur.update(data)
+        save_miniapp_theme(cur)
+        flash("شخصی‌سازی مینی‌اپ ذخیره شد", "success")
+    return redirect(url_for("miniapp_content"))
 
 @app.route("/miniapp-content/settings", methods=["POST"])
 @login_required

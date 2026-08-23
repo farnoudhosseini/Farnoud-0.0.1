@@ -24,6 +24,60 @@ from services.provision import provision_order
 
 
 
+
+DEFAULT_MINIAPP_THEME = {
+    "brand_name": "فرنود",
+    "brand_sub": "مدیریت سرویس VPN",
+    "brand_mark": "F",
+    "logo_url": "",
+    "welcome_title": "سلام {name}",
+    "welcome_subtitle": "سرویس‌ها، کیف پول و باشگاه مشتریان در یکجا",
+    "primary": "#9b6cff",
+    "primary_2": "#c6a6ff",
+    "bg": "#090910",
+    "surface": "#141421",
+    "text": "#f8f7ff",
+    "muted": "#9796a8",
+    "success": "#4ed69a",
+    "danger": "#ff6e86",
+    "warning": "#ffc75b",
+    "radius": "18",
+    "font": "Vazirmatn",
+    "tab_home": "خانه",
+    "tab_services": "سرویس‌ها",
+    "tab_wallet": "کیف پول",
+    "tab_rewards": "باشگاه",
+    "tab_profile": "پروفایل",
+    "show_rewards": "1",
+    "show_news": "1",
+    "show_banners": "1",
+    "support_url": "",
+    "custom_css": "",
+}
+
+
+def get_miniapp_theme() -> dict:
+    try:
+        from database import get_setting_sync
+        raw = get_setting_sync("miniapp_theme", "") or ""
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                out = dict(DEFAULT_MINIAPP_THEME)
+                out.update({k: v for k, v in data.items() if v is not None and v != ""})
+                return out
+    except Exception as e:
+        print("theme load:", e)
+    return dict(DEFAULT_MINIAPP_THEME)
+
+
+def save_miniapp_theme(data: dict) -> None:
+    from database import set_setting_sync
+    base = dict(DEFAULT_MINIAPP_THEME)
+    base.update(data or {})
+    set_setting_sync("miniapp_theme", json.dumps(base, ensure_ascii=False))
+
+
 def resolve_miniapp_url() -> str:
     """آدرس عمومی مینی‌اپ از تنظیمات یا محیط"""
     try:
@@ -200,32 +254,45 @@ except Exception as exc:
 
 
 def _validate_init_data(init_data: str):
-    if not BOT_TOKEN or not init_data:
+    """اعتبارسنجی initData طبق الگوریتم رسمی تلگرام / پیاده‌سازی PHP."""
+    token = (BOT_TOKEN or "").strip().strip('"').strip("'")
+    if not token:
         return None, "BOT_TOKEN روی سرور تنظیم نشده"
+    if not init_data:
+        return None, "داده احراز هویت تلگرام موجود نیست — از داخل ربات باز کنید"
     try:
+        # parse_qsl یک‌بار URL-decode می‌کند (مطابق مشخصات)
         pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-        supplied_hash = pairs.pop("hash", "")
+        supplied_hash = pairs.pop("hash", None)
+        # فیلد signature برای third-party است؛ برای بات نادیده بگیر
+        pairs.pop("signature", None)
         if not supplied_hash:
-            return None, "داده احراز هویت تلگرام موجود نیست — از داخل ربات باز کنید"
-        data_check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
-        # Telegram docs: secret_key = HMAC_SHA256(key=bot_token, msg="WebAppData")
-        secret = hmac.new(BOT_TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
-        expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+            return None, "داده احراز هویت تلگرام ناقص است"
+        data_check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs.keys()))
+        # PHP: hash_hmac('sha256', $bot_token, 'WebAppData', true)
+        # یعنی key=WebAppData ، message=bot_token
+        secret = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
+        expected = hmac.new(secret, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, supplied_hash):
-            return None, "امضای تلگرام نامعتبر است (BOT_TOKEN را در .env چک کنید)"
-        auth_date = int(pairs.get("auth_date", "0"))
+            # fallback: بعضی مستندات قدیمی ترتیب را برعکس نوشته‌اند
+            secret2 = hmac.new(token.encode("utf-8"), b"WebAppData", hashlib.sha256).digest()
+            expected2 = hmac.new(secret2, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected2, supplied_hash):
+                return None, "امضای تلگرام نامعتبر است"
+        auth_date = int(pairs.get("auth_date") or 0)
         max_age = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
-        if auth_date <= 0 or time.time() - auth_date > max_age:
+        if auth_date > 0 and time.time() - auth_date > max_age:
             return None, "نشست تلگرام منقضی شده — اپ را ببندید و دوباره باز کنید"
         user_raw = pairs.get("user")
         if not user_raw:
-            return None, "Telegram user is missing"
+            return None, "اطلاعات کاربر تلگرام موجود نیست"
         user = json.loads(user_raw)
         if not user.get("id"):
-            return None, "Telegram user is invalid"
+            return None, "شناسه کاربر نامعتبر است"
         return user, None
-    except Exception:
-        return None, "Invalid Telegram authentication payload"
+    except Exception as e:
+        print("initData validate error:", e)
+        return None, "خطا در احراز هویت تلگرام"
 
 
 def _rate_limit(user_id: int, action: str, limit=30, window=60):
@@ -461,6 +528,11 @@ def miniapp_asset(filename):
     return send_from_directory(root, filename)
 
 
+@miniapp_bp.get("/api/theme")
+def miniapp_theme_api():
+    return jsonify({"ok": True, "theme": get_miniapp_theme()})
+
+
 @miniapp_bp.get("/api/bootstrap")
 @auth_required
 def bootstrap():
@@ -477,6 +549,7 @@ def bootstrap():
         content = {"news": [], "banners": []}
     payload = {
         "ok": True,
+        "theme": get_miniapp_theme(),
         "user": _jsonable(request.db_user),
         "dashboard": safe(lambda: _dashboard(user_id), {"subscription": None, "subscriptions": [], "has_subscription": False, "status": "no_subscription", "balance": 0}),
         "plans": safe(lambda: _plans(user_id), []),
