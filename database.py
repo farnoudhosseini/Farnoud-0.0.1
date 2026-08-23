@@ -218,12 +218,16 @@ def get_panel_by_slug(slug: str):
             connection.close()
 
 def create_panel(name: str, panel_type: str, base_url: str, username: str, password: str, slug: str = None, api_key: str = None):
+    """Returns (panel_id, slug) or (None, error_message)."""
+    try:
+        ensure_panel_max_sales()
+    except Exception as e:
+        print(f"ensure_panel_max_sales: {e}")
     connection = None
     try:
         connection = get_sync_connection()
         with connection.cursor() as cursor:
             final_slug = slug or slugify(name)
-            # یکتا بودن slug
             base_slug = final_slug
             n = 1
             while True:
@@ -233,15 +237,32 @@ def create_panel(name: str, panel_type: str, base_url: str, username: str, passw
                 n += 1
                 final_slug = f"{base_slug}-{n}"
 
-            cursor.execute("""
-                INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, api_key, is_active, last_status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 'connected')
-            """, (name, final_slug, panel_type, base_url, username, password, api_key or None))
+            # try with api_key column
+            try:
+                cursor.execute("""
+                    INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, api_key, is_active, last_status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 'connected')
+                """, (name, final_slug, panel_type, base_url, username or "", password or "", api_key or None))
+            except Exception as col_err:
+                # fallback without api_key (old schema)
+                print(f"create_panel api_key insert failed, fallback: {col_err}")
+                cursor.execute("""
+                    INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, is_active, last_status)
+                    VALUES (%s, %s, %s, %s, %s, %s, 1, 'connected')
+                """, (name, final_slug, panel_type, base_url, username or "", password or ""))
             connection.commit()
-            return cursor.lastrowid, final_slug
+            pid = cursor.lastrowid
+            # if api_key exists and we fell back, try update
+            if api_key and pid:
+                try:
+                    cursor.execute("UPDATE vpn_panels SET api_key=%s WHERE id=%s", (api_key, pid))
+                    connection.commit()
+                except Exception:
+                    pass
+            return pid, final_slug
     except Exception as e:
         print(f"❌ create_panel: {e}")
-        return None, None
+        return None, str(e)
     finally:
         if connection:
             connection.close()

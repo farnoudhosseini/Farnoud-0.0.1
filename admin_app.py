@@ -135,6 +135,11 @@ def panels_list():
 @app.route("/panels/add", methods=["GET", "POST"])
 @login_required
 def panels_add():
+    try:
+        from database import ensure_panel_max_sales
+        ensure_panel_max_sales()
+    except Exception:
+        pass
     selected_type = (request.args.get("type") or request.form.get("panel_type") or "").strip().lower()
     if selected_type in ("3xui", "xui", "sanaei"):
         selected_type = "3x-ui"
@@ -209,7 +214,7 @@ def panels_add():
         flash(f"اتصال ناموفق: {e}", "error")
         return _form(panel_type)
 
-    panel_id, slug = create_panel(
+    panel_id, slug_or_err = create_panel(
         name,
         panel_type,
         base_url,
@@ -218,8 +223,9 @@ def panels_add():
         api_key=api_key or None,
     )
     if not panel_id:
-        flash("خطا در ذخیره پنل", "error")
+        flash(f"خطا در ذخیره پنل: {slug_or_err}", "error")
         return _form(panel_type)
+    slug = slug_or_err
 
     try:
         ms = (request.form.get("max_sales") or "").strip()
