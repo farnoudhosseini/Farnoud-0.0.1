@@ -126,35 +126,35 @@ function statusFa(s){return ({active:'فعال',provisioned:'فعال',expired:'
 function home(){
  const d=state.data.dashboard, s=d.subscription, p=usagePercent(s);
  const b=state.data.banners?.[0];
- return `<h1 class="page-title">سلام ${esc(state.data.user.first_name||'دوست من')} 👋</h1>
- <p class="page-subtitle">همه‌چیز برای مدیریت سرویس شما، همین‌جاست.</p>
- <section class="hero">
-  <div class="status-row"><div><div class="eyebrow">وضعیت سرویس</div><div class="status">${s? 'سرویس شما فعال است':'هنوز سرویسی ندارید'}</div></div><span class="pill">${statusFa(d.status)}</span></div>
+ return `<h1 class="page-title">سلام ${esc(state.data.user.first_name||'دوست من')}</h1>
+<p class="page-subtitle">همه‌چیز برای مدیریت سرویس شما، همین‌جاست.</p>
+<section class="hero">
+<div class="status-row"><div><div class="eyebrow">وضعیت سرویس</div><div class="status">${s? 'سرویس شما فعال است':'هنوز سرویسی ندارید'}</div></div><span class="pill">${statusFa(d.status)}</span></div>
   ${s?`<div class="usage"><div class="ring" style="--p:${p}"><div class="ring-inner"><strong>${Math.round(p)}%</strong><small>باقی‌مانده</small></div></div><div class="usage-copy"><strong>${num(s.remaining_gb)} GB</strong><span>از ${num(s.volume_gb)} GB</span><span>${num(s.remaining_days)} روز باقی‌مانده</span></div></div>
-  <div class="actions"><button class="btn primary" onclick="openService(${s.id})">مدیریت سرویس</button><button class="btn" onclick="startBuyFlow()">خرید سرویس جدید</button></div>`
+<div class="actions"><button class="btn primary" onclick="openService(${s.id})">مدیریت سرویس</button><button class="btn" onclick="startBuyFlow()">خرید سرویس جدید</button></div>`
   :`<div class="empty"><span class="big">${icon("vpn")}</span><strong>اولین سرویس خودت را فعال کن</strong><span>پلن مناسب را انتخاب کن و در چند قدم کوتاه شروع کن.</span></div><div class="actions"><button class="btn primary" onclick="startBuyFlow()">خرید سرویس جدید</button></div>`}
- </section>
- <section class="section"><div class="section-head"><h2>خلاصه حساب</h2></div><div class="grid">
-  <div class="metric"><span>کیف پول</span><strong>${money(d.balance)}</strong></div>
-  <div class="metric"><span>باشگاه</span><strong>${num(d.loyalty.points)}</strong><em>امتیاز</em></div>
-  <div class="metric"><span>سطح</span><strong>${esc(d.loyalty.level)}</strong></div>
-  <div class="metric"><span>دعوت‌ها</span><strong>${num(d.referrals.total)}</strong><em>نفر</em></div>
- </div></section>
+</section>
+<section class="section"><div class="section-head"><h2>خلاصه حساب</h2></div><div class="grid">
+<div class="metric"><span>کیف پول</span><strong>${money(d.balance)}</strong></div>
+<div class="metric"><span>باشگاه</span><strong>${num(d.loyalty.points)}</strong><em>امتیاز</em></div>
+<div class="metric"><span>سطح</span><strong>${esc(d.loyalty.level)}</strong></div>
+<div class="metric"><span>دعوت‌ها</span><strong>${num(d.referrals.total)}</strong><em>نفر</em></div>
+</div></section>
  ${b?`<section class="banner"><img src="${esc(b.image_url||'')}" onerror="this.style.display='none'"><div class="banner-copy"><h3>${esc(b.title)}</h3><p>${esc(b.description||'')}</p>${b.cta?`<button class="btn primary" style="margin-top:14px" onclick="bannerClick('${esc(b.link||'')}')">${esc(b.cta)}</button>`:''}</div></section>`:''}
- <section class="section"><div class="section-head"><h2>سرویس‌های شما</h2><button onclick="setTab('services')">مشاهده همه</button></div>${serviceList(d.subscriptions.slice(0,3))}</section>
- <section class="section"><div class="section-head"><h2>آخرین خبرها</h2><button onclick="renderNews()">همه خبرها</button></div>${newsList(state.data.news.slice(0,2))}</section>`;
+<section class="section"><div class="section-head"><h2>سرویس‌های شما</h2><button onclick="setTab('services')">مشاهده همه</button></div>${serviceList(d.subscriptions.slice(0,3))}</section>
+<section class="section"><div class="section-head"><h2>آخرین خبرها</h2><button onclick="renderNews()">همه خبرها</button></div>${newsList(state.data.news.slice(0,2))}</section>`;
 }
 
 function serviceList(list){
   if(!list?.length)return `<div class="empty"><span class="big">${icon("empty")}</span><strong>سرویسی ندارید</strong></div>`;
-  return `<div class="service-list">${list.map(s=>`<button class="service-mini" onclick="openService(${s.id})"><div class="service-icon">${icon("vpn")}</div><div class="grow"><strong>${esc(s.name)}</strong><small>${statusFa(s.status)} · ${num(s.remaining_days)} روز · ${num(s.remaining_gb)} GB</small></div><span class="chev">‹</span></button>`).join('')}</div>`;
+  return `<div class="service-list">${list.map(s=>`<button class="service-mini" onclick="openService(${s.id})"><div class="service-icon">${icon("vpn")}</div><div class="grow"><strong>${esc(s.name)}</strong><small>${statusFa(s.status)} · ${num(s.remaining_days)} روز · ${num(s.remaining_gb)} GB</small></div><span class="chev"></span></button>`).join('')}</div>`;
 }
 
 /* ===================== SERVICES + BUY FLOW ===================== */
 function services(){
   return `<div class="detail-head"><div><h1 class="page-title">سرویس‌ها</h1><p class="page-subtitle">سرویس‌های فعال و خرید سرویس جدید</p></div></div>
-  <div class="actions" style="margin-bottom:16px"><button class="btn primary" style="width:100%" onclick="startBuyFlow()">🛒 خرید سرویس جدید</button></div>
-  <div class="section"><div class="section-head"><h2>سرویس‌های من</h2></div>${serviceList(state.data.dashboard.subscriptions)}</div>`;
+<div class="actions" style="margin-bottom:16px"><button class="btn primary" style="width:100%" onclick="startBuyFlow()">خرید سرویس جدید</button></div>
+<div class="section"><div class="section-head"><h2>سرویس‌های من</h2></div>${serviceList(state.data.dashboard.subscriptions)}</div>`;
 }
 
 /* Step-by-step buy */
@@ -173,44 +173,44 @@ function renderBuyStep(){
   if(!b) return;
   if(b.step===1){
     showSheet(`<h2>خرید سرویس جدید</h2>
-      <p class="page-subtitle">۱ — سرویس شما کجا ارائه می‌شود؟</p>
-      <div class="menu-list">${b.panels.map(p=>`
-        <button class="menu-item" onclick="buySelectPanel(${p.id})">
-          <span class="menu-ico">${icon('vpn')}</span>
-          <span class="grow"><strong>${esc(p.name)}</strong><small>${esc(p.description||'انتخاب پنل')}</small></span>
-          <span class="chev">‹</span>
-        </button>`).join('')}
-      </div>`);
+<p class="page-subtitle">۱ — سرویس شما کجا ارائه می‌شود؟</p>
+<div class="menu-list">${b.panels.map(p=>`
+<button class="menu-item" onclick="buySelectPanel(${p.id})">
+<span class="menu-ico">${icon('vpn')}</span>
+<span class="grow"><strong>${esc(p.name)}</strong><small>${esc(p.description||'انتخاب پنل')}</small></span>
+<span class="chev"></span>
+</button>`).join('')}
+</div>`);
   } else if(b.step===2){
     showSheet(`<h2>خرید سرویس جدید</h2>
-      <p class="page-subtitle">۲ — دسته‌بندی مناسب را انتخاب کنید</p>
-      <div class="menu-list">
+<p class="page-subtitle">۲ — دسته‌بندی مناسب را انتخاب کنید</p>
+<div class="menu-list">
         ${(b.categories||[]).map(c=>`
-          <button class="menu-item" onclick="buySelectCat(${c.id})">
-            <span class="menu-ico">📁</span>
-            <span class="grow"><strong>${esc(c.name)}</strong></span>
-            <span class="chev">‹</span>
-          </button>`).join('')}
-        ${b.has_uncategorized?`<button class="menu-item" onclick="buySelectCat(0)"><span class="menu-ico">📦</span><span class="grow"><strong>همه محصولات</strong></span><span class="chev">‹</span></button>`:''}
-        <button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=1;renderBuyStep()">🔙 بازگشت</button>
-      </div>`);
+<button class="menu-item" onclick="buySelectCat(${c.id})">
+<span class="menu-ico"></span>
+<span class="grow"><strong>${esc(c.name)}</strong></span>
+<span class="chev"></span>
+</button>`).join('')}
+        ${b.has_uncategorized?`<button class="menu-item" onclick="buySelectCat(0)"><span class="menu-ico"></span><span class="grow"><strong>همه محصولات</strong></span><span class="chev"></span></button>`:''}
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=1;renderBuyStep()">🔙 بازگشت</button>
+</div>`);
   } else if(b.step===3){
     showSheet(`<h2>خرید سرویس جدید</h2>
-      <p class="page-subtitle">۳ — محصول مورد نظر را انتخاب کنید</p>
-      <div class="plan-grid">${(b.products||[]).map(p=>`
-        <article class="plan">
-          <h3>${esc(p.name)}</h3>
-          <p class="desc">${esc(p.description||'')}</p>
-          <div class="specs">
-            <span class="spec">${num(p.volume_gb)} GB</span>
-            <span class="spec">${num(p.duration_days)} روز</span>
+<p class="page-subtitle">۳ — محصول مورد نظر را انتخاب کنید</p>
+<div class="plan-grid">${(b.products||[]).map(p=>`
+<article class="plan">
+<h3>${esc(p.name)}</h3>
+<p class="desc">${esc(p.description||'')}</p>
+<div class="specs">
+<span class="spec">${num(p.volume_gb)} GB</span>
+<span class="spec">${num(p.duration_days)} روز</span>
             ${p.hourly_enabled?`<span class="spec">ساعتی: ${money(p.hourly_price)}</span>`:''}
-          </div>
-          <div class="price"><strong>${money(p.price).replace(' تومان','')}</strong><span>تومان</span></div>
-          <button class="btn primary" style="width:100%" onclick="buySelectProduct(${p.id})">انتخاب</button>
-        </article>`).join('')||'<div class="empty">محصولی نیست</div>'}
-      <button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=2;renderBuyStep()">🔙 بازگشت</button>
-      </div>`);
+</div>
+<div class="price"><strong>${money(p.price).replace(' تومان','')}</strong><span>تومان</span></div>
+<button class="btn primary" style="width:100%" onclick="buySelectProduct(${p.id})">انتخاب</button>
+</article>`).join('')||'<div class="empty">محصولی نیست</div>'}
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=2;renderBuyStep()">🔙 بازگشت</button>
+</div>`);
   } else if(b.step===4){
     renderBuyPayment();
   }
@@ -253,19 +253,19 @@ async function buySelectProduct(pid){
   // If hourly available → ask mode first
   if(p && p.hourly_enabled){
     showSheet(`<h2>${esc(p.name)}</h2>
-      <p class="page-subtitle">نوع خرید را انتخاب کنید</p>
-      <div class="detail-card">
-        <div class="kv">
-          <div><span>کامل</span><strong>${money(p.price)} / ${num(p.duration_days)} روز</strong></div>
-          <div><span>ساعتی</span><strong>${money(p.hourly_price)} / ساعت</strong></div>
-        </div>
-      </div>
-      <div class="actions" style="margin-top:14px">
-        <button class="btn primary" onclick="buyChooseMode('full')">🛒 خرید کامل</button>
-        <button class="btn" onclick="buyChooseMode('hourly')">⏱ خرید ساعتی</button>
-      </div>
-      <div class="form-row"><label>کد تخفیف (اختیاری)</label><input id="buyCoupon" placeholder="مثلاً OFF20"></div>
-      <button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=3;renderBuyStep()">🔙 بازگشت</button>`);
+<p class="page-subtitle">نوع خرید را انتخاب کنید</p>
+<div class="detail-card">
+<div class="kv">
+<div><span>کامل</span><strong>${money(p.price)} / ${num(p.duration_days)} روز</strong></div>
+<div><span>ساعتی</span><strong>${money(p.hourly_price)} / ساعت</strong></div>
+</div>
+</div>
+<div class="actions" style="margin-top:14px">
+<button class="btn primary" onclick="buyChooseMode('full')">خرید کامل</button>
+<button class="btn" onclick="buyChooseMode('hourly')">خرید ساعتی</button>
+</div>
+<div class="form-row"><label>کد تخفیف (اختیاری)</label><input id="buyCoupon" placeholder="مثلاً OFF20"></div>
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=3;renderBuyStep()">🔙 بازگشت</button>`);
   } else {
     state.buy.mode = 'full';
     state.buy.step = 4;
@@ -303,31 +303,31 @@ function renderBuyPayment(){
   if(!o) return;
   const walletOk = !!o.can_pay_wallet;
   showSheet(`<h2>تأیید و پرداخت</h2>
-    <div class="detail-card">
-      <strong>${esc(o.product_name)}</strong>
-      <p class="page-subtitle">${esc(o.panel_name||'')}</p>
-      <div class="kv">
-        <div><span>قیمت</span><strong>${money(o.price)}</strong></div>
-        <div><span>تخفیف</span><strong>${money(o.discount||0)}</strong></div>
-        <div><span>مبلغ نهایی</span><strong>${money(o.final_price)}</strong></div>
-        <div><span>موجودی کیف پول</span><strong>${money(o.balance)}</strong></div>
-        <div><span>از کیف پول</span><strong>${money(o.wallet_used)}</strong></div>
-        <div><span>قابل پرداخت</span><strong>${money(o.pay_amount)}</strong></div>
-      </div>
-    </div>
-    <div class="form-row"><label>کد تخفیف</label>
-      <div style="display:flex;gap:8px">
-        <input id="invCoupon" placeholder="کد تخفیف" value="${esc(state.buy.coupon||'')}">
-        <button class="btn" onclick="applyBuyDiscount()">اعمال</button>
-      </div>
-    </div>
+<div class="detail-card">
+<strong>${esc(o.product_name)}</strong>
+<p class="page-subtitle">${esc(o.panel_name||'')}</p>
+<div class="kv">
+<div><span>قیمت</span><strong>${money(o.price)}</strong></div>
+<div><span>تخفیف</span><strong>${money(o.discount||0)}</strong></div>
+<div><span>مبلغ نهایی</span><strong>${money(o.final_price)}</strong></div>
+<div><span>موجودی کیف پول</span><strong>${money(o.balance)}</strong></div>
+<div><span>از کیف پول</span><strong>${money(o.wallet_used)}</strong></div>
+<div><span>قابل پرداخت</span><strong>${money(o.pay_amount)}</strong></div>
+</div>
+</div>
+<div class="form-row"><label>کد تخفیف</label>
+<div style="display:flex;gap:8px">
+<input id="invCoupon" placeholder="کد تخفیف" value="${esc(state.buy.coupon||'')}">
+<button class="btn" onclick="applyBuyDiscount()">اعمال</button>
+</div>
+</div>
     ${walletOk
-      ? `<p class="page-subtitle" style="margin-top:10px">⚠️ با تایید، مبلغ از کیف پول کسر و سرویس ساخته می‌شود.</p>
-         <button class="btn primary" style="width:100%" onclick="confirmWalletBuy()">✅ تایید و پرداخت از کیف پول</button>`
-      : `<p class="page-subtitle" style="margin-top:10px">موجودی کافی نیست. می‌توانید کارت‌به‌کارت کنید.</p>
-         <button class="btn primary" style="width:100%" onclick="startCardPay()">💳 کارت به کارت و ارسال رسید</button>`
+      ? `<p class="page-subtitle" style="margin-top:10px">با تایید، مبلغ از کیف پول کسر و سرویس ساخته می‌شود.</p>
+<button class="btn primary" style="width:100%" onclick="confirmWalletBuy()">تایید و پرداخت از کیف پول</button>`
+      : `<p class="page-subtitle" style="margin-top:10px">مبلغ ${money(o.wallet_used||0)} از کیف پول رزرو می‌شود و باقی‌مانده ${money(o.pay_amount)} را کارت‌به‌کارت پرداخت کنید.</p>
+<button class="btn primary" style="width:100%" onclick="startCardPay()">پرداخت باقی‌مانده با کارت و ارسال رسید</button>`
     }
-    <button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet()">انصراف</button>`);
+<button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet()">انصراف</button>`);
 }
 
 async function applyBuyDiscount(){
@@ -358,17 +358,17 @@ async function startCardPay(){
     state.buy.card = d.card;
     state.buy.pay_amount = d.pay_amount;
     showSheet(`<h2>واریز کارت‌به‌کارت</h2>
-      <p class="page-subtitle">مبلغ ${money(d.pay_amount)} را واریز کنید، سپس تصویر رسید را آپلود کنید. همزمان در ربات هم پیام واریز برایتان ارسال شد.</p>
-      <div class="detail-card">
-        <strong style="font-size:18px;letter-spacing:1px">${esc(d.card.card_number)}</strong>
-        <p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p>
-      </div>
-      <button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card.card_number)}')">📋 کپی شماره کارت</button>
-      <div class="form-row" style="margin-top:14px">
-        <label>تصویر رسید</label>
-        <input type="file" id="receiptFile" accept="image/*" capture="environment">
-      </div>
-      <button class="btn primary" style="width:100%" onclick="uploadBuyReceipt()">ارسال رسید برای تایید</button>`);
+<p class="page-subtitle">مبلغ ${money(d.pay_amount)} را واریز کنید، سپس تصویر رسید را آپلود کنید. همزمان در ربات هم پیام واریز برایتان ارسال شد.</p>
+<div class="detail-card">
+<strong style="font-size:18px;letter-spacing:1px">${esc(d.card.card_number)}</strong>
+<p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p>
+</div>
+<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card.card_number)}')">کپی شماره کارت</button>
+<div class="form-row" style="margin-top:14px">
+<label>تصویر رسید</label>
+<input type="file" id="receiptFile" accept="image/*" capture="environment">
+</div>
+<button class="btn primary" style="width:100%" onclick="uploadBuyReceipt()">ارسال رسید برای تایید</button>`);
   }catch(e){ toast(e.message); }
 }
 
@@ -400,32 +400,32 @@ function openService(id){
     const p=Number(s.total_bytes||0),r=Number(s.remaining_bytes??0);
     const percent=p?Math.round(r/p*100):100;
     showSheet(`<h2>${esc(s.name)}</h2>
-      <span class="pill">${statusFa(s.status)}</span>
-      <div class="kv">
-        <div><span>حجم باقی‌مانده</span><strong>${s.remaining_bytes==null?num(s.remaining_gb)+' GB':num((r/1073741824).toFixed(2))+' GB'}</strong></div>
-        <div><span>زمان باقی‌مانده</span><strong>${num(s.remaining_days)} روز</strong></div>
-        <div><span>نام کاربری</span><strong>${esc(s.vpn_username||'—')}</strong></div>
-        <div><span>درصد باقی‌مانده</span><strong>${percent}%</strong></div>
-      </div>
+<span class="pill">${statusFa(s.status)}</span>
+<div class="kv">
+<div><span>حجم باقی‌مانده</span><strong>${s.remaining_bytes==null?num(s.remaining_gb)+' GB':num((r/1073741824).toFixed(2))+' GB'}</strong></div>
+<div><span>زمان باقی‌مانده</span><strong>${num(s.remaining_days)} روز</strong></div>
+<div><span>نام کاربری</span><strong>${esc(s.vpn_username||'—')}</strong></div>
+<div><span>درصد باقی‌مانده</span><strong>${percent}%</strong></div>
+</div>
       ${s.subscription_link?`<div class="link-box">${esc(s.subscription_link)}</div>
-        <div class="actions">
-          <button class="btn primary" onclick="copyText('${esc(s.subscription_link)}')">کپی لینک</button>
-          <button class="btn" onclick="openQR(${s.id},'${esc(s.subscription_link)}')">QR Code</button>
-        </div>`:''}
-      <div class="menu-list" style="margin-top:14px">
-        <button class="menu-item" onclick="svcAction(${s.id},'refresh')"><span class="grow"><strong>🔄 بروزرسانی</strong></span></button>
-        <button class="menu-item" onclick="svcAction(${s.id},'toggle')"><span class="grow"><strong>⏯ خاموش / روشن</strong></span></button>
-        <button class="menu-item" onclick="svcAction(${s.id},'reset')"><span class="grow"><strong>🔐 بازنشانی اشتراک</strong></span></button>
-        <button class="menu-item" onclick="svcAction(${s.id},'hourly_toggle')"><span class="grow"><strong>⏱ توقف/شروع ساعتی</strong></span></button>
-        <button class="menu-item" onclick="svcRename(${s.id})"><span class="grow"><strong>✏️ تغییر نام</strong></span></button>
-      </div>`);
+<div class="actions">
+<button class="btn primary" onclick="copyText('${esc(s.subscription_link)}')">کپی لینک</button>
+<button class="btn" onclick="openQR(${s.id},'${esc(s.subscription_link)}')">QR Code</button>
+</div>`:''}
+<div class="menu-list" style="margin-top:14px">
+<button class="menu-item" onclick="svcAction(${s.id},'refresh')"><span class="grow"><strong>بروزرسانی</strong></span></button>
+<button class="menu-item" onclick="svcAction(${s.id},'toggle')"><span class="grow"><strong>خاموش / روشن</strong></span></button>
+<button class="menu-item" onclick="svcAction(${s.id},'reset')"><span class="grow"><strong>بازنشانی اشتراک</strong></span></button>
+<button class="menu-item" onclick="svcAction(${s.id},'hourly_toggle')"><span class="grow"><strong>توقف/شروع ساعتی</strong></span></button>
+<button class="menu-item" onclick="svcRename(${s.id})"><span class="grow"><strong>تغییر نام</strong></span></button>
+</div>`);
   }).catch(e=>toast(e.message));
 }
 function openQR(id,link){
   api('/subscriptions/'+id).then(d=>{
     const q=d.subscription.qr_data_url;
     showSheet(`<h2>QR Code اتصال</h2><div style="text-align:center">${q?`<img src="${q}" style="width:240px;height:240px;background:#fff;border-radius:18px;padding:10px">`:`<div class="empty">QR در دسترس نیست</div>`}
-      <button class="btn primary" style="width:100%;margin-top:14px" onclick="copyText('${esc(link)}')">کپی لینک</button></div>`);
+<button class="btn primary" style="width:100%;margin-top:14px" onclick="copyText('${esc(link)}')">کپی لینک</button></div>`);
   }).catch(()=>toast('QR در دسترس نیست'));
 }
 async function svcAction(id, action){
@@ -438,8 +438,8 @@ async function svcAction(id, action){
 }
 function svcRename(id){
   showSheet(`<h2>تغییر نام سرویس</h2>
-    <div class="form-row"><label>نام جدید</label><input id="svcNewName" placeholder="مثلاً لپ‌تاپ"></div>
-    <button class="btn primary" style="width:100%" onclick="doRename(${id})">ذخیره</button>`);
+<div class="form-row"><label>نام جدید</label><input id="svcNewName" placeholder="مثلاً لپ‌تاپ"></div>
+<button class="btn primary" style="width:100%" onclick="doRename(${id})">ذخیره</button>`);
 }
 async function doRename(id){
   const name=document.getElementById('svcNewName')?.value||'';
@@ -453,9 +453,9 @@ async function doRename(id){
 function wallet(){
   const w=state.data.wallet;
   return `<h1 class="page-title">کیف پول</h1><p class="page-subtitle">پرداخت سریع و امن، بدون خروج از تلگرام.</p>
-  <section class="wallet-card"><div class="eyebrow">موجودی فعلی</div><div class="balance">${money(w.balance)}</div>
-  <div class="wallet-actions"><button class="btn primary" onclick="topup()">افزایش موجودی</button><button class="btn" onclick="showTransactions()">تراکنش‌ها</button></div></section>
-  <section class="section"><div class="section-head"><h2>آخرین تراکنش‌ها</h2></div>${transactions(w.transactions.slice(0,8))}</section>`;
+<section class="wallet-card"><div class="eyebrow">موجودی فعلی</div><div class="balance">${money(w.balance)}</div>
+<div class="wallet-actions"><button class="btn primary" onclick="topup()">افزایش موجودی</button><button class="btn" onclick="showTransactions()">تراکنش‌ها</button></div></section>
+<section class="section"><div class="section-head"><h2>آخرین تراکنش‌ها</h2></div>${transactions(w.transactions.slice(0,8))}</section>`;
 }
 function transactions(list){
   if(!list?.length)return `<div class="empty"><span class="big">${icon("wallet")}</span><strong>هنوز تراکنشی ندارید</strong></div>`;
@@ -463,8 +463,8 @@ function transactions(list){
 }
 function topup(){
   showSheet(`<h2>افزایش موجودی</h2>
-    <div class="form-row"><label>مبلغ به تومان</label><input id="topupAmount" type="number" inputmode="numeric" placeholder="مثلاً 200000"></div>
-    <button class="btn primary" style="width:100%" onclick="confirmTopup()">ادامه</button>`);
+<div class="form-row"><label>مبلغ به تومان</label><input id="topupAmount" type="number" inputmode="numeric" placeholder="مثلاً 200000"></div>
+<button class="btn primary" style="width:100%" onclick="confirmTopup()">ادامه</button>`);
 }
 async function confirmTopup(){
   try{
@@ -472,12 +472,12 @@ async function confirmTopup(){
     const d=await api('/wallet/topup',{method:'POST',body:JSON.stringify({amount})});
     state.pendingChargeId = d.charge_id;
     showSheet(`<h2>واریز ${money(amount)}</h2>
-      <p class="page-subtitle">مبلغ را به کارت زیر واریز کنید، سپس تصویر رسید را همین‌جا آپلود کنید. پیام همزمان در ربات هم ارسال می‌شود.</p>
-      <div class="detail-card"><strong>${esc(d.card.card_number)}</strong>
-        <p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p></div>
-      <button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card.card_number)}')">کپی شماره کارت</button>
-      <div class="form-row" style="margin-top:12px"><label>تصویر رسید</label><input type="file" id="chargeReceipt" accept="image/*"></div>
-      <button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید</button>`);
+<p class="page-subtitle">مبلغ را به کارت زیر واریز کنید، سپس تصویر رسید را همین‌جا آپلود کنید. پیام همزمان در ربات هم ارسال می‌شود.</p>
+<div class="detail-card"><strong>${esc(d.card.card_number)}</strong>
+<p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p></div>
+<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card.card_number)}')">کپی شماره کارت</button>
+<div class="form-row" style="margin-top:12px"><label>تصویر رسید</label><input type="file" id="chargeReceipt" accept="image/*"></div>
+<button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید</button>`);
   }catch(e){toast(e.message)}
 }
 async function uploadChargeReceipt(){
@@ -495,26 +495,43 @@ function showTransactions(){showSheet(`<h2>تاریخچه تراکنش‌ها</h
 function rewards(){
   const l=state.data.loyalty;const next=l.next_min?num(l.next_min-l.points):'∞';
   return `<h1 class="page-title">باشگاه مشتریان</h1><p class="page-subtitle">با خرید و دعوت دوستان، امتیاز جمع کن.</p>
-  <section class="reward-card"><div class="level"><div><div class="eyebrow">سطح فعلی</div><strong>${esc(l.level)}</strong></div><span class="pill">${num(l.points)} امتیاز</span></div>
-  <div class="progress"><i style="width:${Math.round(l.progress*100)}%"></i></div>
-  <div class="eyebrow" style="margin-top:9px">${l.next_min?num(next)+' امتیاز تا سطح بعدی':'بالاترین سطح'}</div></section>
-  <section class="section"><div class="section-head"><h2>دعوت دوستان</h2></div>
-  <div class="reward-card"><strong>${num(state.data.referrals.total)} دعوت</strong>
-  <p class="page-subtitle">${num(state.data.referrals.active)} کاربر فعال</p>
-  ${state.data.referrals.link?`<div class="ref-link"><input id="refInput" readonly value="${esc(state.data.referrals.link)}"><button class="btn primary" onclick="copyRef()">کپی</button></div>`:'<p class="page-subtitle">BOT_USERNAME را تنظیم کنید.</p>'}
-  </div></section>`;
+<section class="reward-card"><div class="level"><div><div class="eyebrow">سطح فعلی</div><strong>${esc(l.level)}</strong></div><span class="pill">${num(l.points)} امتیاز</span></div>
+<div class="progress"><i style="width:${Math.round(l.progress*100)}%"></i></div>
+<div class="eyebrow" style="margin-top:9px">${l.next_min?num(next)+' امتیاز تا سطح بعدی':'بالاترین سطح'}</div></section>
+<section class="section"><div class="section-head"><h2>دعوت دوستان</h2></div>
+<div class="reward-card"><strong>${num(state.data.referrals.total)} دعوت</strong>
+<p class="page-subtitle">${num(state.data.referrals.active)} کاربر فعال</p>
+  ${state.data.referrals.link?`<div class="ref-link"><input id="refInput" readonly value="${esc(state.data.referrals.link)}"><button class="btn primary" onclick="copyRef()">کپی لینک</button></div>`:(state.data.referrals && state.data.referrals.bot_username===null?`<p class="page-subtitle">لینک دعوت در دسترس نیست.</p>`:`<p class="page-subtitle">لینک دعوت در دسترس نیست.</p>`)}
+</div></section>
+  ${Array.isArray(l.packages)&&l.packages.length?`<section class="section"><div class="section-head"><h2>بسته‌های امتیازی</h2></div>
+<div class="plan-grid">${l.packages.map(pkg=>`<article class="plan">
+<h3>${esc(pkg.title||'بسته')}</h3>
+<p class="desc">${esc(pkg.description||'')}</p>
+<div class="specs">
+<span class="spec">${num(pkg.points_cost)} امتیاز</span>
+        ${pkg.min_level?`<span class="spec">از سطح ${esc(pkg.min_level)}</span>`:''}
+</div>
+<button class="btn primary" style="width:100%" onclick="redeemPackage('${esc(pkg.id)}')">دریافت بسته</button>
+</article>`).join('')}</div></section>`:''}`;
 }
+async function redeemPackage(id){
+  try{
+    const d=await api('/loyalty/redeem',{method:'POST',body:JSON.stringify({package_id:id})});
+    toast(d.message||'انجام شد'); await refresh(); setTab('rewards');
+  }catch(e){toast(e.message)}
+}
+
 function profile(){
   const u=state.data.user;const initial=(u.first_name||'ی').slice(0,1);
   return `<h1 class="page-title">پروفایل</h1><p class="page-subtitle">حساب تلگرامی شما</p>
-  <section class="profile"><div class="avatar">${u.photo_url?`<img src="${esc(u.photo_url)}" style="width:100%;height:100%;border-radius:inherit;object-fit:cover">`:esc(initial)}</div>
-  <div><h2>${esc(u.first_name||'کاربر')} ${esc(u.last_name||'')}</h2><p>${u.username?'@'+esc(u.username):'کاربر تلگرام'} · ID ${num(u.telegram_id)}</p></div></section>
-  <div class="menu-list">
-    <button class="menu-item" onclick="renderNotifications()"><span>◌</span><span class="grow"><strong>اعلان‌ها</strong><small>${num(state.data.notifications.unread)} خوانده‌نشده</small></span><span class="chev">‹</span></button>
-    <button class="menu-item" onclick="renderNews()"><span>▣</span><span class="grow"><strong>اخبار</strong><small>اطلاعیه‌ها</small></span><span class="chev">‹</span></button>
-    <button class="menu-item" onclick="openSupport()"><span class="menu-ico">${icon('support')}</span><span class="grow"><strong>پشتیبانی و تیکت</strong><small>ارسال پیام و پیگیری</small></span><span class="chev">‹</span></button>
-    <button class="menu-item" onclick="startBuyFlow()"><span class="menu-ico">${icon('purchase')}</span><span class="grow"><strong>خرید سرویس جدید</strong><small>مرحله‌ای</small></span><span class="chev">‹</span></button>
-  </div>`;
+<section class="profile"><div class="avatar">${u.photo_url?`<img src="${esc(u.photo_url)}" style="width:100%;height:100%;border-radius:inherit;object-fit:cover">`:esc(initial)}</div>
+<div><h2>${esc(u.first_name||'کاربر')} ${esc(u.last_name||'')}</h2><p>${u.username?'@'+esc(u.username):'کاربر تلگرام'} · ID ${num(u.telegram_id||u.id||"")}</p></div></section>
+<div class="menu-list">
+<button class="menu-item" onclick="renderNotifications()"><span class="menu-ico">${icon("bell")}</span><span class="grow"><strong>اعلان‌ها</strong><small>${num(state.data.notifications.unread)} خوانده‌نشده</small></span><span class="chev"></span></button>
+<button class="menu-item" onclick="renderNews()"><span class="menu-ico">${icon("empty")}</span><span class="grow"><strong>اخبار</strong><small>اطلاعیه‌ها</small></span><span class="chev"></span></button>
+<button class="menu-item" onclick="openSupport()"><span class="menu-ico">${icon('support')}</span><span class="grow"><strong>پشتیبانی و تیکت</strong><small>ارسال پیام و پیگیری</small></span><span class="chev"></span></button>
+<button class="menu-item" onclick="startBuyFlow()"><span class="menu-ico">${icon('purchase')}</span><span class="grow"><strong>خرید سرویس جدید</strong><small>مرحله‌ای</small></span><span class="chev"></span></button>
+</div>`;
 }
 
 /* ===================== SUPPORT / TICKETS ===================== */
@@ -526,30 +543,30 @@ async function openSupport(){
     ]);
     state.support = {deps: deps.departments||[], tickets: tickets.tickets||[]};
     showSheet(`<h2>پشتیبانی</h2>
-      <div class="actions" style="margin-bottom:12px">
-        <button class="btn primary" style="width:100%" onclick="newTicket()">✍️ تیکت جدید</button>
-      </div>
-      <div class="section-head"><h2>تیکت‌های من</h2></div>
-      <div class="menu-list">${state.support.tickets.length?state.support.tickets.map(t=>`
-        <button class="menu-item" onclick="openTicket(${t.id})">
-          <span class="grow"><strong>#${t.id} · ${esc(t.subject||'تیکت')}</strong>
-          <small>${statusFa(t.status)} · ${new Date(t.updated_at||t.created_at).toLocaleDateString('fa-IR')}</small></span>
-          <span class="chev">‹</span>
-        </button>`).join(''):`<div class="empty"><strong>تیکتی ندارید</strong></div>`}
-      </div>`);
+<div class="actions" style="margin-bottom:12px">
+<button class="btn primary" style="width:100%" onclick="newTicket()">تیکت جدید</button>
+</div>
+<div class="section-head"><h2>تیکت‌های من</h2></div>
+<div class="menu-list">${state.support.tickets.length?state.support.tickets.map(t=>`
+<button class="menu-item" onclick="openTicket(${t.id})">
+<span class="grow"><strong>#${t.id} · ${esc(t.subject||'تیکت')}</strong>
+<small>${statusFa(t.status)} · ${new Date(t.updated_at||t.created_at).toLocaleDateString('fa-IR')}</small></span>
+<span class="chev"></span>
+</button>`).join(''):`<div class="empty"><strong>تیکتی ندارید</strong></div>`}
+</div>`);
   }catch(e){toast(e.message)}
 }
 function newTicket(){
   const deps = state.support?.deps||[];
   showSheet(`<h2>تیکت جدید</h2>
-    <div class="form-row"><label>دپارتمان</label>
-      <select id="tkDep">${deps.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select>
-    </div>
-    <div class="form-row"><label>موضوع / پیام</label>
-      <textarea id="tkMsg" rows="4" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:12px;font:inherit" placeholder="متن پیام..."></textarea>
-    </div>
-    <button class="btn primary" style="width:100%" onclick="createTicket()">ارسال</button>
-    <button class="btn" style="width:100%;margin-top:8px" onclick="openSupport()">بازگشت</button>`);
+<div class="form-row"><label>دپارتمان</label>
+<select id="tkDep">${deps.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select>
+</div>
+<div class="form-row"><label>موضوع / پیام</label>
+<textarea id="tkMsg" rows="4" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:12px;font:inherit" placeholder="متن پیام..."></textarea>
+</div>
+<button class="btn primary" style="width:100%" onclick="createTicket()">ارسال</button>
+<button class="btn" style="width:100%;margin-top:8px" onclick="openSupport()">بازگشت</button>`);
 }
 async function createTicket(){
   try{
@@ -574,20 +591,20 @@ async function openTicket(tid){
       }catch(e){}
     }, 5000);
     showSheet(`<h2>تیکت #${t.id}</h2>
-      <span class="pill">${statusFa(t.status)}</span>
-      <div class="chat-box" style="margin-top:12px;max-height:40vh;overflow:auto;display:grid;gap:8px">
+<span class="pill">${statusFa(t.status)}</span>
+<div class="chat-box" style="margin-top:12px;max-height:40vh;overflow:auto;display:grid;gap:8px">
         ${msgs.map(m=>`<div style="padding:10px 12px;border-radius:14px;background:${m.sender==='user'?'rgba(155,108,255,.15)':'var(--surface-2)'};align-self:${m.sender==='user'?'end':'start'}">
-          <small style="color:var(--muted)">${m.sender==='user'?'شما':'پشتیبانی'} · ${new Date(m.created_at).toLocaleString('fa-IR')}</small>
-          <div style="margin-top:4px;font-size:13px;line-height:1.7">${esc(m.message)}</div>
-        </div>`).join('')||'<div class="empty">پیامی نیست</div>'}
-      </div>
+<small style="color:var(--muted)">${m.sender==='user'?'شما':'پشتیبانی'} · ${new Date(m.created_at).toLocaleString('fa-IR')}</small>
+<div style="margin-top:4px;font-size:13px;line-height:1.7">${esc(m.message)}</div>
+</div>`).join('')||'<div class="empty">پیامی نیست</div>'}
+</div>
       ${t.status!=='closed'?`
-        <div class="form-row" style="margin-top:12px">
-          <textarea id="tkReply" rows="2" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:12px;font:inherit" placeholder="پیام جدید..."></textarea>
-        </div>
-        <button class="btn primary" style="width:100%" onclick="sendTicketMsg(${t.id})">ارسال</button>`
+<div class="form-row" style="margin-top:12px">
+<textarea id="tkReply" rows="2" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:12px;font:inherit" placeholder="پیام جدید..."></textarea>
+</div>
+<button class="btn primary" style="width:100%" onclick="sendTicketMsg(${t.id})">ارسال</button>`
       :'<p class="page-subtitle">این تیکت بسته شده است.</p>'}
-      <button class="btn" style="width:100%;margin-top:8px" onclick="clearInterval(state.ticketPoll);openSupport()">بازگشت</button>`);
+<button class="btn" style="width:100%;margin-top:8px" onclick="clearInterval(state.ticketPoll);openSupport()">بازگشت</button>`);
   }catch(e){toast(e.message)}
 }
 async function sendTicketMsg(tid){
@@ -604,11 +621,11 @@ function newsList(list){
   if(!list?.length)return `<div class="empty"><span class="big">▣</span><strong>خبری نیست</strong></div>`;
   return `<div class="news-list">${list.map(n=>`<article class="news-card" onclick="openNews(${n.id})">${n.image_url?`<img src="${esc(n.image_url)}" onerror="this.style.display='none'">`:''}<div class="copy"><h3>${esc(n.title)}</h3><p>${esc(n.summary||'')}</p></div></article>`).join('')}</div>`;
 }
-function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()">›</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
+function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back"></button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
 function renderNotifications(){
   const n=state.data.notifications;
-  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()">›</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
-  <div class="service-list">${n.items.length?n.items.map(x=>`<button class="menu-item" onclick="readNotif(${x.id})"><span>${x.is_read?'○':'●'}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.body)}</small></span></button>`).join(''):`<div class="empty"><strong>اعلان جدیدی ندارید</strong></div>`}</div>`;
+  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back"></button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
+<div class="service-list">${n.items.length?n.items.map(x=>`<button class="menu-item" onclick="readNotif(${x.id})"><span>${x.is_read?'○':'●'}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.body)}</small></span></button>`).join(''):`<div class="empty"><strong>اعلان جدیدی ندارید</strong></div>`}</div>`;
 }
 function openNews(id){const n=state.data.news.find(x=>x.id===id);if(!n)return;showSheet(`<h2>${esc(n.title)}</h2>${n.image_url?`<img src="${esc(n.image_url)}" style="width:100%;border-radius:16px;margin-bottom:12px">`:''}<p style="color:var(--muted);font-size:13px;line-height:2">${esc(n.content||n.summary||'')}</p>`)}
 function copyText(t){navigator.clipboard?.writeText(t).then(()=>toast('کپی شد')).catch(()=>toast('امکان کپی نیست'))}
@@ -617,10 +634,42 @@ function bannerClick(link){if(!link)return;try{tg?.openLink(link)}catch(e){locat
 async function readNotif(id){try{await api('/notifications/read',{method:'POST',body:JSON.stringify({id})});await refresh();renderNotifications()}catch(e){toast(e.message)}}
 
 function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=home();else if(state.tab==='services')app.innerHTML=services();else if(state.tab==='wallet')app.innerHTML=wallet();else if(state.tab==='rewards')app.innerHTML=rewards();else app.innerHTML=profile()}
+
+function renderAuthGate(issues){
+  const items = (issues||[]).map(x=>{
+    if(x.type==='channel'){
+      const ch = x.channel||'';
+      const link = ch.startsWith('@') ? 'https://t.me/'+ch.replace('@','') : (ch.startsWith('http')?ch:'');
+      return `<div class="detail-card" style="margin-bottom:12px">
+<strong>عضویت در کانال الزامی است</strong>
+<p class="page-subtitle">${esc(x.message||'')}</p>
+        ${link?`<button class="btn primary" style="width:100%;margin-top:8px" onclick="try{tg?.openTelegramLink('${esc(link)}')}catch(e){location.href='${esc(link)}'}">باز کردن کانال</button>`:''}
+</div>`;
+    }
+    if(x.type==='phone'){
+      return `<div class="detail-card" style="margin-bottom:12px">
+<strong>احراز شماره موبایل</strong>
+<p class="page-subtitle">${esc(x.message||'از داخل ربات شماره خود را ارسال کنید.')}</p>
+<button class="btn primary" style="width:100%;margin-top:8px" onclick="try{tg?.close()}catch(e){}">بازگشت به ربات</button>
+</div>`;
+    }
+    return `<div class="detail-card"><p class="page-subtitle">${esc(x.message||'')}</p></div>`;
+  }).join('');
+  app.innerHTML = `<h1 class="page-title">تکمیل احراز هویت</h1>
+<p class="page-subtitle">برای استفاده از اپلیکیشن ابتدا موارد زیر را انجام دهید.</p>
+    ${items}
+<button class="btn" style="width:100%;margin-top:12px" onclick="refresh()">بررسی دوباره</button>`;
+  if(loading && loading.parentNode) loading.remove();
+}
+
 async function refresh(){
   closeSheet();
   state.data = await api('/bootstrap');
   if(state.data.theme) applyTheme(state.data.theme);
+  if(state.data.auth_required && (state.data.auth_issues||[]).length){
+    renderAuthGate(state.data.auth_issues);
+    return;
+  }
   const unread = (state.data.notifications && state.data.notifications.unread) || 0;
   let badge = document.getElementById('notifyBadge');
   if(!badge){

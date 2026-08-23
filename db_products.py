@@ -478,10 +478,10 @@ _ORIG_UPDATE_ORDER = update_order
 def update_order(oid: int, **fields):
     allowed = {
         "status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
-        "wallet_used", "pay_amount", "is_hourly", "hourly_rate", "hourly_active",
+        "wallet_used", "pay_amount", "amount", "is_hourly", "hourly_rate", "hourly_active",
         "hourly_started_at", "hourly_last_charge_at", "volume_gb_override",
         "duration_days_override", "expire_at", "custom_name", "panel_id", "product_id",
-        "hourly_notify_mute", "inbound_id",
+        "hourly_notify_mute", "inbound_id", "coupon_code", "discount_amount",
     }
     sets, vals = [], []
     for k, v in fields.items():

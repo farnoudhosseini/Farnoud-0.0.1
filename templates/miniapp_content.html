@@ -8,16 +8,111 @@
 <div class="content">
 
 <div class="card" style="margin-bottom:16px">
-  <div class="card-title">اتصال HTTPS</div>
-  <p class="muted" style="font-size:.88rem;margin-bottom:12px">آدرس عمومی مینی‌اپ (HTTPS) برای دکمه WebApp ربات.</p>
-  <form method="post" action="{{ url_for('miniapp_settings_save') }}" style="display:flex;gap:10px;flex-wrap:wrap">
-    <input name="miniapp_url" value="{{ miniapp_url }}" placeholder="https://YOUR-DOMAIN/miniapp/" style="flex:1;min-width:240px">
-    <button class="btn-primary inline" type="submit">ذخیره آدرس</button>
+  <div class="card-title">اتصال HTTPS و دکمه ورود</div>
+  <p class="muted" style="font-size:.88rem;margin-bottom:12px">آدرس عمومی مینی‌اپ (HTTPS) و کنترل دکمه «ورود به اپلیکیشن» در منوی ربات.</p>
+  <form method="post" action="{{ url_for('miniapp_settings_save') }}">
+    <div class="form-group"><label>آدرس مینی‌اپ</label>
+      <input name="miniapp_url" value="{{ miniapp_url }}" placeholder="https://YOUR-DOMAIN/miniapp/" style="width:100%">
+    </div>
+    <div class="form-group"><label>متن دکمه ورود به اپلیکیشن</label>
+      <input name="miniapp_btn_label" value="{{ miniapp_btn_label }}" placeholder="ورود به اپلیکیشن" style="width:100%">
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+      <input type="checkbox" name="miniapp_btn_enabled" value="1" {% if miniapp_btn_enabled %}checked{% endif %}>
+      نمایش دکمه ورود به اپلیکیشن در منوی ربات
+    </label>
+    <button class="btn-primary inline" type="submit">ذخیره تنظیمات</button>
   </form>
   {% if miniapp_url %}
   <p style="margin-top:10px;font-size:.85rem">لینک: <a href="{{ miniapp_url }}" target="_blank">{{ miniapp_url }}</a></p>
   {% endif %}
 </div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">باشگاه مشتریان — سطح‌بندی</div>
+  <p class="muted" style="font-size:.85rem;margin-bottom:12px">نام سطوح و حداقل امتیاز هر سطح را مشخص کنید (از کم به زیاد).</p>
+  <form method="post" action="{{ url_for('miniapp_loyalty_save') }}">
+    <input type="hidden" name="action" value="levels">
+    <div id="levelsBox">
+      {% for lv in loyalty.levels %}
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <input name="level_name" value="{{ lv.name }}" placeholder="نام سطح" style="flex:1;min-width:120px">
+        <input name="level_min" type="number" value="{{ lv.min_points }}" placeholder="حداقل امتیاز" style="width:140px">
+      </div>
+      {% endfor %}
+      {% if not loyalty.levels %}
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <input name="level_name" value="Bronze" placeholder="نام سطح" style="flex:1;min-width:120px">
+        <input name="level_min" type="number" value="0" style="width:140px">
+      </div>
+      {% endif %}
+    </div>
+    <button type="button" class="btn-secondary inline" onclick="addLevelRow()">+ سطح جدید</button>
+    <button class="btn-primary inline" type="submit">ذخیره سطوح</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">باشگاه مشتریان — بسته‌های امتیازی</div>
+  <p class="muted" style="font-size:.85rem;margin-bottom:12px">بسته ویژه در برابر کسر امتیاز مشخص. می‌توانید برای هر سطح حداقل سطح لازم بگذارید.</p>
+  <form method="post" action="{{ url_for('miniapp_loyalty_save') }}" style="margin-bottom:16px">
+    <input type="hidden" name="action" value="add_package">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+      <div class="form-group"><label>عنوان بسته</label><input name="pkg_title" required></div>
+      <div class="form-group"><label>هزینه (امتیاز)</label><input name="pkg_cost" type="number" value="100" required></div>
+      <div class="form-group"><label>حداقل سطح</label>
+        <select name="pkg_min_level">
+          <option value="">همه</option>
+          {% for lv in loyalty.levels %}
+          <option value="{{ lv.name }}">{{ lv.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group"><label>نوع پاداش</label>
+        <select name="pkg_reward_type">
+          <option value="none">فقط ثبت (دستی)</option>
+          <option value="wallet">شارژ کیف پول</option>
+        </select>
+      </div>
+      <div class="form-group"><label>مقدار پاداش (تومان)</label><input name="pkg_reward_value" type="number" value="0"></div>
+      <div class="form-group"><label>توضیح</label><input name="pkg_desc"></div>
+    </div>
+    <button class="btn-primary inline" type="submit">افزودن بسته</button>
+  </form>
+  {% if loyalty.packages %}
+  <table class="table" style="width:100%;font-size:.9rem">
+    <thead><tr><th>عنوان</th><th>امتیاز</th><th>سطح</th><th>پاداش</th><th></th></tr></thead>
+    <tbody>
+    {% for pkg in loyalty.packages %}
+      <tr>
+        <td>{{ pkg.title }}</td>
+        <td>{{ pkg.points_cost }}</td>
+        <td>{{ pkg.min_level or 'همه' }}</td>
+        <td>{{ pkg.reward_type }} {% if pkg.reward_value %}({{ pkg.reward_value }}){% endif %}</td>
+        <td>
+          <form method="post" action="{{ url_for('miniapp_loyalty_save') }}" style="display:inline">
+            <input type="hidden" name="action" value="del_package">
+            <input type="hidden" name="package_id" value="{{ pkg.id }}">
+            <button class="btn-danger inline" type="submit">حذف</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">هنوز بسته‌ای تعریف نشده.</p>
+  {% endif %}
+</div>
+<script>
+function addLevelRow(){
+  var box=document.getElementById('levelsBox');
+  var d=document.createElement('div');
+  d.style.cssText='display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap';
+  d.innerHTML='<input name="level_name" placeholder="نام سطح" style="flex:1;min-width:120px"><input name="level_min" type="number" value="0" placeholder="حداقل امتیاز" style="width:140px">';
+  box.appendChild(d);
+}
+</script>
 
 <div class="card" style="margin-bottom:16px">
   <div class="card-title">شخصی‌سازی کامل مینی‌اپ</div>

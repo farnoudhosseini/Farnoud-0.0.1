@@ -11,7 +11,7 @@ import base64
 from datetime import datetime, timezone
 from decimal import Decimal
 from functools import wraps
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote as url_quote
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
@@ -353,6 +353,47 @@ class _TelegramUser:
         self.last_name = data.get("last_name")
 
 
+def _auth_gate(user_id: int, tg_user: dict):
+    """Enforce force-join channel and force-phone before miniapp use."""
+    from database import get_setting_sync
+    issues = []
+    # channel
+    if get_setting_sync("force_join_enabled", "0") == "1":
+        ch = (get_setting_sync("force_join_channel", "") or "").strip()
+        if ch:
+            token = (BOT_TOKEN or "").strip().strip('"').strip("'")
+            member = False
+            try:
+                import urllib.request
+                chat = ch if ch.startswith("@") or ch.startswith("-") else ("@" + ch.lstrip("@"))
+                if ch.lstrip("-").isdigit():
+                    chat = ch
+                url = f"https://api.telegram.org/bot{token}/getChatMember?chat_id={url_quote(str(chat))}&user_id={user_id}"
+                with urllib.request.urlopen(url, timeout=8) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    st = ((data.get("result") or {}).get("status") or "")
+                    member = st in ("creator", "administrator", "member", "restricted")
+            except Exception as e:
+                print("channel check miniapp:", e)
+                member = True  # fail-open to avoid locking everyone on API errors
+            if not member:
+                issues.append({
+                    "type": "channel",
+                    "channel": ch,
+                    "message": get_setting_sync("force_join_msg", "") or f"ابتدا در کانال عضو شوید: {ch}",
+                })
+    # phone
+    if get_setting_sync("force_phone_enabled", "0") == "1":
+        bu = get_bot_user(user_id) or {}
+        if not bu.get("phone"):
+            issues.append({
+                "type": "phone",
+                "message": get_setting_sync("force_phone_msg", "") or "برای ادامه، شماره موبایل را از داخل ربات ارسال کنید.",
+            })
+    return issues
+
+
+
 def _sync_telegram_account(user):
     conn = get_sync_connection()
     try:
@@ -371,15 +412,56 @@ def _sync_telegram_account(user):
         conn.close()
 
 
+def get_loyalty_config():
+    """Configurable levels + reward packages for club."""
+    default = {
+        "levels": [
+            {"name": "Bronze", "min_points": 0},
+            {"name": "Silver", "min_points": 2500},
+            {"name": "Gold", "min_points": 7500},
+            {"name": "Diamond", "min_points": 15000},
+        ],
+        "packages": [],  # [{id, title, points_cost, description, reward_type, reward_value, min_level}]
+    }
+    try:
+        from database import get_setting_sync
+        import json as _json
+        raw = get_setting_sync("loyalty_config", "") or ""
+        if raw:
+            data = _json.loads(raw)
+            if isinstance(data, dict):
+                out = dict(default)
+                if isinstance(data.get("levels"), list) and data["levels"]:
+                    out["levels"] = data["levels"]
+                if isinstance(data.get("packages"), list):
+                    out["packages"] = data["packages"]
+                return out
+    except Exception as e:
+        print("loyalty_config:", e)
+    return default
+
+
+def save_loyalty_config(data: dict):
+    from database import set_setting_sync
+    set_setting_sync("loyalty_config", json.dumps(data or {}, ensure_ascii=False))
+
+
 def _level(points):
     points = int(points or 0)
-    if points >= 15000:
-        return "Diamond", 15000, None
-    if points >= 7500:
-        return "Gold", 7500, 15000
-    if points >= 2500:
-        return "Silver", 2500, 7500
-    return "Bronze", 0, 2500
+    levels = sorted(get_loyalty_config().get("levels") or [], key=lambda x: int(x.get("min_points") or 0))
+    if not levels:
+        return "Bronze", 0, 2500
+    current = levels[0]
+    nxt = None
+    for i, lv in enumerate(levels):
+        if points >= int(lv.get("min_points") or 0):
+            current = lv
+            nxt = levels[i + 1] if i + 1 < len(levels) else None
+        else:
+            break
+    cur_min = int(current.get("min_points") or 0)
+    next_min = int(nxt.get("min_points")) if nxt else None
+    return current.get("name") or "Bronze", cur_min, next_min
 
 
 def _loyalty(user_id):
@@ -504,6 +586,45 @@ def _notifications(user_id, limit=30):
         conn.close()
 
 
+def _resolve_bot_username():
+    """Resolve bot username from env/config/settings or Telegram getMe."""
+    try:
+        from config import BOT_USERNAME as CFG_U
+        u = (CFG_U or "").strip().lstrip("@")
+        if u:
+            return u
+    except Exception:
+        pass
+    u = (os.getenv("BOT_USERNAME") or "").strip().lstrip("@")
+    if u:
+        return u
+    try:
+        from database import get_setting_sync
+        u = (get_setting_sync("bot_username", "") or "").strip().lstrip("@")
+        if u:
+            return u
+    except Exception:
+        pass
+    # live lookup via getMe (cached in settings)
+    try:
+        token = (BOT_TOKEN or "").strip().strip('"').strip("'")
+        if token:
+            import urllib.request
+            with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                u = ((data.get("result") or {}).get("username") or "").strip()
+                if u:
+                    try:
+                        from database import set_setting_sync
+                        set_setting_sync("bot_username", u)
+                    except Exception:
+                        pass
+                    return u
+    except Exception as e:
+        print("getMe username:", e)
+    return ""
+
+
 def _referrals(user_id):
     conn = get_sync_connection()
     try:
@@ -511,12 +632,14 @@ def _referrals(user_id):
             cur.execute("SELECT invite_code FROM bot_users WHERE telegram_id=%s", (user_id,))
             me = cur.fetchone() or {}
             cur.execute("SELECT COUNT(*) c FROM bot_users WHERE referrer_id=%s", (user_id,))
-            total = (cur.fetchone() or {}).get("c",0)
+            total = (cur.fetchone() or {}).get("c", 0)
             cur.execute("""SELECT COUNT(*) c FROM bot_users b
                            WHERE b.referrer_id=%s AND b.last_seen_at IS NOT NULL""", (user_id,))
-            active = (cur.fetchone() or {}).get("c",0)
-            return {"code": me.get("invite_code"), "total": total, "active": active,
-                    "link": f"https://t.me/{os.getenv('BOT_USERNAME','')}?start=ref_{me.get('invite_code','')}" if os.getenv("BOT_USERNAME") else None}
+            active = (cur.fetchone() or {}).get("c", 0)
+            uname = _resolve_bot_username()
+            code = me.get("invite_code") or ""
+            link = f"https://t.me/{uname}?start=ref_{code}" if uname and code else None
+            return {"code": code or None, "total": total, "active": active, "link": link, "bot_username": uname or None}
     finally:
         conn.close()
 
@@ -565,17 +688,42 @@ def bootstrap():
     content = safe(lambda: _content(user_id, role), {"news": [], "banners": []})
     if not isinstance(content, dict):
         content = {"news": [], "banners": []}
+    user_payload = _jsonable(request.db_user) or {}
+    # merge live Telegram profile photo from initData
+    try:
+        tg = request.tg_user or {}
+        if tg.get("photo_url"):
+            user_payload["photo_url"] = tg.get("photo_url")
+        if tg.get("first_name") and not user_payload.get("first_name"):
+            user_payload["first_name"] = tg.get("first_name")
+        if tg.get("last_name") and not user_payload.get("last_name"):
+            user_payload["last_name"] = tg.get("last_name")
+        if tg.get("username") and not user_payload.get("username"):
+            user_payload["username"] = tg.get("username")
+    except Exception:
+        pass
+    auth_issues = safe(lambda: _auth_gate(user_id, request.tg_user or {}), [])
+    loy = safe(lambda: _loyalty(user_id), {"points": 0, "level": "Bronze", "current_min": 0, "next_min": 2500, "progress": 0})
+    try:
+        cfg = get_loyalty_config()
+        loy["levels"] = cfg.get("levels") or []
+        loy["packages"] = cfg.get("packages") or []
+    except Exception:
+        loy["levels"] = []
+        loy["packages"] = []
     payload = {
         "ok": True,
         "theme": get_miniapp_theme(),
-        "user": _jsonable(request.db_user),
+        "user": user_payload,
+        "auth_required": bool(auth_issues),
+        "auth_issues": auth_issues,
         "dashboard": safe(lambda: _dashboard(user_id), {"subscription": None, "subscriptions": [], "has_subscription": False, "status": "no_subscription", "balance": 0}),
         "plans": safe(lambda: _plans(user_id), []),
         "wallet": {
             "balance": _jsonable((request.db_user or {}).get("balance") or 0),
             "transactions": safe(lambda: _wallet_transactions(user_id), []),
         },
-        "loyalty": safe(lambda: _loyalty(user_id), {"points": 0, "level": "Bronze", "current_min": 0, "next_min": 2500, "progress": 0}),
+        "loyalty": loy,
         "referrals": safe(lambda: _referrals(user_id), {"code": None, "total": 0, "active": 0, "link": None}),
         "notifications": safe(lambda: _notifications(user_id), {"items": [], "unread": 0}),
     }
@@ -1100,6 +1248,11 @@ def prepare_order():
     wallet_used = min(balance, final_price)
     pay_amount = max(0, final_price - balance)
     order_id = create_order(user_id, product_id, panel_id, final_price, wallet_used, pay_amount)
+    # create_order may mark full-wallet orders as "paid"; keep pending until user confirms in miniapp
+    try:
+        update_order(order_id, status="pending_payment", wallet_used=wallet_used, pay_amount=pay_amount, amount=final_price)
+    except Exception as e:
+        print("force pending_payment", e)
     if coupon_code and discount:
         try:
             update_order(order_id, coupon_code=coupon_code, discount_amount=discount)
@@ -1134,13 +1287,15 @@ def confirm_wallet_order(order_id):
     order = get_order(order_id)
     if not order or int(order["telegram_id"]) != user_id:
         return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
-    if order.get("status") not in ("pending_payment", "waiting_receipt"):
-        return jsonify({"ok": False, "error": "این سفارش قابل پرداخت نیست"}), 400
+    st = (order.get("status") or "").strip()
+    if st not in ("pending_payment", "waiting_receipt", "pending_review"):
+        return jsonify({"ok": False, "error": "این سفارش قابل پرداخت نیست", "status": st}), 400
     price = int(order.get("amount") or 0)
     bu = get_bot_user(user_id) or {}
     balance = int(bu.get("balance") or 0)
     if balance < price:
-        return jsonify({"ok": False, "error": f"موجودی کافی نیست. موجودی: {balance:,} / لازم: {price:,}"}), 402
+        return jsonify({"ok": False, "error": f"موجودی کافی نیست. موجودی: {balance:,} / لازم: {price:,}",
+                        "required": price, "balance": balance}), 402
     add_balance(user_id, -price, f"order#{order_id}")
     update_order(order_id, status="paid", wallet_used=price, pay_amount=0)
     result = provision_order(order_id)
@@ -1452,6 +1607,55 @@ def wallet_topup_receipt():
             print("charge photo:", e)
     _notify_user(user_id, f"⏳ رسید شارژ #{charge_id} ثبت شد و در انتظار تایید است.")
     return jsonify({"ok": True, "message": "رسید شارژ ثبت شد."})
+
+
+
+@miniapp_bp.post("/api/loyalty/redeem")
+@auth_required
+def loyalty_redeem():
+    """Redeem a club package by spending points."""
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    pkg_id = str(body.get("package_id") or "")
+    cfg = get_loyalty_config()
+    packages = cfg.get("packages") or []
+    pkg = next((x for x in packages if str(x.get("id")) == pkg_id), None)
+    if not pkg:
+        return jsonify({"ok": False, "error": "بسته یافت نشد"}), 404
+    cost = int(pkg.get("points_cost") or 0)
+    if cost <= 0:
+        return jsonify({"ok": False, "error": "بسته نامعتبر"}), 400
+    min_level = (pkg.get("min_level") or "").strip()
+    loy = _loyalty(user_id)
+    if min_level:
+        levels = sorted(cfg.get("levels") or [], key=lambda x: int(x.get("min_points") or 0))
+        order = {lv.get("name"): i for i, lv in enumerate(levels)}
+        if order.get(loy.get("level"), -1) < order.get(min_level, 0):
+            return jsonify({"ok": False, "error": f"حداقل سطح لازم: {min_level}"}), 400
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT points FROM loyalty_accounts WHERE telegram_id=%s FOR UPDATE", (user_id,))
+            row = cur.fetchone()
+            pts = int((row or {}).get("points") or 0)
+            if pts < cost:
+                return jsonify({"ok": False, "error": "امتیاز کافی نیست", "points": pts, "required": cost}), 402
+            cur.execute("UPDATE loyalty_accounts SET points=points-%s WHERE telegram_id=%s", (cost, user_id))
+            cur.execute("""INSERT INTO loyalty_transactions
+                           (telegram_id,points,type,reference_id,description)
+                           VALUES (%s,%s,'redeem',%s,%s)""",
+                        (user_id, -cost, pkg_id, f"دریافت بسته: {pkg.get('title') or pkg_id}"))
+            conn.commit()
+    finally:
+        conn.close()
+    # optional reward: wallet credit
+    if (pkg.get("reward_type") or "") == "wallet":
+        try:
+            from db_users import add_balance
+            add_balance(user_id, int(pkg.get("reward_value") or 0), f"loyalty:{pkg_id}")
+        except Exception as e:
+            print("loyalty wallet reward", e)
+    return jsonify({"ok": True, "message": "بسته با موفقیت دریافت شد.", "points_spent": cost})
 
 
 @miniapp_bp.errorhandler(Exception)

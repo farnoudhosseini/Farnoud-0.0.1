@@ -1178,10 +1178,14 @@ def miniapp_content():
             news = cur.fetchall() or []
             cur.execute("SELECT * FROM banners ORDER BY id DESC LIMIT 30")
             banners = cur.fetchall() or []
+        from miniapp import get_miniapp_theme, get_loyalty_config
         return render_template("miniapp_content.html", username=session.get("admin_username"),
                                active="miniapp", news=news, banners=banners,
                                miniapp_url=get_setting_sync("miniapp_url", "") or "",
-                               theme=__import__("miniapp", fromlist=["get_miniapp_theme"]).get_miniapp_theme())
+                               miniapp_btn_enabled=get_setting_sync("miniapp_btn_enabled", "1") != "0",
+                               miniapp_btn_label=get_setting_sync("miniapp_btn_label", "") or "ورود به اپلیکیشن",
+                               loyalty=get_loyalty_config(),
+                               theme=get_miniapp_theme())
     finally:
         conn.close()
 
@@ -1221,7 +1225,60 @@ def miniapp_settings_save():
     elif url and not url.endswith("/"):
         url = url + "/"
     set_setting_sync("miniapp_url", url)
-    flash("آدرس مینی‌اپ ذخیره شد", "success")
+    # miniapp entry button
+    enabled = "1" if request.form.get("miniapp_btn_enabled") else "0"
+    set_setting_sync("miniapp_btn_enabled", enabled)
+    label = (request.form.get("miniapp_btn_label") or "").strip() or "ورود به اپلیکیشن"
+    set_setting_sync("miniapp_btn_label", label)
+    flash("تنظیمات مینی‌اپ ذخیره شد", "success")
+    return redirect(url_for("miniapp_content"))
+
+
+@app.route("/miniapp-content/loyalty", methods=["POST"])
+@login_required
+def miniapp_loyalty_save():
+    from miniapp import get_loyalty_config, save_loyalty_config
+    cfg = get_loyalty_config()
+    action = (request.form.get("action") or "levels").strip()
+    if action == "levels":
+        names = request.form.getlist("level_name")
+        mins = request.form.getlist("level_min")
+        levels = []
+        for n, m in zip(names, mins):
+            n = (n or "").strip()
+            if not n:
+                continue
+            try:
+                mv = int(m or 0)
+            except Exception:
+                mv = 0
+            levels.append({"name": n, "min_points": mv})
+        if levels:
+            cfg["levels"] = sorted(levels, key=lambda x: int(x.get("min_points") or 0))
+            save_loyalty_config(cfg)
+            flash("سطح‌بندی باشگاه ذخیره شد", "success")
+        else:
+            flash("حداقل یک سطح لازم است", "error")
+    elif action == "add_package":
+        import uuid
+        packages = list(cfg.get("packages") or [])
+        packages.append({
+            "id": str(uuid.uuid4())[:8],
+            "title": (request.form.get("pkg_title") or "").strip() or "بسته",
+            "points_cost": int(request.form.get("pkg_cost") or 0),
+            "description": (request.form.get("pkg_desc") or "").strip(),
+            "reward_type": (request.form.get("pkg_reward_type") or "none").strip(),
+            "reward_value": int(request.form.get("pkg_reward_value") or 0),
+            "min_level": (request.form.get("pkg_min_level") or "").strip(),
+        })
+        cfg["packages"] = packages
+        save_loyalty_config(cfg)
+        flash("بسته باشگاه اضافه شد", "success")
+    elif action == "del_package":
+        pid = (request.form.get("package_id") or "").strip()
+        cfg["packages"] = [x for x in (cfg.get("packages") or []) if str(x.get("id")) != pid]
+        save_loyalty_config(cfg)
+        flash("بسته حذف شد", "success")
     return redirect(url_for("miniapp_content"))
 
 @app.route("/miniapp-content/news", methods=["POST"])
