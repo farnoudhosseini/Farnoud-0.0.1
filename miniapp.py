@@ -51,7 +51,16 @@ DEFAULT_MINIAPP_THEME = {
     "show_rewards": "1",
     "show_news": "1",
     "show_banners": "1",
+    "show_trial": "1",
     "support_url": "",
+    "home_cta_buy": "خرید سرویس جدید",
+    "home_cta_manage": "مدیریت سرویس",
+    "empty_services_title": "سرویسی ندارید",
+    "empty_services_body": "اولین سرویس خود را فعال کنید",
+    "buy_step1_title": "سرویس شما کجا ارائه می‌شود؟",
+    "buy_step2_title": "دسته‌بندی مناسب را انتخاب کنید",
+    "buy_step3_title": "محصول مورد نظر را انتخاب کنید",
+    "buy_step4_title": "تأیید و پرداخت",
     "custom_css": "",
 }
 
@@ -480,8 +489,16 @@ def _loyalty(user_id):
             if not row or row["level"] != level:
                 cur.execute("UPDATE loyalty_accounts SET level=%s WHERE telegram_id=%s", (level, user_id))
                 conn.commit()
-            return {"points": points, "level": level, "current_min": current_min,
-                    "next_min": next_min, "progress": 1 if not next_min else min(1, max(0, (points-current_min)/(next_min-current_min)))}
+            pts_to_next = None if next_min is None else max(0, int(next_min) - int(points))
+            prog = 1 if not next_min else min(1, max(0, (points - current_min) / max(1, (next_min - current_min))))
+            return {
+                "points": points,
+                "level": level,
+                "current_min": current_min,
+                "next_min": next_min,
+                "points_to_next": pts_to_next,
+                "progress": prog,
+            }
     finally:
         conn.close()
 
@@ -1613,7 +1630,7 @@ def wallet_topup_receipt():
 @miniapp_bp.post("/api/loyalty/redeem")
 @auth_required
 def loyalty_redeem():
-    """Redeem a club package by spending points."""
+    """Redeem a club package: gift VPN (panel+volume+days) by spending points."""
     user_id = int(request.tg_user["id"])
     body = request.get_json(silent=True) or {}
     pkg_id = str(body.get("package_id") or "")
@@ -1632,6 +1649,16 @@ def loyalty_redeem():
         order = {lv.get("name"): i for i, lv in enumerate(levels)}
         if order.get(loy.get("level"), -1) < order.get(min_level, 0):
             return jsonify({"ok": False, "error": f"حداقل سطح لازم: {min_level}"}), 400
+
+    reward_type = (pkg.get("reward_type") or "vpn").strip()
+    panel_id = pkg.get("panel_id")
+    volume_gb = float(pkg.get("volume_gb") or 0)
+    duration_days = int(pkg.get("duration_days") or 0)
+
+    if reward_type in ("vpn", "vpn_gift", "gift"):
+        if not panel_id or duration_days <= 0:
+            return jsonify({"ok": False, "error": "تنظیمات بسته VPN ناقص است (پنل/مدت)."}), 400
+
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -1648,14 +1675,158 @@ def loyalty_redeem():
             conn.commit()
     finally:
         conn.close()
-    # optional reward: wallet credit
-    if (pkg.get("reward_type") or "") == "wallet":
+
+    order_id = None
+    provision = None
+    if reward_type in ("vpn", "vpn_gift", "gift"):
         try:
-            from db_users import add_balance
-            add_balance(user_id, int(pkg.get("reward_value") or 0), f"loyalty:{pkg_id}")
+            from db_products import create_order, update_order, get_product
+            # use a dummy product_id 0 if needed — create_order requires product_id
+            # create free order then override volume/duration
+            product_id = int(pkg.get("product_id") or 0) or 1
+            order_id = create_order(user_id, product_id, int(panel_id), 0, 0, 0)
+            update_order(
+                order_id,
+                status="paid",
+                wallet_used=0,
+                pay_amount=0,
+                volume_gb_override=volume_gb if volume_gb > 0 else None,
+                duration_days_override=duration_days,
+                custom_name=(pkg.get("title") or "هدیه باشگاه")[:80],
+            )
+            provision = provision_order(order_id)
+            if not provision.get("ok"):
+                # refund points
+                conn = get_sync_connection()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
+                        conn.commit()
+                finally:
+                    conn.close()
+                return jsonify({"ok": False, "error": provision.get("error") or "ساخت سرویس هدیه ناموفق"}), 502
+            _notify_user(user_id, f"هدیه باشگاه فعال شد: {pkg.get('title') or ''}")
         except Exception as e:
-            print("loyalty wallet reward", e)
-    return jsonify({"ok": True, "message": "بسته با موفقیت دریافت شد.", "points_spent": cost})
+            print("loyalty vpn gift:", e)
+            conn = get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
+                    conn.commit()
+            finally:
+                conn.close()
+            return jsonify({"ok": False, "error": f"خطا در ساخت هدیه: {e}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "message": "بسته با موفقیت دریافت شد.",
+        "points_spent": cost,
+        "order_id": order_id,
+        "provision": _jsonable(provision or {}),
+    })
+
+
+
+@miniapp_bp.get("/api/trial/status")
+@auth_required
+def trial_status():
+    from database import get_setting_sync
+    user_id = int(request.tg_user["id"])
+    enabled = get_setting_sync("trial_enabled", "0") == "1"
+    used = False
+    try:
+        from db_growth import has_used_trial
+        used = bool(has_used_trial(user_id))
+    except Exception:
+        used = False
+    return jsonify({"ok": True, "enabled": enabled, "used": used, "available": enabled and not used})
+
+
+@miniapp_bp.post("/api/trial/claim")
+@auth_required
+def trial_claim():
+    """Claim free trial from miniapp (once)."""
+    from database import get_setting_sync, get_panel_by_id, list_panels
+    from db_growth import has_used_trial, record_trial
+    from db_products import create_order, update_order
+    user_id = int(request.tg_user["id"])
+    if get_setting_sync("trial_enabled", "0") != "1":
+        return jsonify({"ok": False, "error": "تست رایگان فعلاً غیرفعال است."}), 400
+    if has_used_trial(user_id):
+        return jsonify({"ok": False, "error": "شما قبلاً از تست رایگان استفاده کرده‌اید."}), 400
+    body = request.get_json(silent=True) or {}
+    panel_id = body.get("panel_id")
+    raw = get_setting_sync("trial_panel_ids", "") or get_setting_sync("trial_panel_id", "")
+    panels = list_panels() or []
+    active = [p for p in panels if p.get("is_active", 1)]
+    if raw.strip():
+        ids = {int(x) for x in raw.replace(" ", "").split(",") if x.isdigit()}
+        active = [p for p in active if p["id"] in ids] or active
+    if not active:
+        return jsonify({"ok": False, "error": "پنل تست تنظیم نشده."}), 400
+    if panel_id:
+        try:
+            panel_id = int(panel_id)
+        except Exception:
+            return jsonify({"ok": False, "error": "پنل نامعتبر"}), 400
+        if panel_id not in [p["id"] for p in active]:
+            return jsonify({"ok": False, "error": "این پنل برای تست مجاز نیست"}), 400
+    else:
+        panel_id = active[0]["id"]
+    vol = float(get_setting_sync("trial_volume_gb", "1") or 1)
+    days = int(get_setting_sync("trial_days", "1") or 1)
+    order_id = create_order(user_id, 1, panel_id, 0, 0, 0)
+    update_order(
+        order_id,
+        status="paid",
+        wallet_used=0,
+        pay_amount=0,
+        volume_gb_override=vol,
+        duration_days_override=days,
+        custom_name="تست رایگان",
+    )
+    result = provision_order(order_id)
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error") or "ساخت تست ناموفق"}), 502
+    try:
+        record_trial(user_id)
+    except Exception as e:
+        print("record_trial", e)
+    _notify_user(user_id, "تست رایگان شما فعال شد.")
+    return jsonify({"ok": True, "message": "تست رایگان فعال شد.", "order_id": order_id, "provision": _jsonable(result)})
+
+
+@miniapp_bp.post("/api/subscriptions/<int:order_id>/delete")
+@auth_required
+def subscription_delete(order_id):
+    """User-requested remove service from list (+ optional panel delete)."""
+    from db_products import update_order, get_order
+    user_id = int(request.tg_user["id"])
+    o = get_user_order(order_id, user_id)
+    if not o:
+        return jsonify({"ok": False, "error": "سرویس پیدا نشد"}), 404
+    body = request.get_json(silent=True) or {}
+    confirm = bool(body.get("confirm"))
+    if not confirm:
+        return jsonify({"ok": False, "error": "تایید حذف لازم است"}), 400
+    # try remove from panel
+    try:
+        from services.optimize import _delete_from_panel
+        _delete_from_panel(o)
+    except Exception as e:
+        print("user delete panel:", e)
+    try:
+        update_order(order_id, status="cancelled")
+    except Exception:
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE service_orders SET status='cancelled' WHERE id=%s AND telegram_id=%s",
+                            (order_id, user_id))
+                conn.commit()
+        finally:
+            conn.close()
+    return jsonify({"ok": True, "message": "سرویس حذف شد."})
 
 
 @miniapp_bp.errorhandler(Exception)

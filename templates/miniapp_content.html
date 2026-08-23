@@ -70,25 +70,27 @@
       </div>
       <div class="form-group"><label>نوع پاداش</label>
         <select name="pkg_reward_type">
+          <option value="vpn">سرویس VPN هدیه</option>
           <option value="none">فقط ثبت (دستی)</option>
-          <option value="wallet">شارژ کیف پول</option>
         </select>
       </div>
-      <div class="form-group"><label>مقدار پاداش (تومان)</label><input name="pkg_reward_value" type="number" value="0"></div>
+      <div class="form-group"><label>شناسه پنل (panel_id)</label><input name="pkg_panel_id" type="number" placeholder="مثلاً 1"></div>
+      <div class="form-group"><label>حجم (GB)</label><input name="pkg_volume_gb" type="number" step="0.1" value="10"></div>
+      <div class="form-group"><label>مدت (روز)</label><input name="pkg_duration_days" type="number" value="30"></div>
       <div class="form-group"><label>توضیح</label><input name="pkg_desc"></div>
     </div>
     <button class="btn-primary inline" type="submit">افزودن بسته</button>
   </form>
   {% if loyalty.packages %}
   <table class="table" style="width:100%;font-size:.9rem">
-    <thead><tr><th>عنوان</th><th>امتیاز</th><th>سطح</th><th>پاداش</th><th></th></tr></thead>
+    <thead><tr><th>عنوان</th><th>امتیاز</th><th>سطح</th><th>پنل/حجم/روز</th><th></th></tr></thead>
     <tbody>
     {% for pkg in loyalty.packages %}
       <tr>
         <td>{{ pkg.title }}</td>
         <td>{{ pkg.points_cost }}</td>
         <td>{{ pkg.min_level or 'همه' }}</td>
-        <td>{{ pkg.reward_type }} {% if pkg.reward_value %}({{ pkg.reward_value }}){% endif %}</td>
+        <td>{{ pkg.reward_type }} · پنل {{ pkg.panel_id or "—" }} · {{ pkg.volume_gb or "—" }}GB / {{ pkg.duration_days or "—" }}روز</td>
         <td>
           <form method="post" action="{{ url_for('miniapp_loyalty_save') }}" style="display:inline">
             <input type="hidden" name="action" value="del_package">
@@ -153,6 +155,17 @@ function addLevelRow(){
       <label><input type="checkbox" name="show_rewards" value="1" {% if theme.show_rewards=='1' %}checked{% endif %}> نمایش باشگاه</label>
       <label><input type="checkbox" name="show_news" value="1" {% if theme.show_news=='1' %}checked{% endif %}> نمایش اخبار</label>
       <label><input type="checkbox" name="show_banners" value="1" {% if theme.show_banners=='1' %}checked{% endif %}> نمایش بنر</label>
+      <label><input type="checkbox" name="show_trial" value="1" {% if theme.show_trial=='1' %}checked{% endif %}> نمایش تست رایگان در باشگاه</label>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">
+      <div class="form-group"><label>متن دکمه خرید (خانه)</label><input name="home_cta_buy" value="{{ theme.home_cta_buy }}"></div>
+      <div class="form-group"><label>متن دکمه مدیریت سرویس</label><input name="home_cta_manage" value="{{ theme.home_cta_manage }}"></div>
+      <div class="form-group"><label>عنوان خالی سرویس</label><input name="empty_services_title" value="{{ theme.empty_services_title }}"></div>
+      <div class="form-group"><label>توضیح خالی سرویس</label><input name="empty_services_body" value="{{ theme.empty_services_body }}"></div>
+      <div class="form-group"><label>عنوان مرحله ۱ خرید</label><input name="buy_step1_title" value="{{ theme.buy_step1_title }}"></div>
+      <div class="form-group"><label>عنوان مرحله ۲ خرید</label><input name="buy_step2_title" value="{{ theme.buy_step2_title }}"></div>
+      <div class="form-group"><label>عنوان مرحله ۳ خرید</label><input name="buy_step3_title" value="{{ theme.buy_step3_title }}"></div>
+      <div class="form-group"><label>عنوان مرحله ۴ خرید</label><input name="buy_step4_title" value="{{ theme.buy_step4_title }}"></div>
     </div>
     <div class="form-group"><label>CSS سفارشی (پیشرفته)</label>
       <textarea name="custom_css" rows="4" placeholder=".topbar{...}">{{ theme.custom_css }}</textarea>

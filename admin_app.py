@@ -1204,6 +1204,7 @@ def miniapp_theme_save():
     data["show_rewards"] = "1" if request.form.get("show_rewards") == "1" else "0"
     data["show_news"] = "1" if request.form.get("show_news") == "1" else "0"
     data["show_banners"] = "1" if request.form.get("show_banners") == "1" else "0"
+    data["show_trial"] = "1" if request.form.get("show_trial") == "1" else "0"
     if request.form.get("reset_theme") == "1":
         save_miniapp_theme(dict(__import__("miniapp", fromlist=["DEFAULT_MINIAPP_THEME"]).DEFAULT_MINIAPP_THEME))
         flash("تم به حالت پیش‌فرض برگشت", "success")
@@ -1267,8 +1268,11 @@ def miniapp_loyalty_save():
             "title": (request.form.get("pkg_title") or "").strip() or "بسته",
             "points_cost": int(request.form.get("pkg_cost") or 0),
             "description": (request.form.get("pkg_desc") or "").strip(),
-            "reward_type": (request.form.get("pkg_reward_type") or "none").strip(),
-            "reward_value": int(request.form.get("pkg_reward_value") or 0),
+            "reward_type": (request.form.get("pkg_reward_type") or "vpn").strip(),
+            "reward_value": 0,
+            "panel_id": int(request.form.get("pkg_panel_id") or 0) or None,
+            "volume_gb": float(request.form.get("pkg_volume_gb") or 0),
+            "duration_days": int(request.form.get("pkg_duration_days") or 0),
             "min_level": (request.form.get("pkg_min_level") or "").strip(),
         })
         cfg["packages"] = packages

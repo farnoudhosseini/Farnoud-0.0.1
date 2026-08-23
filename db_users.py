@@ -252,6 +252,35 @@ def add_balance(telegram_id: int, amount: int, reason: str = "") -> Optional[dic
                 "UPDATE bot_users SET balance = balance + %s WHERE telegram_id = %s",
                 (amount, telegram_id),
             )
+            cur.execute("SELECT balance FROM bot_users WHERE telegram_id = %s", (telegram_id,))
+            row = cur.fetchone() or {}
+            new_bal = int(row.get("balance") or 0)
+            # mirror into wallet_transactions for miniapp history
+            try:
+                tx_type = "topup" if amount > 0 else "purchase"
+                if reason and ("refund" in str(reason) or "reimburse" in str(reason)):
+                    tx_type = "refund"
+                elif reason and str(reason).startswith("charge"):
+                    tx_type = "topup"
+                elif reason and ("order" in str(reason) or "renew" in str(reason) or "hourly" in str(reason)):
+                    tx_type = "purchase"
+                cur.execute(
+                    """INSERT INTO wallet_transactions
+                       (telegram_id, type, amount, balance_after, reference_type, reference_id, description)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        telegram_id,
+                        tx_type,
+                        int(amount),
+                        new_bal,
+                        "balance",
+                        (str(reason) or "")[:80],
+                        (str(reason) or "تراکنش کیف پول")[:255],
+                    ),
+                )
+            except Exception as e:
+                # table may not exist yet on very old DBs
+                print("wallet_transactions insert:", e)
             conn.commit()
             log_activity(telegram_id, "balance_add", f"{amount}|{reason}")
             cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (telegram_id,))

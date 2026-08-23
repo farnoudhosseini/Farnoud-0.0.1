@@ -22,7 +22,15 @@ const ICONS = {
   help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.7 9.3a2.4 2.4 0 1 1 3.8 2c-.9.6-1.5 1.1-1.5 2.2M12 16.8h.01"/></svg>',
   telegram: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20.3 4.2-3.1 15.1c-.2 1-.8 1.2-1.6.8l-4.4-3.2-2.1 2c-.2.2-.4.4-.8.4l.3-4.5 8.2-7.4c.4-.4-.1-.6-.6-.2L6 13.8l-4.3-1.4c-.9-.3-.9-.9.2-1.3L18.7 3c.8-.3 1.8.4 1.6 1.2Z"/></svg>',
   support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M4 12v3.2A2.8 2.8 0 0 0 6.8 18H8v-6H6.8A2.8 2.8 0 0 0 4 14.8"/><path d="M20 12v3.2a2.8 2.8 0 0 1-2.8 2.8H16v-6h1.2a2.8 2.8 0 0 1 2.8 2.8"/></svg>',
-  card: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>'
+  card: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
+  back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6 8 12l6 6"/><path d="M8 12h12"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7.5V3.8h-3.7"/><path d="M20 3.8a8.5 8.5 0 1 0 1 9.2"/></svg>',
+  power: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M7.5 6.2a7 7 0 1 0 9 0"/></svg>',
+  key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="14" r="4"/><path d="M11.5 12.5 20 4"/><path d="M16 5.5 18.5 8"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v5l3 2"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z"/><path d="m12.5 7.5 4 4"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="m8 7 1 12h6l1-12"/></svg>',
+  gift: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11h16v9H4z"/><path d="M3 7h18v4H3z"/><path d="M12 7v13"/><path d="M12 7c-1.5-2.5-4-2.5-4 0"/><path d="M12 7c1.5-2.5 4-2.5 4 0"/></svg>'
 };
 function icon(name, cls='') {
   const svg = ICONS[name] || ICONS.empty;
@@ -372,13 +380,27 @@ async function startCardPay(){
   }catch(e){ toast(e.message); }
 }
 
-function fileToBase64(file){
+function fileToBase64(file, onProgress){
   return new Promise((resolve,reject)=>{
     const r=new FileReader();
-    r.onload=()=>resolve(r.result);
+    r.onprogress=function(e){
+      if(e.lengthComputable && onProgress) onProgress(Math.round(e.loaded/e.total*100));
+    };
+    r.onload=()=>{ if(onProgress) onProgress(100); resolve(r.result); };
     r.onerror=reject;
     r.readAsDataURL(file);
   });
+}
+function showProgress(title){
+  showSheet(`<h2>${esc(title||'در حال ارسال...')}</h2>
+    <div class="progress" style="height:12px;margin:18px 0"><i id="upBar" style="width:0%"></i></div>
+    <p class="page-subtitle" id="upLabel">۰٪</p>`);
+}
+function setProgress(pct){
+  const bar=document.getElementById('upBar');
+  const lab=document.getElementById('upLabel');
+  if(bar) bar.style.width=Math.max(0,Math.min(100,pct))+'%';
+  if(lab) lab.textContent=Math.round(pct)+'٪';
 }
 
 async function uploadBuyReceipt(){
@@ -386,8 +408,11 @@ async function uploadBuyReceipt(){
   if(!f){ toast('تصویر رسید را انتخاب کنید'); return; }
   if(!state.buy?.order) return;
   try{
-    const b64 = await fileToBase64(f);
+    showProgress('ارسال رسید خرید');
+    const b64 = await fileToBase64(f, setProgress);
+    setProgress(90);
     const d = await api('/orders/'+state.buy.order.order_id+'/receipt',{method:'POST',body:JSON.stringify({photo:b64})});
+    setProgress(100);
     closeSheet(); haptic('medium'); toast(d.message||'رسید ثبت شد');
     state.buy=null; await refresh();
   }catch(e){ toast(e.message); }
@@ -413,12 +438,13 @@ function openService(id){
 <button class="btn" onclick="openQR(${s.id},'${esc(s.subscription_link)}')">QR Code</button>
 </div>`:''}
 <div class="menu-list" style="margin-top:14px">
-<button class="menu-item" onclick="svcAction(${s.id},'refresh')"><span class="grow"><strong>بروزرسانی</strong></span></button>
-<button class="menu-item" onclick="svcAction(${s.id},'toggle')"><span class="grow"><strong>خاموش / روشن</strong></span></button>
-<button class="menu-item" onclick="svcAction(${s.id},'reset')"><span class="grow"><strong>بازنشانی اشتراک</strong></span></button>
-<button class="menu-item" onclick="svcAction(${s.id},'hourly_toggle')"><span class="grow"><strong>توقف/شروع ساعتی</strong></span></button>
-<button class="menu-item" onclick="svcRename(${s.id})"><span class="grow"><strong>تغییر نام</strong></span></button>
-</div>`);
+        <button class="menu-item" onclick="svcAction(${s.id},'refresh')"><span class="menu-ico">${icon('refresh')}</span><span class="grow"><strong>بروزرسانی</strong><small>وضعیت زنده از پنل</small></span><span class="chev"></span></button>
+        <button class="menu-item" onclick="svcAction(${s.id},'toggle')"><span class="menu-ico">${icon('power')}</span><span class="grow"><strong>خاموش / روشن</strong><small>قطع یا وصل سرویس</small></span><span class="chev"></span></button>
+        <button class="menu-item" onclick="svcAction(${s.id},'reset')"><span class="menu-ico">${icon('key')}</span><span class="grow"><strong>بازنشانی اشتراک</strong><small>لینک و نشست جدید</small></span><span class="chev"></span></button>
+        <button class="menu-item" onclick="svcAction(${s.id},'hourly_toggle')"><span class="menu-ico">${icon('clock')}</span><span class="grow"><strong>توقف / شروع ساعتی</strong><small>کنترل سرویس ساعتی</small></span><span class="chev"></span></button>
+        <button class="menu-item" onclick="svcRename(${s.id})"><span class="menu-ico">${icon('edit')}</span><span class="grow"><strong>تغییر نام</strong><small>نام نمایشی سرویس</small></span><span class="chev"></span></button>
+        <button class="menu-item" onclick="svcDeleteConfirm(${s.id})"><span class="menu-ico">${icon('trash')}</span><span class="grow"><strong>حذف سرویس</strong><small>حذف از لیست و پنل</small></span><span class="chev"></span></button>
+      </div>`);
   }).catch(e=>toast(e.message));
 }
 function openQR(id,link){
@@ -440,6 +466,18 @@ function svcRename(id){
   showSheet(`<h2>تغییر نام سرویس</h2>
 <div class="form-row"><label>نام جدید</label><input id="svcNewName" placeholder="مثلاً لپ‌تاپ"></div>
 <button class="btn primary" style="width:100%" onclick="doRename(${id})">ذخیره</button>`);
+}
+function svcDeleteConfirm(id){
+  showSheet(`<h2>حذف سرویس</h2>
+    <p class="page-subtitle">آیا مطمئن هستید؟ سرویس از لیست شما حذف می‌شود و در پنل هم غیرفعال/حذف خواهد شد.</p>
+    <button class="btn primary" style="width:100%;background:var(--danger)" onclick="svcDelete(${id})">بله، حذف شود</button>
+    <button class="btn" style="width:100%;margin-top:8px" onclick="openService(${id})">انصراف</button>`);
+}
+async function svcDelete(id){
+  try{
+    const d=await api('/subscriptions/'+id+'/delete',{method:'POST',body:JSON.stringify({confirm:true})});
+    toast(d.message||'حذف شد'); closeSheet(); await refresh(); setTab('services');
+  }catch(e){toast(e.message)}
 }
 async function doRename(id){
   const name=document.getElementById('svcNewName')?.value||'';
@@ -484,8 +522,11 @@ async function uploadChargeReceipt(){
   const f=document.getElementById('chargeReceipt')?.files?.[0];
   if(!f||!state.pendingChargeId){toast('تصویر را انتخاب کنید');return}
   try{
-    const b64=await fileToBase64(f);
+    showProgress('ارسال رسید شارژ');
+    const b64=await fileToBase64(f, setProgress);
+    setProgress(90);
     const d=await api('/wallet/topup/receipt',{method:'POST',body:JSON.stringify({charge_id:state.pendingChargeId,photo:b64})});
+    setProgress(100);
     closeSheet(); toast(d.message||'رسید ثبت شد');
   }catch(e){toast(e.message)}
 }
@@ -493,11 +534,12 @@ function showTransactions(){showSheet(`<h2>تاریخچه تراکنش‌ها</h
 
 /* ===================== REWARDS / PROFILE ===================== */
 function rewards(){
-  const l=state.data.loyalty;const next=l.next_min?num(l.next_min-l.points):'∞';
+  const l=state.data.loyalty||{}; const ptsToNext=(l.points_to_next!=null)?Number(l.points_to_next):(l.next_min!=null?Math.max(0,Number(l.next_min)-Number(l.points||0)):null);
   return `<h1 class="page-title">باشگاه مشتریان</h1><p class="page-subtitle">با خرید و دعوت دوستان، امتیاز جمع کن.</p>
 <section class="reward-card"><div class="level"><div><div class="eyebrow">سطح فعلی</div><strong>${esc(l.level)}</strong></div><span class="pill">${num(l.points)} امتیاز</span></div>
-<div class="progress"><i style="width:${Math.round(l.progress*100)}%"></i></div>
-<div class="eyebrow" style="margin-top:9px">${l.next_min?num(next)+' امتیاز تا سطح بعدی':'بالاترین سطح'}</div></section>
+<div class="progress"><i style="width:${Math.round((l.progress||0)*100)}%"></i></div>
+<div class="eyebrow" style="margin-top:9px">${ptsToNext!=null?(num(ptsToNext)+' امتیاز تا سطح بعدی'):'بالاترین سطح'}</div></section>
+<div id="trialBox"></div>
 <section class="section"><div class="section-head"><h2>دعوت دوستان</h2></div>
 <div class="reward-card"><strong>${num(state.data.referrals.total)} دعوت</strong>
 <p class="page-subtitle">${num(state.data.referrals.active)} کاربر فعال</p>
@@ -509,7 +551,9 @@ function rewards(){
 <p class="desc">${esc(pkg.description||'')}</p>
 <div class="specs">
 <span class="spec">${num(pkg.points_cost)} امتیاز</span>
-        ${pkg.min_level?`<span class="spec">از سطح ${esc(pkg.min_level)}</span>`:''}
+${pkg.volume_gb?`<span class="spec">${num(pkg.volume_gb)} GB</span>`:''}
+${pkg.duration_days?`<span class="spec">${num(pkg.duration_days)} روز</span>`:''}
+${pkg.min_level?`<span class="spec">از سطح ${esc(pkg.min_level)}</span>`:''}
 </div>
 <button class="btn primary" style="width:100%" onclick="redeemPackage('${esc(pkg.id)}')">دریافت بسته</button>
 </article>`).join('')}</div></section>`:''}`;
@@ -621,10 +665,10 @@ function newsList(list){
   if(!list?.length)return `<div class="empty"><span class="big">▣</span><strong>خبری نیست</strong></div>`;
   return `<div class="news-list">${list.map(n=>`<article class="news-card" onclick="openNews(${n.id})">${n.image_url?`<img src="${esc(n.image_url)}" onerror="this.style.display='none'">`:''}<div class="copy"><h3>${esc(n.title)}</h3><p>${esc(n.summary||'')}</p></div></article>`).join('')}</div>`;
 }
-function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back"></button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
+function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'+icon('back')+'</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
 function renderNotifications(){
   const n=state.data.notifications;
-  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back"></button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
+  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'+icon('back')+'</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
 <div class="service-list">${n.items.length?n.items.map(x=>`<button class="menu-item" onclick="readNotif(${x.id})"><span>${x.is_read?'○':'●'}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.body)}</small></span></button>`).join(''):`<div class="empty"><strong>اعلان جدیدی ندارید</strong></div>`}</div>`;
 }
 function openNews(id){const n=state.data.news.find(x=>x.id===id);if(!n)return;showSheet(`<h2>${esc(n.title)}</h2>${n.image_url?`<img src="${esc(n.image_url)}" style="width:100%;border-radius:16px;margin-bottom:12px">`:''}<p style="color:var(--muted);font-size:13px;line-height:2">${esc(n.content||n.summary||'')}</p>`)}
@@ -633,7 +677,32 @@ function copyRef(){copyText(document.getElementById('refInput')?.value)}
 function bannerClick(link){if(!link)return;try{tg?.openLink(link)}catch(e){location.href=link}}
 async function readNotif(id){try{await api('/notifications/read',{method:'POST',body:JSON.stringify({id})});await refresh();renderNotifications()}catch(e){toast(e.message)}}
 
-function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=home();else if(state.tab==='services')app.innerHTML=services();else if(state.tab==='wallet')app.innerHTML=wallet();else if(state.tab==='rewards')app.innerHTML=rewards();else app.innerHTML=profile()}
+function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=home();else if(state.tab==='services')app.innerHTML=services();else if(state.tab==='wallet')app.innerHTML=wallet();else if(state.tab==='rewards'){app.innerHTML=rewards(); loadTrialBox();}else app.innerHTML=profile()}
+async function loadTrialBox(){
+  const box=document.getElementById('trialBox');
+  if(!box) return;
+  if(state.theme && state.theme.show_trial==='0'){ box.innerHTML=''; return; }
+  try{
+    const d=await api('/trial/status');
+    if(d.available){
+      box.innerHTML=`<section class="section"><div class="reward-card">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="menu-ico">${icon('gift')}</span>
+          <div class="grow"><strong>تست رایگان</strong><p class="page-subtitle">هنوز استفاده نکرده‌اید — همین حالا فعال کنید</p></div>
+        </div>
+        <button class="btn primary" style="width:100%;margin-top:12px" onclick="claimTrial()">دریافت تست رایگان</button>
+      </div></section>`;
+    } else if(d.used){
+      box.innerHTML=`<section class="section"><div class="reward-card"><strong>تست رایگان</strong><p class="page-subtitle">قبلاً استفاده شده است.</p></div></section>`;
+    } else { box.innerHTML=''; }
+  }catch(e){ box.innerHTML=''; }
+}
+async function claimTrial(){
+  try{
+    const d=await api('/trial/claim',{method:'POST',body:'{}'});
+    toast(d.message||'تست فعال شد'); await refresh(); setTab('services');
+  }catch(e){toast(e.message)}
+}
 
 function renderAuthGate(issues){
   const items = (issues||[]).map(x=>{
