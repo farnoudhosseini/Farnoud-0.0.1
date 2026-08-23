@@ -244,6 +244,25 @@ def update_bot_user(telegram_id: int, **fields) -> bool:
     finally:
         conn.close()
 
+def _ensure_wallet_tx_table(cur):
+    try:
+        cur.execute("""CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            type VARCHAR(32) NOT NULL DEFAULT 'adjust',
+            amount BIGINT NOT NULL DEFAULT 0,
+            balance_after BIGINT NOT NULL DEFAULT 0,
+            reference_type VARCHAR(64) NULL,
+            reference_id VARCHAR(64) NULL,
+            description VARCHAR(255) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_wt_user (telegram_id),
+            INDEX idx_wt_created (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+    except Exception:
+        pass
+
+
 def add_balance(telegram_id: int, amount: int, reason: str = "") -> Optional[dict]:
     conn = get_sync_connection()
     try:
@@ -257,6 +276,7 @@ def add_balance(telegram_id: int, amount: int, reason: str = "") -> Optional[dic
             new_bal = int(row.get("balance") or 0)
             # mirror into wallet_transactions for miniapp history
             try:
+                _ensure_wallet_tx_table(cur)
                 tx_type = "topup" if amount > 0 else "purchase"
                 if reason and ("refund" in str(reason) or "reimburse" in str(reason)):
                     tx_type = "refund"

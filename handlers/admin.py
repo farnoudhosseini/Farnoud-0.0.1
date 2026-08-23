@@ -45,6 +45,7 @@ def main_keyboard():
         [btn("✨ ایموجی پریمیوم", "admin_premiji"), btn("⌨️ منوی شیشه‌ای", "admin_inline_menu")],
         [btn("👮 ادمین‌های ربات", "admin_botadmins")],
         [btn("⏱ سرویس ساعتی", "admin_hourly"), btn("🧹 بهینه‌سازی", "admin_optimize")],
+        [btn("🛡 آنتی‌اسپم", "admin_antispam")],
         [btn("💾 فاصله بکاپ", "admin_backup_cfg")],
         [btn("🏠 منوی اصلی", "admin_to_start")],
     ])
@@ -679,6 +680,59 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("\n".join(lines) if cards else "هنوز کارتی ثبت نشده.",reply_markup=InlineKeyboardMarkup(rows),parse_mode="HTML")
         return ConversationHandler.END
 
+
+
+    if data == "admin_antispam":
+        from database import get_setting_sync
+        en = get_setting_sync("antispam_enabled", "1") != "0"
+        hits = get_setting_sync("antispam_max_hits", "8") or "8"
+        win = get_setting_sync("antispam_window_sec", "5") or "5"
+        ban = get_setting_sync("antispam_ban_sec", "300") or "300"
+        msg = get_setting_sync("antispam_message", "") or "—"
+        text = (
+            "🛡 <b>آنتی‌اسپم</b>\n\n"
+            f"وضعیت: {'فعال' if en else 'خاموش'}\n"
+            f"حداکثر پیام: {hits} در {win} ثانیه\n"
+            f"مدت محدودیت: {ban} ثانیه\n"
+            f"پیام: {msg[:80]}"
+        )
+        rows = [
+            [InlineKeyboardButton("روشن/خاموش", callback_data="admin_as_toggle")],
+            [InlineKeyboardButton("حداکثر پیام", callback_data="admin_as_hits")],
+            [InlineKeyboardButton("بازه (ثانیه)", callback_data="admin_as_window")],
+            [InlineKeyboardButton("مدت محدودیت (ثانیه)", callback_data="admin_as_ban")],
+            [InlineKeyboardButton("متن پیام محدودیت", callback_data="admin_as_msg")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_as_toggle":
+        from database import get_setting_sync, set_setting_sync
+        en = get_setting_sync("antispam_enabled", "1") != "0"
+        set_setting_sync("antispam_enabled", "0" if en else "1")
+        query.data = "admin_antispam"
+        return await admin_callback(update, context)
+
+    if data == "admin_as_hits":
+        context.user_data["admin_input_mode"] = "as_hits"
+        await query.edit_message_text("حداکثر تعداد پیام در بازه را بفرستید (مثال: 8):")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_as_window":
+        context.user_data["admin_input_mode"] = "as_window"
+        await query.edit_message_text("بازه زمانی به ثانیه را بفرستید (مثال: 5):")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_as_ban":
+        context.user_data["admin_input_mode"] = "as_ban"
+        await query.edit_message_text("مدت محدودیت به ثانیه را بفرستید (مثال: 300 برای ۵ دقیقه):")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_as_msg":
+        context.user_data["admin_input_mode"] = "as_msg"
+        await query.edit_message_text("متن پیام هنگام محدودیت را بفرستید:")
+        return WAITING_ADMIN_TEXT
 
     if data == "admin_auto_mins":
         context.user_data["admin_input_mode"] = "auto_approve_mins"
@@ -1521,6 +1575,48 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["admin_input_mode"] = "prod_name"
         await update.message.reply_text("نام محصول را بفرستید:\n/cancel انصراف")
         return WAITING_ADMIN_TEXT
+
+    if mode == "as_hits":
+        from database import set_setting_sync
+        try:
+            v = int(text.strip())
+            if v < 1: v = 1
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید.")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("antispam_max_hits", str(v))
+        await update.message.reply_text(f"حداکثر پیام: {v}")
+        return ConversationHandler.END
+
+    if mode == "as_window":
+        from database import set_setting_sync
+        try:
+            v = int(text.strip())
+            if v < 1: v = 1
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید.")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("antispam_window_sec", str(v))
+        await update.message.reply_text(f"بازه: {v} ثانیه")
+        return ConversationHandler.END
+
+    if mode == "as_ban":
+        from database import set_setting_sync
+        try:
+            v = int(text.strip())
+            if v < 30: v = 30
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید.")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("antispam_ban_sec", str(v))
+        await update.message.reply_text(f"مدت محدودیت: {v} ثانیه")
+        return ConversationHandler.END
+
+    if mode == "as_msg":
+        from database import set_setting_sync
+        set_setting_sync("antispam_message", text.strip()[:500])
+        await update.message.reply_text("پیام محدودیت ذخیره شد.")
+        return ConversationHandler.END
 
     if mode == "auto_approve_mins":
         from database import set_setting_sync

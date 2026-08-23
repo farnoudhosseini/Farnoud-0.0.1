@@ -13,7 +13,7 @@
                 </button>
             </div>
         </header>
-        <div class="content" style="max-width:640px">
+        <div class="content" style="max-width:720px">
             <div class="card">
                 <div class="card-title">پیام خوش‌آمد (/start)</div>
                 <form method="POST" action="{{ url_for('bot_settings') }}">
@@ -25,13 +25,43 @@
                         <label for="backup_interval_hours">فاصله بکاپ دیتابیس (ساعت)</label>
                         <input type="number" id="backup_interval_hours" name="backup_interval_hours"
                                min="1" max="168" step="1" value="{{ backup_interval_hours }}">
-                        <p class="muted" style="font-size:.8rem;margin-top:6px">
-                          حداقل ۱ و حداکثر ۱۶۸ ساعت (یک هفته). پیش‌فرض: ۲ ساعت.
-                          برای اعمال فوری بدون ری‌استارت، از مدیریت ربات → «فاصله بکاپ» استفاده کنید.
-                        </p>
                     </div>
                     <div class="card-actions">
                         <button type="submit" class="btn-primary inline">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card" style="margin-top:16px">
+                <div class="card-title">آنتی‌اسپم</div>
+                <p class="muted" style="font-size:.88rem;margin-bottom:12px">
+                  اگر کاربر بیش از حد پیام بفرستد، برای مدت مشخص محدود می‌شود و هیچ پیام یا اکشنی انجام نمی‌دهد.
+                </p>
+                <form method="POST" action="{{ url_for('bot_settings') }}">
+                    <input type="hidden" name="antispam_form" value="1">
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                      <input type="checkbox" name="antispam_enabled" value="1" {% if antispam_enabled %}checked{% endif %}>
+                      فعال بودن آنتی‌اسپم
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                      <input type="checkbox" name="antispam_admins_exempt" value="1" {% if antispam_admins_exempt %}checked{% endif %}>
+                      ادمین‌ها معاف باشند
+                    </label>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+                      <div class="form-group"><label>حداکثر پیام</label>
+                        <input type="number" name="antispam_max_hits" min="1" value="{{ antispam_max_hits }}"></div>
+                      <div class="form-group"><label>بازه (ثانیه)</label>
+                        <input type="number" name="antispam_window_sec" min="1" value="{{ antispam_window_sec }}"></div>
+                      <div class="form-group"><label>مدت محدودیت (ثانیه)</label>
+                        <input type="number" name="antispam_ban_sec" min="30" value="{{ antispam_ban_sec }}">
+                        <p class="muted" style="font-size:.78rem;margin-top:4px">۳۰۰ = ۵ دقیقه</p>
+                      </div>
+                    </div>
+                    <div class="form-group"><label>پیام هنگام محدودیت</label>
+                      <textarea name="antispam_message" rows="3">{{ antispam_message }}</textarea>
+                    </div>
+                    <div class="card-actions">
+                        <button type="submit" class="btn-primary inline">ذخیره آنتی‌اسپم</button>
                     </div>
                 </form>
             </div>

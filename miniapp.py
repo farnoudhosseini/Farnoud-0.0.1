@@ -350,6 +350,8 @@ def auth_required(fn):
             _sync_telegram_account(user)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"خطای ثبت کاربر: {exc}"}), 500
+        if db_user and db_user.get("is_blocked"):
+            return jsonify({"ok": False, "error": "دسترسی شما مسدود است."}), 403
         return fn(*args, **kwargs)
     return wrapped
 
@@ -1353,6 +1355,22 @@ def confirm_wallet_order(order_id):
                         "required": price, "balance": balance}), 402
     add_balance(user_id, -price, f"order#{order_id}")
     update_order(order_id, status="paid", wallet_used=price, pay_amount=0)
+    # consume discount code once
+    try:
+        code = (order.get("coupon_code") or "").strip().upper()
+        if code:
+            conn = get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE discount_codes SET used_count=used_count+1 WHERE UPPER(code)=%s AND is_active=1",
+                        (code,),
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        print("discount consume:", e)
     result = provision_order(order_id)
     try:
         from db_growth import pay_referral_commission

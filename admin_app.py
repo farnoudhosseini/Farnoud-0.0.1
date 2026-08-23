@@ -498,6 +498,25 @@ def bot_settings():
                 set_setting_sync("backup_interval_hours", str(_bh))
             except Exception:
                 flash("فاصله بکاپ نامعتبر", "error")
+        # antispam
+        if "antispam_form" in request.form:
+            set_setting_sync("antispam_enabled", "1" if request.form.get("antispam_enabled") else "0")
+            try:
+                set_setting_sync("antispam_max_hits", str(max(1, int(request.form.get("antispam_max_hits") or 8))))
+            except Exception:
+                pass
+            try:
+                set_setting_sync("antispam_window_sec", str(max(1, int(request.form.get("antispam_window_sec") or 5))))
+            except Exception:
+                pass
+            try:
+                set_setting_sync("antispam_ban_sec", str(max(30, int(request.form.get("antispam_ban_sec") or 300))))
+            except Exception:
+                pass
+            set_setting_sync("antispam_admins_exempt", "1" if request.form.get("antispam_admins_exempt") else "0")
+            msg = (request.form.get("antispam_message") or "").strip()
+            if msg:
+                set_setting_sync("antispam_message", msg[:500])
         flash("ذخیره شد", "success")
         return redirect(url_for("bot_settings"))
     return render_template(
@@ -506,6 +525,12 @@ def bot_settings():
         active="bot_settings",
         welcome_message=get_setting_sync("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋"),
         backup_interval_hours=get_setting_sync("backup_interval_hours", "2"),
+        antispam_enabled=get_setting_sync("antispam_enabled", "1") != "0",
+        antispam_max_hits=get_setting_sync("antispam_max_hits", "8") or "8",
+        antispam_window_sec=get_setting_sync("antispam_window_sec", "5") or "5",
+        antispam_ban_sec=get_setting_sync("antispam_ban_sec", "300") or "300",
+        antispam_admins_exempt=get_setting_sync("antispam_admins_exempt", "1") != "0",
+        antispam_message=get_setting_sync("antispam_message", "") or "به دلیل ارسال بیش از حد، تا ۵ دقیقه امکان ارسال پیام ندارید.",
     )
 
 @app.route("/messages", methods=["GET", "POST"])
