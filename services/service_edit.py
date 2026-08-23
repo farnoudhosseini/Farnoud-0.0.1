@@ -209,3 +209,75 @@ def stop_hourly_service(order_id: int, telegram_id: int = None) -> dict:
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def toggle_user(o: dict) -> dict:
+    """Toggle enable/disable for a sold service order dict."""
+    if not o or not o.get("vpn_username"):
+        return {"ok": False, "error": "اکانت نیست"}
+    try:
+        client = _client_from_order(o)
+        uname = o["vpn_username"]
+        full = client.get_user(uname) or {}
+        enabled = full.get("enable")
+        st = (full.get("status") or "").lower()
+        if enabled is not None:
+            is_on = bool(enabled)
+        else:
+            is_on = st in ("active", "on_hold", "enabled", "") or st == ""
+        make_disabled = is_on
+        client.modify_user(uname, {"status": "disabled" if make_disabled else "active"})
+        return {
+            "ok": True,
+            "message": "سرویس اکنون " + ("خاموش" if make_disabled else "روشن") + " است.",
+            "disabled": make_disabled,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def reset_subscription(o: dict) -> dict:
+    """Reset subscription link / subId."""
+    if not o or not o.get("vpn_username"):
+        return {"ok": False, "error": "اکانت نیست"}
+    try:
+        client = _client_from_order(o)
+        uname = o["vpn_username"]
+        if hasattr(client, "find_client_in_inbounds"):
+            import secrets, string
+            new_sub = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16))
+            found = client.find_client_in_inbounds(uname)
+            if not found:
+                return {"ok": False, "error": "کلاینت در پنل یافت نشد"}
+            c = dict(found.get("client") or {})
+            c["subId"] = new_sub
+            c["email"] = uname
+            cid = c.get("id") or c.get("uuid")
+            ib_id = found.get("inbound_id") or (found.get("inbound") or {}).get("id")
+            if not cid or not ib_id:
+                return {"ok": False, "error": "شناسه کلاینت/اینباند ناقص"}
+            client.update_client(str(cid), int(ib_id), c)
+            return {"ok": True, "message": "اشتراک بازنشانی شد.", "subId": new_sub}
+        # pasarguard
+        try:
+            client._request("POST", f"/api/user/{uname}/revoke")
+        except Exception:
+            client._request("POST", f"/api/user/{uname}/revoke_sub")
+        return {"ok": True, "message": "اشتراک بازنشانی شد."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def toggle_hourly(o: dict) -> dict:
+    from db_products import update_order
+    if not o:
+        return {"ok": False, "error": "یافت نشد"}
+    active = not bool(o.get("hourly_active"))
+    try:
+        if o.get("vpn_username"):
+            client = _client_from_order(o)
+            client.modify_user(o["vpn_username"], {"status": "active" if active else "disabled"})
+        update_order(o["id"], hourly_active=1 if active else 0)
+        return {"ok": True, "message": "سرویس ساعتی " + ("فعال" if active else "متوقف") + " شد."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

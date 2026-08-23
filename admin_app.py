@@ -1187,6 +1187,7 @@ def miniapp_content():
                                card_auto_approve_minutes=get_setting_sync("card_auto_approve_minutes", "0") or "0",
                                card_auto_approve_users=get_setting_sync("card_auto_approve_users", "") or "",
                                loyalty=get_loyalty_config(),
+                               panels=__import__("database", fromlist=["list_panels"]).list_panels() or [],
                                theme=get_miniapp_theme())
     finally:
         conn.close()
@@ -1283,6 +1284,7 @@ def miniapp_loyalty_save():
             "panel_id": int(request.form.get("pkg_panel_id") or 0) or None,
             "volume_gb": float(request.form.get("pkg_volume_gb") or 0),
             "duration_days": int(request.form.get("pkg_duration_days") or 0),
+            "hwid_limit": int(request.form.get("pkg_hwid_limit") or 0),
             "min_level": (request.form.get("pkg_min_level") or "").strip(),
         })
         cfg["packages"] = packages

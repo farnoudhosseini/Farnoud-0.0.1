@@ -326,53 +326,99 @@ class XUI3Client:
         }
 
     def update_client(self, client_id: str, inbound_id: int, client_obj: dict) -> Any:
-        """Update client — try UUID path first, then email-based fallbacks (3x-ui version differences)."""
+        """Update a single client. Prefer full inbound update (most compatible across 3x-ui forks)."""
+        email = (client_obj.get("email") or "").strip()
+        # Ensure required fields
+        if not client_obj.get("id"):
+            client_obj["id"] = str(client_id)
+        if email and not client_obj.get("email"):
+            client_obj["email"] = email
+
+        errors = []
+
+        # Method A: replace client inside inbound settings and POST /panel/api/inbounds/update
+        try:
+            return self._update_client_via_inbound(int(inbound_id), str(client_id), client_obj, email)
+        except Exception as e:
+            errors.append(f"inbound-update: {e}")
+
+        # Method B: classic updateClient paths
         settings = json.dumps({"clients": [client_obj]}, ensure_ascii=False)
         payload = {"id": int(inbound_id), "settings": settings}
-        email = (client_obj.get("email") or "").strip()
-        errors = []
         paths = [
             f"/panel/api/inbounds/updateClient/{client_id}",
             f"/panel/inbound/updateClient/{client_id}",
+            f"/panel/api/inbounds/updateClient/{inbound_id}/{client_id}",
         ]
         if email and email != str(client_id):
             paths += [
                 f"/panel/api/inbounds/updateClient/{email}",
                 f"/panel/inbound/updateClient/{email}",
             ]
-        # some forks use body-only update
         for path in paths:
             try:
                 return self._request("POST", path, json=payload)
             except Exception as e:
                 errors.append(f"{path}: {e}")
-        # last resort: updateInbound with full clients list
-        try:
-            ib = self.get_inbound(int(inbound_id)) or {}
-            settings_raw = ib.get("settings")
-            if isinstance(settings_raw, str):
-                try:
-                    settings_obj = json.loads(settings_raw)
-                except Exception:
-                    settings_obj = {}
-            else:
-                settings_obj = settings_raw or {}
-            clients = list(settings_obj.get("clients") or [])
-            replaced = False
-            for i, c in enumerate(clients):
-                if str(c.get("id") or "") == str(client_id) or (email and c.get("email") == email):
-                    clients[i] = client_obj
-                    replaced = True
+
+        raise RuntimeError("updateClient failed: " + " | ".join(errors[:4]))
+
+    def _update_client_via_inbound(self, inbound_id: int, client_id: str, client_obj: dict, email: str = "") -> Any:
+        """Load inbound, replace matching client, save full inbound (works on MHSanaei when updateClient 404s)."""
+        ib = self.get_inbound(int(inbound_id))
+        if not ib:
+            # try find from list
+            for item in self.list_inbounds():
+                if int(item.get("id") or 0) == int(inbound_id):
+                    ib = item
                     break
-            if not replaced:
-                clients.append(client_obj)
-            settings_obj["clients"] = clients
-            ib_payload = dict(ib)
-            ib_payload["settings"] = json.dumps(settings_obj, ensure_ascii=False)
-            return self._request("POST", "/panel/api/inbounds/update", json=ib_payload)
-        except Exception as e:
-            errors.append(f"update inbound: {e}")
-        raise RuntimeError("updateClient failed: " + " | ".join(errors[:3]))
+        if not ib:
+            raise RuntimeError(f"inbound {inbound_id} not found")
+
+        settings_raw = ib.get("settings")
+        if isinstance(settings_raw, str):
+            try:
+                settings_obj = json.loads(settings_raw)
+            except Exception:
+                settings_obj = {}
+        elif isinstance(settings_raw, dict):
+            settings_obj = dict(settings_raw)
+        else:
+            settings_obj = {}
+
+        clients = list(settings_obj.get("clients") or [])
+        replaced = False
+        for i, c in enumerate(clients):
+            cid = str(c.get("id") or c.get("uuid") or "")
+            cem = (c.get("email") or "").strip()
+            if cid == str(client_id) or (email and cem == email):
+                # merge preserving unknown keys
+                merged = dict(c)
+                merged.update(client_obj)
+                # keep id stable
+                merged["id"] = c.get("id") or client_obj.get("id") or client_id
+                if email:
+                    merged["email"] = email
+                clients[i] = merged
+                replaced = True
+                break
+        if not replaced:
+            clients.append(client_obj)
+        settings_obj["clients"] = clients
+
+        # Build update payload — keep original inbound fields
+        payload = dict(ib)
+        payload["settings"] = json.dumps(settings_obj, ensure_ascii=False)
+        # Some panels expect settings as object; try string first (standard 3x-ui)
+        for path in ("/panel/api/inbounds/update", "/panel/inbound/update", "/panel/api/inbounds/update/" + str(inbound_id)):
+            try:
+                return self._request("POST", path, json=payload)
+            except Exception as e:
+                last = e
+                continue
+        # retry with settings as dict
+        payload["settings"] = settings_obj
+        return self._request("POST", "/panel/api/inbounds/update", json=payload)
 
     def delete_client(self, inbound_id: int, client_id: str) -> Any:
         return self._request("POST", f"/panel/api/inbounds/{int(inbound_id)}/delClient/{client_id}")
@@ -613,23 +659,32 @@ class XUI3Client:
 
 
     def modify_user(self, username: str, payload: dict) -> dict:
-        """سازگاری با مسیرهای پاسارگارد: status active/disabled → enable"""
+        """Apply status/volume/expire/hwid changes for 3x-ui client identified by email."""
         found = self.find_client_in_inbounds(username)
         if not found:
             raise RuntimeError(f"کلاینت یافت نشد: {username}")
         c = dict(found.get("client") or {})
         ib = found.get("inbound") or {}
         inbound_id = found.get("inbound_id") or ib.get("id")
-        if payload.get("status"):
+        if not inbound_id:
+            raise RuntimeError("inbound_id نامشخص")
+
+        # status
+        if payload.get("status") is not None:
             st = str(payload["status"]).lower()
             c["enable"] = st in ("active", "enabled", "on", "1", "true")
+
+        # IP / HWID limit
         if "hwid_limit" in payload or "limitIp" in payload:
             lim = payload.get("limitIp", payload.get("hwid_limit"))
             c["limitIp"] = int(lim or 0)
+
+        # volume — 3x-ui totalGB is in bytes on most builds
         if payload.get("data_limit") is not None:
             c["totalGB"] = int(payload["data_limit"] or 0)
+
+        # expire ISO → ms
         if payload.get("expire"):
-            # ISO → ms
             try:
                 from datetime import datetime
                 s = str(payload["expire"]).replace("Z", "+00:00")
@@ -637,10 +692,13 @@ class XUI3Client:
                 c["expiryTime"] = int(dt.timestamp() * 1000)
             except Exception:
                 pass
-        # Prefer UUID (id). Never fall back to email as client_id for updateClient path.
+
+        # direct ms expire
+        if payload.get("expiryTime") is not None:
+            c["expiryTime"] = int(payload["expiryTime"])
+
         client_id = c.get("id") or c.get("uuid")
         if not client_id:
-            # try traffic API which often has id
             try:
                 tr = self.get_client_traffics(username) or {}
                 client_id = tr.get("id") or tr.get("uuid")
@@ -649,13 +707,14 @@ class XUI3Client:
             except Exception:
                 pass
         if not client_id:
-            client_id = c.get("password")  # rare forks
-        if not client_id:
             raise RuntimeError(f"UUID کلاینت یافت نشد برای {username}")
-        if not c.get("id"):
-            c["id"] = str(client_id)
-        if not c.get("email"):
-            c["email"] = username
+
+        c["id"] = str(client_id)
+        c["email"] = username
+        # ensure enable key exists
+        if "enable" not in c:
+            c["enable"] = True
+
         self.update_client(str(client_id), int(inbound_id), c)
         return c
 

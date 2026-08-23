@@ -667,9 +667,28 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(("خاموش" if c['is_active'] else "روشن"),callback_data=f"admin_card_toggle_{c['id']}_{0 if c['is_active'] else 1}"),
                 InlineKeyboardButton("🗑 حذف",callback_data=f"admin_card_del_{c['id']}")
             ])
+        from database import get_setting_sync as _gs
+        mins = _gs("card_auto_approve_minutes", "0") or "0"
+        ausers = _gs("card_auto_approve_users", "") or "—"
+        lines.append("")
+        lines.append(f"⏱ تایید خودکار: {mins} دقیقه")
+        lines.append(f"👤 کاربران سفید: <code>{ausers}</code>")
+        rows.append([InlineKeyboardButton("⏱ دقیقه تایید خودکار", callback_data="admin_auto_mins")])
+        rows.append([InlineKeyboardButton("👤 کاربران تایید خودکار", callback_data="admin_auto_users")])
         rows.append([InlineKeyboardButton("🔙 بازگشت",callback_data="admin_panel")])
         await query.edit_message_text("\n".join(lines) if cards else "هنوز کارتی ثبت نشده.",reply_markup=InlineKeyboardMarkup(rows),parse_mode="HTML")
         return ConversationHandler.END
+
+
+    if data == "admin_auto_mins":
+        context.user_data["admin_input_mode"] = "auto_approve_mins"
+        await query.edit_message_text("تعداد دقیقه تا تایید خودکار رسید را بفرستید (0=خاموش):")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_auto_users":
+        context.user_data["admin_input_mode"] = "auto_approve_users"
+        await query.edit_message_text("شناسه کاربران تایید خودکار را با کاما بفرستید (پاک کردن: -):")
+        return WAITING_ADMIN_TEXT
 
     if data=="admin_card_add":
         context.user_data["admin_input_mode"]="card_add"
@@ -1502,6 +1521,36 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["admin_input_mode"] = "prod_name"
         await update.message.reply_text("نام محصول را بفرستید:\n/cancel انصراف")
         return WAITING_ADMIN_TEXT
+
+    if mode == "auto_approve_mins":
+        from database import set_setting_sync
+        try:
+            mins = int(text.strip())
+            if mins < 0:
+                mins = 0
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید (مثال: 30)")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("card_auto_approve_minutes", str(mins))
+        await update.message.reply_text(
+            f"تایید خودکار روی {mins} دقیقه تنظیم شد." + (" (خاموش)" if mins == 0 else ""),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("کارت‌ها", callback_data="admin_cards")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "auto_approve_users":
+        from database import set_setting_sync
+        val = text.strip()
+        if val in ("-", "0", "none", "پاک"):
+            val = ""
+        # normalize
+        parts = [p.strip() for p in val.replace(" ", "").split(",") if p.strip().isdigit()]
+        set_setting_sync("card_auto_approve_users", ",".join(parts))
+        await update.message.reply_text(
+            "کاربران تایید خودکار ذخیره شد: " + (",".join(parts) if parts else "خالی"),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("کارت‌ها", callback_data="admin_cards")]]),
+        )
+        return ConversationHandler.END
 
     if mode=="card_add":
         parts=[x.strip() for x in text.split("|")]

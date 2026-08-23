@@ -803,28 +803,65 @@ def subscription_detail(order_id):
 
 
 def _calculate_discount(user_id, product, code):
+    """Validate discount without consuming uses. Uses bot discount_codes table."""
     if not code:
         return 0, None
+    code = code.strip().upper()
+    price = int(Decimal(str(product.get("price") or 0)))
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""SELECT * FROM coupons WHERE code=%s AND is_active=1
-                           AND (expires_at IS NULL OR expires_at>=NOW())
-                           AND (max_uses IS NULL OR used_count<max_uses)""", (code.strip(),))
-            c = cur.fetchone()
+            # Primary: bot growth discount_codes
+            try:
+                cur.execute(
+                    "SELECT * FROM discount_codes WHERE UPPER(code)=%s AND is_active=1",
+                    (code,),
+                )
+                d = cur.fetchone()
+            except Exception:
+                d = None
+            if d:
+                max_uses = int(d.get("max_uses") or 0)
+                used = int(d.get("used_count") or 0)
+                if max_uses and used >= max_uses:
+                    return 0, "ظرفیت کد تکمیل شده است."
+                if d.get("percent"):
+                    disc = int(price * float(d["percent"]) / 100)
+                elif d.get("amount"):
+                    disc = int(d["amount"])
+                else:
+                    disc = 0
+                return int(max(0, min(price, disc))), None
+
+            # Fallback: miniapp coupons table
+            try:
+                cur.execute(
+                    """SELECT * FROM coupons WHERE UPPER(code)=%s AND is_active=1
+                       AND (expires_at IS NULL OR expires_at>=NOW())
+                       AND (max_uses IS NULL OR used_count<max_uses)""",
+                    (code,),
+                )
+                c = cur.fetchone()
+            except Exception:
+                c = None
             if not c:
                 return 0, "کد تخفیف معتبر نیست."
-            cur.execute("SELECT 1 FROM coupon_uses WHERE coupon_id=%s AND telegram_id=%s", (c["id"], user_id))
-            if cur.fetchone():
-                return 0, "این کد را قبلاً استفاده کرده‌اید."
-            price = Decimal(str(product["price"]))
-            if price < Decimal(str(c["min_order_amount"] or 0)):
+            try:
+                cur.execute(
+                    "SELECT 1 FROM coupon_uses WHERE coupon_id=%s AND telegram_id=%s",
+                    (c["id"], user_id),
+                )
+                if cur.fetchone():
+                    return 0, "این کد را قبلاً استفاده کرده‌اید."
+            except Exception:
+                pass
+            if price < int(c.get("min_order_amount") or 0):
                 return 0, "حداقل مبلغ سفارش رعایت نشده است."
-            if c["discount_type"] == "percent":
-                d = price * Decimal(str(c["discount_value"])) / Decimal(100)
+            if (c.get("discount_type") or "percent") == "percent":
+                disc = int(price * float(c.get("discount_value") or 0) / 100)
             else:
-                d = Decimal(str(c["discount_value"]))
-            return int(max(0, min(price, d))), None
+                disc = int(c.get("discount_value") or 0)
+            return int(max(0, min(price, disc))), None
     finally:
         conn.close()
 
@@ -1800,6 +1837,108 @@ def subscription_delete(order_id):
         "درخواست حذف سرویس #%s ثبت شد. پس از تایید ادمین، حذف و بازگشت وجه انجام میشود." % order_id,
     )
     return jsonify({"ok": True, "message": "درخواست حذف ثبت شد و برای تایید ادمین ارسال شد."})
+
+
+
+@miniapp_bp.post("/api/loyalty/redeem")
+@auth_required
+def loyalty_redeem():
+    """Redeem club package as gift VPN (panel + volume + days + hwid)."""
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    pkg_id = str(body.get("package_id") or "")
+    cfg = get_loyalty_config()
+    packages = cfg.get("packages") or []
+    pkg = next((x for x in packages if str(x.get("id")) == pkg_id), None)
+    if not pkg:
+        return jsonify({"ok": False, "error": "بسته یافت نشد"}), 404
+    cost = int(pkg.get("points_cost") or 0)
+    if cost <= 0:
+        return jsonify({"ok": False, "error": "بسته نامعتبر"}), 400
+    min_level = (pkg.get("min_level") or "").strip()
+    loy = _loyalty(user_id)
+    if min_level:
+        levels = sorted(cfg.get("levels") or [], key=lambda x: int(x.get("min_points") or 0))
+        order = {lv.get("name"): i for i, lv in enumerate(levels)}
+        if order.get(loy.get("level"), -1) < order.get(min_level, 0):
+            return jsonify({"ok": False, "error": "حداقل سطح لازم: %s" % min_level}), 400
+
+    panel_id = pkg.get("panel_id")
+    volume_gb = float(pkg.get("volume_gb") or 0)
+    duration_days = int(pkg.get("duration_days") or 0)
+    hwid_limit = int(pkg.get("hwid_limit") or 0)
+    if not panel_id or duration_days <= 0:
+        return jsonify({"ok": False, "error": "تنظیمات بسته VPN ناقص است (پنل/مدت)."}), 400
+
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT points FROM loyalty_accounts WHERE telegram_id=%s FOR UPDATE", (user_id,))
+            row = cur.fetchone()
+            pts = int((row or {}).get("points") or 0)
+            if pts < cost:
+                return jsonify({"ok": False, "error": "امتیاز کافی نیست", "points": pts, "required": cost}), 402
+            cur.execute("UPDATE loyalty_accounts SET points=points-%s WHERE telegram_id=%s", (cost, user_id))
+            cur.execute(
+                """INSERT INTO loyalty_transactions
+                   (telegram_id,points,type,reference_id,description)
+                   VALUES (%s,%s,'redeem',%s,%s)""",
+                (user_id, -cost, pkg_id, "دریافت بسته: %s" % (pkg.get("title") or pkg_id)),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+    order_id = None
+    provision = None
+    try:
+        from db_products import create_order, update_order
+        product_id = int(pkg.get("product_id") or 0) or 1
+        order_id = create_order(user_id, product_id, int(panel_id), 0, 0, 0)
+        update_order(
+            order_id,
+            status="paid",
+            wallet_used=0,
+            pay_amount=0,
+            volume_gb_override=volume_gb if volume_gb > 0 else None,
+            duration_days_override=duration_days,
+            custom_name=(pkg.get("title") or "هدیه باشگاه")[:80],
+        )
+        provision = provision_order(order_id)
+        if provision.get("ok") and hwid_limit > 0:
+            try:
+                from services.service_edit import edit_sold_service
+                edit_sold_service(order_id, hwid_limit=hwid_limit)
+            except Exception as e:
+                print("gift hwid:", e)
+        if not provision.get("ok"):
+            conn = get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
+                    conn.commit()
+            finally:
+                conn.close()
+            return jsonify({"ok": False, "error": provision.get("error") or "ساخت سرویس هدیه ناموفق"}), 502
+        _notify_user(user_id, "هدیه باشگاه فعال شد: %s" % (pkg.get("title") or ""))
+    except Exception as e:
+        print("loyalty vpn gift:", e)
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
+                conn.commit()
+        finally:
+            conn.close()
+        return jsonify({"ok": False, "error": "خطا در ساخت هدیه: %s" % e}), 500
+
+    return jsonify({
+        "ok": True,
+        "message": "بسته با موفقیت دریافت شد.",
+        "points_spent": cost,
+        "order_id": order_id,
+        "provision": _jsonable(provision or {}),
+    })
 
 
 @miniapp_bp.errorhandler(Exception)

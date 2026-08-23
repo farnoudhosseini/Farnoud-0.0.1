@@ -83,9 +83,17 @@
           <option value="none">فقط ثبت (دستی)</option>
         </select>
       </div>
-      <div class="form-group"><label>شناسه پنل (panel_id)</label><input name="pkg_panel_id" type="number" placeholder="مثلاً 1"></div>
+      <div class="form-group"><label>پنل مقصد</label>
+        <select name="pkg_panel_id" required>
+          <option value="">انتخاب پنل...</option>
+          {% for pan in panels %}
+          <option value="{{ pan.id }}">{{ pan.name }} ({{ pan.panel_type or 'panel' }})</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="form-group"><label>حجم (GB)</label><input name="pkg_volume_gb" type="number" step="0.1" value="10"></div>
       <div class="form-group"><label>مدت (روز)</label><input name="pkg_duration_days" type="number" value="30"></div>
+      <div class="form-group"><label>محدودیت کاربر (HWID / 0=نامحدود)</label><input name="pkg_hwid_limit" type="number" value="0"></div>
       <div class="form-group"><label>توضیح</label><input name="pkg_desc"></div>
     </div>
     <button class="btn-primary inline" type="submit">افزودن بسته</button>
@@ -99,7 +107,7 @@
         <td>{{ pkg.title }}</td>
         <td>{{ pkg.points_cost }}</td>
         <td>{{ pkg.min_level or 'همه' }}</td>
-        <td>{{ pkg.reward_type }} · پنل {{ pkg.panel_id or "—" }} · {{ pkg.volume_gb or "—" }}GB / {{ pkg.duration_days or "—" }}روز</td>
+        <td>پنل {{ pkg.panel_id or "—" }} · {{ pkg.volume_gb or "—" }}GB / {{ pkg.duration_days or "—" }}روز · HWID {{ pkg.hwid_limit or "∞" }}</td>
         <td>
           <form method="post" action="{{ url_for('miniapp_loyalty_save') }}" style="display:inline">
             <input type="hidden" name="action" value="del_package">

@@ -293,10 +293,32 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             client = _client(o)
             uname = o["vpn_username"]
+            # پاسارگارد: revoke — 3x-ui: regenerate subId via modify
+            done = False
             try:
-                client._request("POST", f"/api/user/{uname}/revoke")
-            except Exception:
-                client._request("POST", f"/api/user/{uname}/revoke_sub")
+                if hasattr(client, "find_client_in_inbounds"):
+                    # 3x-ui / سنایی: subId جدید
+                    import secrets, string
+                    new_sub = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16))
+                    found = client.find_client_in_inbounds(uname)
+                    if found:
+                        c = dict(found.get("client") or {})
+                        c["subId"] = new_sub
+                        c["email"] = uname
+                        cid = c.get("id") or c.get("uuid")
+                        ib_id = found.get("inbound_id") or (found.get("inbound") or {}).get("id")
+                        if cid and ib_id:
+                            client.update_client(str(cid), int(ib_id), c)
+                            done = True
+                if not done:
+                    try:
+                        client._request("POST", f"/api/user/{uname}/revoke")
+                        done = True
+                    except Exception:
+                        client._request("POST", f"/api/user/{uname}/revoke_sub")
+                        done = True
+            except Exception as e:
+                raise e
             await q.edit_message_text(
                 "✅ اشتراک بازنشانی شد.\nلینک قبلی از کار می‌افتد — از «لینک و QR» لینک جدید بگیرید.",
                 reply_markup=service_card_keyboard(oid),
@@ -314,13 +336,17 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             client = _client(o)
             uname = o["vpn_username"]
-            full = client.get_user(uname)
-            st = (full.get("status") or "active").lower()
-            make_disabled = st in ("active", "on_hold")
-            try:
-                client._request("PUT", f"/api/user/{uname}/disabled", json={"disabled": make_disabled})
-            except Exception:
-                client.modify_user(uname, {"status": "disabled" if make_disabled else "active"})
+            full = client.get_user(uname) or {}
+            # normalize status from pasarguard or 3x-ui
+            st = (full.get("status") or "").lower()
+            enabled = full.get("enable")
+            if enabled is not None:
+                is_on = bool(enabled)
+            else:
+                is_on = st in ("active", "on_hold", "enabled", "") or st == ""
+            make_disabled = is_on
+            # همیشه از modify_user استفاده کن (روی هر دو پنل کار می‌کند)
+            client.modify_user(uname, {"status": "disabled" if make_disabled else "active"})
             label = "خاموش (disabled)" if make_disabled else "روشن (active)"
             await q.edit_message_text(f"✅ سرویس اکنون {label} است.", reply_markup=service_card_keyboard(oid))
         except Exception as e:
