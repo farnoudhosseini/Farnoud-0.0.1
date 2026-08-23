@@ -127,9 +127,9 @@ async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uname = await _bot_username(context)
     text = render_template("wallet_main", user_vars(bu, uname))
     if update.message:
-        await update.message.reply_text(text, reply_markup=wallet_keyboard())
+        await update.message.reply_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
     elif update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=wallet_keyboard())
+        await update.callback_query.edit_message_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
     log_activity(user.id, "wallet_open")
 
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -149,17 +149,17 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "wallet_charge":
         vars_ = user_vars(bu, uname)
         text = render_template("wallet_charge", vars_)
-        await q.edit_message_text(text)
+        await q.edit_message_text(text, parse_mode="HTML")
         return WAITING_CHARGE_AMOUNT
 
     if data == "wallet_gift":
         text = render_template("wallet_gift", user_vars(bu, uname))
-        await q.edit_message_text(text)
+        await q.edit_message_text(text, parse_mode="HTML")
         return WAITING_GIFT_CODE
 
     if data == "wallet_refs":
         text = render_template("wallet_referrals", user_vars(bu, uname))
-        await q.edit_message_text(text, reply_markup=wallet_keyboard())
+        await q.edit_message_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
         return ConversationHandler.END
 
     if data.startswith("pay_card_"):
@@ -197,7 +197,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [copy_btn],
             [InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")],
         ])
-        await q.edit_message_text(text, reply_markup=kb)
+        await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
         # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
         try:
             await context.bot.send_message(

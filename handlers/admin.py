@@ -712,7 +712,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 vars_ = user_vars(user)
                 vars_["amount"] = f"{int(ch['amount']):,}"
                 vars_["balance"] = f"{int(user['balance']):,}"
-                await context.bot.send_message(user["telegram_id"], render_template("charge_approved", vars_))
+                await context.bot.send_message(user["telegram_id"], render_template("charge_approved", vars_), parse_mode="HTML")
             except Exception:
                 pass
             await query.answer("تایید شد", show_alert=True)
@@ -731,7 +731,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 vars_ = user_vars(u)
                 vars_["amount"] = f"{int(ch['amount']):,}"
                 vars_["reason"] = "توسط ادمین"
-                await context.bot.send_message(ch["telegram_id"], render_template("charge_rejected", vars_))
+                await context.bot.send_message(ch["telegram_id"], render_template("charge_rejected", vars_), parse_mode="HTML")
             except Exception:
                 pass
             await query.edit_message_text(f"❌ فاکتور #{cid} رد شد.")

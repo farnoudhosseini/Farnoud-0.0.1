@@ -30,10 +30,10 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
     text = render_template("buy_select_panel", {}) or "🖥 پنل مورد نظر را انتخاب کنید:"
     if update.message:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows))
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
     else:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
     log_activity(user.id, "buy_start")
     return ConversationHandler.END
 
@@ -66,7 +66,7 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows.append([InlineKeyboardButton("همه محصولات", callback_data="buy_cat_0")])
             rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
             text = render_template("buy_select_category", {}) or "📁 دسته را انتخاب کنید:"
-            await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+            await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
         else:
             await _show_products(q, context, panel_id, None, bu)
         return ConversationHandler.END
@@ -216,7 +216,7 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         context.user_data["buy_order_id"] = order_id
         context.user_data["buy_price"] = price
-        await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+        await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
         return ConversationHandler.END
 
 
@@ -309,7 +309,7 @@ async def _show_products(q, context, panel_id, cat_id, bu):
     )] for p in products]
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
     text = render_template("buy_select_product", {}) or "📦 محصول را انتخاب کنید:"
-    await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+    await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
 
 async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = context.user_data.get("waiting_buy_receipt")
