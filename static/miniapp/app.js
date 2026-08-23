@@ -671,10 +671,10 @@ function newsList(list){
   if(!list?.length)return `<div class="empty"><span class="big">▣</span><strong>خبری نیست</strong></div>`;
   return `<div class="news-list">${list.map(n=>`<article class="news-card" onclick="openNews(${n.id})">${n.image_url?`<img src="${esc(n.image_url)}" onerror="this.style.display='none'">`:''}<div class="copy"><h3>${esc(n.title)}</h3><p>${esc(n.summary||'')}</p></div></article>`).join('')}</div>`;
 }
-function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()">بازگشت</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
+function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="بازگشت">${icon("back")}</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
 function renderNotifications(){
   const n=state.data.notifications;
-  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()">بازگشت</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
+  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()">${icon("back")}</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
 <div class="service-list">${n.items.length?n.items.map(x=>`<button class="menu-item" onclick="readNotif(${x.id})"><span>${x.is_read?'○':'●'}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.body)}</small></span></button>`).join(''):`<div class="empty"><strong>اعلان جدیدی ندارید</strong></div>`}</div>`;
 }
 function openNews(id){const n=state.data.news.find(x=>x.id===id);if(!n)return;showSheet(`<h2>${esc(n.title)}</h2>${n.image_url?`<img src="${esc(n.image_url)}" style="width:100%;border-radius:16px;margin-bottom:12px">`:''}<p style="color:var(--muted);font-size:13px;line-height:2">${esc(n.content||n.summary||'')}</p>`)}
