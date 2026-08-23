@@ -262,23 +262,41 @@ def _validate_init_data(init_data: str):
         return None, "داده احراز هویت تلگرام موجود نیست — از داخل ربات باز کنید"
     try:
         # parse_qsl یک‌بار URL-decode می‌کند (مطابق مشخصات)
-        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-        supplied_hash = pairs.pop("hash", None)
-        # فیلد signature برای third-party است؛ برای بات نادیده بگیر
-        pairs.pop("signature", None)
+        # Telegram initData is application/x-www-form-urlencoded. Keep the
+        # decoded values for the official data-check-string construction.
+        raw_pairs = parse_qsl(init_data, keep_blank_values=True)
+        pairs = dict(raw_pairs)
+        supplied_hash = pairs.get("hash")
         if not supplied_hash:
             return None, "داده احراز هویت تلگرام ناقص است"
-        data_check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs.keys()))
-        # PHP: hash_hmac('sha256', $bot_token, 'WebAppData', true)
-        # یعنی key=WebAppData ، message=bot_token
-        secret = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
-        expected = hmac.new(secret, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, supplied_hash):
-            # fallback: بعضی مستندات قدیمی ترتیب را برعکس نوشته‌اند
-            secret2 = hmac.new(token.encode("utf-8"), b"WebAppData", hashlib.sha256).digest()
-            expected2 = hmac.new(secret2, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(expected2, supplied_hash):
-                return None, "امضای تلگرام نامعتبر است"
+
+        # Official Web App validation:
+        # secret_key = HMAC-SHA256(key="WebAppData", msg=BOT_TOKEN)
+        # hash       = HMAC-SHA256(key=secret_key, msg=data_check_string)
+        #
+        # Newer Telegram initData may also carry `signature`. Accept both
+        # canonical hash variants so the bot-token validation works across
+        # Telegram client versions, while every candidate still has to match
+        # an HMAC generated from the configured BOT_TOKEN.
+        candidates = []
+        for include_signature in (False, True):
+            check_pairs = {
+                k: v for k, v in pairs.items()
+                if k != "hash" and (include_signature or k != "signature")
+            }
+            data_check = "\n".join(
+                f"{k}={check_pairs[k]}" for k in sorted(check_pairs.keys())
+            )
+            secret = hmac.new(
+                b"WebAppData", token.encode("utf-8"), hashlib.sha256
+            ).digest()
+            expected = hmac.new(
+                secret, data_check.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+            candidates.append(expected)
+
+        if not any(hmac.compare_digest(expected, supplied_hash) for expected in candidates):
+            return None, "امضای تلگرام نامعتبر است"
         auth_date = int(pairs.get("auth_date") or 0)
         max_age = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
         if auth_date > 0 and time.time() - auth_date > max_age:
