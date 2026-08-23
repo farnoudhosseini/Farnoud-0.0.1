@@ -1,7 +1,7 @@
 # Farnoud Bot
 
 <p align="center">
-  <img src="https://uploadkon.ir/uploads/edcb23_26image-png-2K-202608231552.jpeg" alt="Farnoud Bot" width="480"/>
+  <img src="https://storage.filebin.net/filebin/eebf7c12552879ba80f9c90b134c33d8ad6fa85c3c752695ff2b90a707ec2757?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=GK352fd2505074fc9dde7fd2cb%2F20260823%2Fhel1-dc4%2Fs3%2Faws4_request&X-Amz-Date=20260823T143914Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&response-cache-control=max-age%3D900&response-content-disposition=inline%3B%20filename%3D%22image.png_2K_202608231552.jpeg%22&response-content-type=image%2Fjpeg&x-id=GetObject&X-Amz-Signature=7f45bc03d39b46cbb97f0306af9b8fadbb98ca943b69d07be712284ad6672c4f" alt="Farnoud Bot" width="480"/>
 </p>
 
 <p align="center">
