@@ -132,7 +132,7 @@ def provision_order(order_id: int) -> dict:
         if not created:
             return {"ok": False, "error": f"ساخت کلاینت 3x-ui: {last_err}"}
         sub_id = created.get("subId") or shared_sub or ""
-        sub_link = xui.subscription_url(sub_id)
+        sub_link = xui.subscription_url(sub_id, email=created.get("email") or username)
         full = {
             "username": created.get("email") or username,
             "email": created.get("email") or username,

@@ -338,10 +338,138 @@ class XUI3Client:
             "POST", f"/panel/api/inbounds/{int(inbound_id)}/resetClientTraffic/{email}"
         )
 
-    def subscription_url(self, sub_id: str) -> str:
+    def get_all_settings(self) -> dict:
+        """تنظیمات پنل شامل subPort / subPath / subURI / subDomain"""
+        for method, path in (
+            ("GET", "/panel/api/setting/all"),
+            ("POST", "/panel/api/setting/all"),
+            ("POST", "/panel/setting/all"),
+            ("GET", "/panel/setting/all"),
+        ):
+            try:
+                obj = self._request(method, path)
+                if isinstance(obj, dict) and obj:
+                    return obj
+            except Exception:
+                continue
+        return {}
+
+    def get_client_sub_links(self, email: str = "", sub_id: str = "") -> list:
+        """تلاش برای گرفتن لینک‌های آماده از API مدرن"""
+        paths = []
+        if email:
+            paths += [
+                ("GET", f"/panel/api/clients/get/{email}"),
+                ("GET", f"/panel/api/clients/{email}"),
+                ("GET", f"/panel/api/inbounds/getClientTraffics/{email}"),
+            ]
+        if sub_id:
+            paths += [
+                ("GET", f"/panel/api/clients/subLinks/{sub_id}"),
+                ("GET", f"/panel/api/clients/getSubLinks/{sub_id}"),
+            ]
+        for method, path in paths:
+            try:
+                obj = self._request(method, path)
+                if not obj:
+                    continue
+                # استخراج URL از ساختارهای رایج
+                links = []
+                if isinstance(obj, dict):
+                    for k in ("subUrl", "subLink", "subscriptionUrl", "subscription_url", "url", "link"):
+                        v = obj.get(k)
+                        if isinstance(v, str) and v.startswith("http"):
+                            links.append(v)
+                    for k in ("subLinks", "links", "urls"):
+                        v = obj.get(k)
+                        if isinstance(v, list):
+                            for item in v:
+                                if isinstance(item, str) and item.startswith("http"):
+                                    links.append(item)
+                                elif isinstance(item, dict):
+                                    for kk in ("url", "link", "subUrl"):
+                                        if isinstance(item.get(kk), str) and item[kk].startswith("http"):
+                                            links.append(item[kk])
+                    # nested client
+                    c = obj.get("client") or obj.get("obj") or {}
+                    if isinstance(c, dict):
+                        for k in ("subUrl", "subLink", "subscriptionUrl"):
+                            v = c.get(k)
+                            if isinstance(v, str) and v.startswith("http"):
+                                links.append(v)
+                if links:
+                    return links
+            except Exception:
+                continue
+        return []
+
+    def subscription_url(self, sub_id: str, email: str = "") -> str:
+        """
+        لینک ساب واقعی طبق تنظیمات پنل ثنایی.
+        اولویت:
+          1) لینک آماده از API کلاینت
+          2) subURI از تنظیمات + subId
+          3) ساخت از subDomain/host + subPort + subPath + subId
+        """
         if not sub_id:
             return ""
-        return f"{self.base_url}/sub/{sub_id}"
+
+        # 1) API
+        try:
+            links = self.get_client_sub_links(email=email, sub_id=sub_id)
+            for u in links:
+                if "/sub" in u or "sub" in u.lower():
+                    return u
+            if links:
+                return links[0]
+        except Exception:
+            pass
+
+        # 2) تنظیمات پنل
+        settings = {}
+        try:
+            settings = self.get_all_settings() or {}
+        except Exception:
+            settings = {}
+
+        sub_uri = (settings.get("subURI") or settings.get("subUri") or "").strip()
+        if sub_uri:
+            # subURI معمولاً مثل https://domain:2096/sub/ است
+            if sub_uri.endswith(sub_id):
+                return sub_uri
+            if not sub_uri.endswith("/"):
+                sub_uri += "/"
+            return sub_uri + sub_id
+
+        sub_path = settings.get("subPath") or "/sub/"
+        if not str(sub_path).startswith("/"):
+            sub_path = "/" + str(sub_path)
+        if not str(sub_path).endswith("/"):
+            sub_path = str(sub_path) + "/"
+
+        sub_port = settings.get("subPort") or settings.get("sub_port") or 2096
+        try:
+            sub_port = int(sub_port)
+        except Exception:
+            sub_port = 2096
+
+        sub_domain = (settings.get("subDomain") or settings.get("sub_domain") or "").strip()
+        # scheme: اگر ساب TLS داشته باشد از https
+        has_cert = bool(settings.get("subCertFile") or settings.get("subKeyFile"))
+        # از base_url پنل scheme و host بگیر
+        from urllib.parse import urlparse
+        parsed = urlparse(self.base_url)
+        scheme = parsed.scheme or "https"
+        if has_cert:
+            scheme = "https"
+        host = sub_domain or parsed.hostname or ""
+        if not host:
+            return f"{self.base_url.rstrip('/')}{sub_path}{sub_id}"
+
+        # پورت پیش‌فرض را در URL ننویس اگر 443/80 باشد
+        if (scheme == "https" and sub_port == 443) or (scheme == "http" and sub_port == 80):
+            return f"{scheme}://{host}{sub_path}{sub_id}"
+        return f"{scheme}://{host}:{sub_port}{sub_path}{sub_id}"
 
     def find_client_in_inbounds(self, email: str) -> Optional[dict]:
         for ib in self.list_inbounds():
