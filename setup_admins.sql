@@ -8,10 +8,6 @@ CREATE TABLE IF NOT EXISTS admins (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO admins (username, password)
-VALUES ('admin', 'admin123')
-ON DUPLICATE KEY UPDATE password = 'admin123';
-
 CREATE TABLE IF NOT EXISTS settings (
     `key` VARCHAR(100) PRIMARY KEY,
     `value` TEXT,
@@ -20,18 +16,3 @@ CREATE TABLE IF NOT EXISTS settings (
 
 INSERT IGNORE INTO settings (`key`, `value`)
 VALUES ('welcome_message', 'سلام! به ربات فرنود خوش آمدید 👋');
-
-CREATE TABLE IF NOT EXISTS vpn_panels (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    slug VARCHAR(100) NOT NULL UNIQUE,
-    panel_type VARCHAR(30) NOT NULL DEFAULT 'pasarguard',
-    base_url VARCHAR(500) NOT NULL,
-    username VARCHAR(150) NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1,
-    last_status VARCHAR(50) DEFAULT NULL,
-    last_check_at TIMESTAMP NULL DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

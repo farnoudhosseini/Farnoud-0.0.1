@@ -1,55 +1,153 @@
-# FarnoudBot vNext
+# Farnoud Bot
 
-نسخه بازطراحی و توسعه‌یافته ربات فروش سرویس + پنل مدیریت.
+<p align="center">
+  <img src="https://uploadkon.ir/uploads/edcb23_26image-png-2K-202608231552.jpeg" alt="Farnoud Bot" width="480"/>
+</p>
 
-## تغییرات مهم
-- UI وب‌پنل با Liquid Glass / macOS style، اسکرول‌بار و checkbox بازطراحی شده.
-- Drag & Drop برای ترتیب محصولات و دکمه‌های منوی اصلی.
-- سیستم Premium Emoji با کدهای `p_xxxxxxxx` و فرم‌های `[p_xxxxxxxx]`، `{{p_xxxxxxxx}}` و `{{premium:p_xxxxxxxx}}`.
-- پیام خوش‌آمدگویی در «تنظیم همه پیام‌ها» و پشتیبانی از متغیرها و Premium Emoji.
-- خرید با موجودی: ابتدا تأیید کاربر، سپس کسر موجودی و ساخت سرویس.
-- انتخاب لوکیشن بر اساس پنل مقصد، نه گروه.
-- تست رایگان با امکان انتخاب پنل.
-- سرویس ساعتی با کلید واکنشی خاموش/روشن.
-- سقف فروش برای هر پنل، هم در وب‌پنل و هم مدیریت ربات.
-- مدیریت کارت‌ها از داخل ربات: افزودن، فعال/خاموش و حذف.
-- جستجوی کاربران در مدیریت ربات.
-- ارسال همگانی بر اساس همه / دارای موجودی / بدون موجودی / دارای زیرمجموعه، با گزینه پین و دکمه منوی اصلی.
-- مدیریت اعتبار ورود وب‌پنل از داخل ربات.
-- تنظیمات رفرال شامل درصد، پاداش ثبت‌نام، حداقل مبلغ و سقف ماهانه.
-- تغییر نام بخش «پنل‌های VPN» به «پنل‌ها».
+<p align="center">
+  <b>ربات فروش سرویس VPN + پنل مدیریت وب + Telegram Mini App</b><br/>
+  رایگان و متن‌باز — توسعه‌یافته توسط <a href="https://github.com/FarnoudHosseini">Farnoud Hosseini</a>
+</p>
 
-## نصب
-1. `.env.example` را به `.env` کپی کنید و مقادیر واقعی را وارد کنید.
-2. `pip install -r requirements.txt`
-3. ساخت دیتابیس و اجرای `models_schema.sql` و `setup_admins.sql`
-4. اجرای ربات با `python main.py`
-5. اجرای پنل وب با `python admin_app.py`
+<p align="center">
+  <a href="https://t.me/+6vJiX_pRVcVjNWE0">گروه تلگرام پشتیبانی</a> ·
+  <a href="https://donofa.ir/farnoudhosseini">حمایت مالی (Donate)</a> ·
+  <a href="https://github.com/FarnoudHosseini/FarnoudBot">GitHub</a>
+</p>
 
-> مهاجرت‌های جدید در startup اجرا می‌شوند. قبل از آپدیت از دیتابیس backup بگیرید.
+---
 
+## نصب یک‌خطی (One-Line Install)
 
-## Telegram Mini App — Production UI/API
+روی سرور اوبونتو ۲۲.۰۴ / ۲۴.۰۴ با دسترسی root:
 
-یک Mini App موبایل‌محور در مسیر `/miniapp/` اضافه شده است. این بخش از کد فعلی خرید، محصولات، کیف پول، سفارش و پنل VPN استفاده می‌کند و برای Authentication از `Telegram.WebApp.initData` با HMAC سمت سرور استفاده می‌کند.
+```bash
+curl -sSL https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh | sudo bash
+```
 
-### مسیرهای اصلی
-- `GET /miniapp/` — رابط Mini App
-- `GET /miniapp/api/bootstrap` — داشبورد تجمیعی
-- `GET /miniapp/api/subscriptions/<id>` — وضعیت زنده سرویس
-- `POST /miniapp/api/orders` — خرید با کیف پول + idempotency + provision
-- `GET /miniapp/api/wallet` — کیف پول و تراکنش‌ها
-- `POST /miniapp/api/wallet/topup` — ایجاد درخواست شارژ
-- `POST /miniapp/api/notifications/read` — خواندن اعلان
+یا دانلود و اجرا:
 
-### اتصال به Bot
-برای نمایش دکمه Mini App در منوی ربات، مقدار `MINIAPP_URL` را در `.env` قرار دهید؛ مثال:
-`MINIAPP_URL=https://your-domain.example/miniapp/`
+```bash
+wget -O install.sh https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh
+sudo bash install.sh
+```
 
-`BOT_USERNAME` نیز برای ساخت لینک Referral در Mini App لازم است.
+منوی اسکریپت:
+
+```
+1) Install
+2) Update
+3) Full Uninstall
+```
+
+### مراحل نصب خودکار
+1. به‌روزرسانی سیستم و نصب پیش‌نیازها (Python, MySQL, Nginx, Certbot, UFW, Fail2ban)
+2. دریافت دامنه (باید روی IP سرور ست شده باشد)
+3. صدور و نصب گواهی SSL رایگان (Let's Encrypt)
+4. دریافت توکن ربات از BotFather
+5. دریافت آیدی عددی ادمین
+6. ساخت دیتابیس با **پسورد تصادفی**، تکمیل کامل فایل `.env`، هش امن رمز ورود پنل وب
+7. تنظیمات امنیتی نهایی + راه‌اندازی سرویس‌های systemd
+
+پس از نصب، آدرس پنل و رمز ورود وب در خروجی نمایش داده می‌شود.
+
+---
+
+## قابلیت‌های ربات
+
+### برای کاربر نهایی
+- **خرید سرویس** با کیف پول (تأیید قبل از کسر موجودی)
+- **انتخاب لوکیشن / پنل** مقصد
+- **تست رایگان** با امکان انتخاب پنل
+- **کیف پول**: شارژ کارت‌به‌کارت، کد هدیه، تاریخچه تراکنش
+- **سرویس‌های من**: مشاهده وضعیت، حجم، انقضا، لینک اتصال
+- **رفرال**: لینک دعوت، پاداش ثبت‌نام و درصد از خرید زیرمجموعه
+- **تیکت پشتیبانی** با دپارتمان‌های قابل تنظیم
+- **درخواست نمایندگی (Reseller)**
+- **Telegram Mini App** موبایل‌محور با احراز هویت `initData` و HMAC سمت سرور
+- منوی شیشه‌ای (Inline) قابل شخصی‌سازی + ایموجی پریمیوم
+
+### برای ادمین (داخل ربات — دستور `/admin`)
+- آمار ربات و داشبورد
+- تنظیم همه پیام‌ها و خوش‌آمدگویی (با متغیر و Premium Emoji)
+- مدیریت پنل‌های VPN (PasarGuard / X-UI و …)
+- سقف فروش هر پنل
+- محصولات و دسته‌بندی (Drag & Drop ترتیب)
+- سرویس‌های فروخته‌شده و مدیریت سفارش
+- کاربران ربات: جستجو، موجودی، نقش، مسدودسازی
+- ارسال همگانی (همه / دارای موجودی / بدون موجودی / دارای زیرمجموعه) + پین
+- مدیریت کارت‌های پرداخت
+- درخواست‌های شارژ (تأیید / رد خودکار اختیاری)
+- ایموجی پریمیوم و منوی شیشه‌ای
+- ادمین‌های ربات
+- سرویس ساعتی (روشن/خاموش)
+- بهینه‌سازی و آنتی‌اسپم
+- فاصله بکاپ خودکار دیتابیس
+- مدیریت اعتبار ورود وب‌پنل از داخل ربات
+- **دکمه شیشه‌ای لینک گیت‌هاب پروژه**
+
+### پنل وب مدیریت
+- UI با استایل Liquid Glass / macOS
+- داشبورد آماری و نمودار
+- مدیریت پنل‌ها، محصولات، سفارش‌ها، کاربران
+- رفرال، تخفیف، هدیه، وفاداری
+- تیکت‌های پشتیبانی
+- تنظیمات پیام‌ها و شخصی‌سازی
+- Mini App در مسیر `/miniapp/`
 
 ### امنیت
-Frontend هیچ‌گاه منبع حقیقت برای قیمت، موجودی یا مالکیت سرویس نیست. قیمت از Database خوانده و محاسبه می‌شود، مالکیت Subscription با Telegram ID اعتبارسنجی‌شده کنترل می‌شود و خرید کیف‌پولی با قفل ردیف کاربر انجام می‌شود. `Idempotency-Key` برای جلوگیری از سفارش تکراری استفاده می‌شود.
+- پسورد ورود پنل وب با **هش werkzeug** (مهاجرت نرم از plaintext قدیمی)
+- `.env` با مجوز ۶۰۰ و تولید خودکار `SECRET_KEY` و پسورد دیتابیس تصادفی
+- Nginx reverse proxy + هدرهای امنیتی
+- پورت ۵۰۰۰ فقط لوکال؛ فایروال UFW و Fail2ban
+- احراز هویت Mini App فقط از طریق Telegram `initData` تأییدشده سمت سرور
+- Idempotency برای خرید کیف‌پولی و قفل ردیف کاربر
 
-### نکته مهم
-فایل `.env` عمداً در بسته خروجی قرار داده نشده تا Secretهای محیط اجرایی منتشر نشوند. از `.env.example` برای تنظیمات استفاده کنید.
+---
+
+## ساختار پروژه (خلاصه)
+
+```
+FarnoudBot/
+├── main.py / bot.py          # ورود ربات تلگرام
+├── admin_app.py              # پنل وب Flask + Mini App
+├── config.py                 # خواندن از .env
+├── database.py + db_*.py     # لایه دیتابیس
+├── handlers/                 # هندلرهای ربات
+├── services/                 # کلاینت پنل‌ها و provision
+├── static/ / templates/      # فرانت پنل و مینی‌اپ
+├── models_schema.sql
+├── install.sh                # نصب‌کننده تعاملی
+└── requirements.txt
+```
+
+---
+
+## اجرا دستی (توسعه)
+
+```bash
+cp .env.example .env
+# مقادیر BOT_TOKEN و ADMIN_ID و DB را پر کنید
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+# دیتابیس و جداول را بسازید
+python admin_app.py   # پنل → http://127.0.0.1:5000
+python main.py        # ربات
+```
+
+ورود پیش‌فرض پنل پس از نصب اسکریپت: `admin` + رمز تصادفی نمایش‌داده‌شده.
+
+---
+
+## لینک‌ها
+
+| مورد | لینک |
+|------|------|
+| مخزن | https://github.com/FarnoudHosseini/FarnoudBot |
+| گروه پشتیبانی | https://t.me/+6vJiX_pRVcVjNWE0 |
+| حمایت مالی | https://donofa.ir/farnoudhosseini |
+
+---
+
+**Credit:** Farnoud Hosseini  
+ربات رایگان است. در صورت مفید بودن از طریق لینک دونیت حمایت کنید.

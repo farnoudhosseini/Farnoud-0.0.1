@@ -47,6 +47,7 @@ def main_keyboard():
         [btn("⏱ سرویس ساعتی", "admin_hourly"), btn("🧹 بهینه‌سازی", "admin_optimize")],
         [btn("🛡 آنتی‌اسپم", "admin_antispam")],
         [btn("💾 فاصله بکاپ", "admin_backup_cfg")],
+        [InlineKeyboardButton("📂 گیت‌هاب پروژه", url="https://github.com/FarnoudHosseini/FarnoudBot")],
         [btn("🏠 منوی اصلی", "admin_to_start")],
     ])
 
@@ -1687,14 +1688,10 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     if mode=="web_pass":
-        from database import get_sync_connection
-        conn=get_sync_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE admins SET password=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",(text,))
-            conn.commit()
-        finally: conn.close()
-        await update.message.reply_text("✅ رمز وب‌پنل تغییر کرد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
+        from database import set_admin_password
+        ok = set_admin_password(text)
+        msg = "✅ رمز وب‌پنل تغییر کرد." if ok else "❌ خطا در تغییر رمز."
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت", callback_data="admin_panel")]]))
         return ConversationHandler.END
 
     if mode == "broadcast":

@@ -77,6 +77,22 @@ def get_sync_connection():
     config["cursorclass"] = pymysql.cursors.DictCursor
     return pymysql.connect(**config)
 
+def _hash_password(password: str) -> str:
+    from werkzeug.security import generate_password_hash
+    return generate_password_hash(password)
+
+
+def _verify_password(stored: str, password: str) -> bool:
+    """پشتیبانی از هش werkzeug و پسوردهای قدیمی plaintext (مهاجرت نرم)."""
+    if not stored or not password:
+        return False
+    if stored.startswith(("pbkdf2:", "scrypt:", "argon2:")):
+        from werkzeug.security import check_password_hash
+        return check_password_hash(stored, password)
+    # سازگاری با نصب‌های قدیمی که پسورد plain داشتند
+    return stored == password
+
+
 def check_admin(username: str, password: str):
     connection = None
     try:
@@ -84,12 +100,49 @@ def check_admin(username: str, password: str):
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM admins WHERE username = %s LIMIT 1", (username,))
             admin = cursor.fetchone()
-            if admin and admin.get("password") == password:
+            if not admin:
+                return None
+            stored = admin.get("password") or ""
+            if _verify_password(stored, password):
+                # اگر پسورد هنوز plain بود، به هش ارتقا بده
+                if not stored.startswith(("pbkdf2:", "scrypt:", "argon2:")):
+                    try:
+                        cursor.execute(
+                            "UPDATE admins SET password=%s WHERE id=%s",
+                            (_hash_password(password), admin["id"]),
+                        )
+                        connection.commit()
+                    except Exception:
+                        pass
                 return admin
             return None
     except Exception as e:
         print(f"❌ خطا در بررسی ادمین: {e}")
         return None
+    finally:
+        if connection:
+            connection.close()
+
+
+def set_admin_password(password: str, admin_id: int = None) -> bool:
+    """تنظیم/تغییر رمز ادمین با هش امن."""
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            hashed = _hash_password(password)
+            if admin_id:
+                cursor.execute("UPDATE admins SET password=%s WHERE id=%s", (hashed, admin_id))
+            else:
+                cursor.execute(
+                    "UPDATE admins SET password=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",
+                    (hashed,),
+                )
+            connection.commit()
+            return True
+    except Exception as e:
+        print(f"❌ خطا در تغییر رمز ادمین: {e}")
+        return False
     finally:
         if connection:
             connection.close()
