@@ -1,3 +1,12 @@
+/* Farnoud Mini App + Vazirmatn */
+html,body{
+  font-family: Vazirmatn, Tahoma, system-ui, -apple-system, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+*{box-sizing:border-box}
+button,input,select,textarea{font-family:inherit}
+
 :root{
   --bg: var(--tg-theme-bg-color,#090910);
   --surface: color-mix(in srgb,var(--tg-theme-secondary-bg-color,#141421) 90%,transparent);

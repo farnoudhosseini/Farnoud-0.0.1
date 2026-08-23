@@ -1,6 +1,7 @@
 # پنل مدیریت وب فرنود
 
 from functools import wraps
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from config import SECRET_KEY
 from database import (
@@ -34,6 +35,7 @@ from db_users import (
 
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = SECRET_KEY
 
 # Telegram Mini App: public API routes are isolated in a Blueprint and use Telegram initData auth.
@@ -1177,10 +1179,26 @@ def miniapp_content():
             cur.execute("SELECT * FROM banners ORDER BY id DESC LIMIT 30")
             banners = cur.fetchall() or []
         return render_template("miniapp_content.html", username=session.get("admin_username"),
-                               active="miniapp", news=news, banners=banners)
+                               active="miniapp", news=news, banners=banners,
+                               miniapp_url=get_setting_sync("miniapp_url", "") or "")
     finally:
         conn.close()
 
+
+
+@app.route("/miniapp-content/settings", methods=["POST"])
+@login_required
+def miniapp_settings_save():
+    url = (request.form.get("miniapp_url") or "").strip().rstrip("/")
+    if url and not url.startswith("https://") and not url.startswith("http://"):
+        url = "https://" + url
+    if url and not url.endswith("/miniapp") and "/miniapp" not in url:
+        url = url.rstrip("/") + "/miniapp/"
+    elif url and not url.endswith("/"):
+        url = url + "/"
+    set_setting_sync("miniapp_url", url)
+    flash("آدرس مینی‌اپ ذخیره شد", "success")
+    return redirect(url_for("miniapp_content"))
 
 @app.route("/miniapp-content/news", methods=["POST"])
 @login_required

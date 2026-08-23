@@ -23,6 +23,22 @@ from db_support import list_user_orders, get_user_order
 from services.provision import provision_order
 
 
+
+def resolve_miniapp_url() -> str:
+    """آدرس عمومی مینی‌اپ از تنظیمات یا محیط"""
+    try:
+        from database import get_setting_sync
+        u = (get_setting_sync("miniapp_url", "") or "").strip()
+        if u:
+            return u.rstrip("/")
+    except Exception:
+        pass
+    env = (os.getenv("MINIAPP_URL") or "").strip()
+    if env:
+        return env.rstrip("/")
+    return ""
+
+
 miniapp_bp = Blueprint("miniapp", __name__, url_prefix="/miniapp")
 RATE_BUCKET = {}
 
@@ -167,7 +183,7 @@ def ensure_miniapp_tables():
                     cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
                 except Exception:
                     pass
-            cur.execute("INSERT IGNORE INTO system_settings (`key`,`value`) VALUES ('miniapp_enabled','1')")
+            cur.execute("INSERT IGNORE INTO settings (`key`,`value`) VALUES ('miniapp_enabled','1')")
             try:
                 cur.execute("INSERT IGNORE INTO settings (`key`,`value`) VALUES ('miniapp_url','')")
             except Exception:
@@ -192,7 +208,8 @@ def _validate_init_data(init_data: str):
         if not supplied_hash:
             return None, "Missing Telegram signature"
         data_check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
-        secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        # Telegram docs: secret_key = HMAC_SHA256(key=bot_token, msg="WebAppData")
+        secret = hmac.new(BOT_TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
         expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, supplied_hash):
             return None, "Invalid Telegram signature"
@@ -437,6 +454,13 @@ def miniapp_index():
     return send_from_directory(root, "index.html")
 
 
+@miniapp_bp.get("/assets/<path:filename>")
+def miniapp_asset(filename):
+    """سرویس CSS/JS/فونت مینی‌اپ از مسیر ثابت /miniapp/assets/..."""
+    root = os.path.join(os.path.dirname(__file__), "static", "miniapp")
+    return send_from_directory(root, filename)
+
+
 @miniapp_bp.get("/api/bootstrap")
 @auth_required
 def bootstrap():
@@ -462,15 +486,30 @@ def subscription_detail(order_id):
     # Live connection information is intentionally fetched only on demand.
     if o.get("vpn_username"):
         try:
-            from handlers.services_user import _client, _panel_creds
+            from services.panel_client import get_panel_client
+            from database import get_panel_by_id
             from services.provision import fix_subscription_url
-            client = _client(o)
+            panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
+            if not panel:
+                panel = {
+                    "base_url": o.get("base_url") or o.get("panel_base") or "",
+                    "username": o.get("panel_user") or "",
+                    "password": o.get("panel_pass") or "",
+                    "panel_type": o.get("panel_type") or "pasarguard",
+                    "api_key": o.get("api_key") or "",
+                }
+            client = get_panel_client(panel)
             full = client.get_user(o["vpn_username"]) or {}
             raw = full.get("subscription_url") or full.get("subscription_link") or ""
             if not raw and full.get("subscription_token"):
                 raw = f"/sub/{full['subscription_token']}"
-            base, _, _ = _panel_creds(o)
-            payload["subscription_link"] = fix_subscription_url(base, raw)
+            if not raw and full.get("subId") and hasattr(client, "subscription_url"):
+                try:
+                    raw = client.subscription_url(full.get("subId"), email=o["vpn_username"])
+                except Exception:
+                    pass
+            base = (panel.get("base_url") if isinstance(panel, dict) else "") or ""
+            payload["subscription_link"] = raw if str(raw).startswith("http") else fix_subscription_url(base, raw)
             if payload["subscription_link"]:
                 try:
                     qr_bytes = __import__("services.provision", fromlist=["make_qr_png"]).make_qr_png(payload["subscription_link"])

@@ -4,37 +4,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#0b0b12">
-  <title>یونیک تی سی آی</title>
-  <link rel="stylesheet" href="/static/miniapp/app.css">
+  <title>مینی‌اپ فرنود</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/miniapp/assets/app.css">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">U</div>
-        <div><strong>یونیک تی سی آی</strong><small>مدیریت سرویس VPN</small></div>
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>فرنود</strong>
+          <small>مدیریت سرویس VPN</small>
+        </div>
       </div>
-      <button class="icon-btn" id="notifyBtn" aria-label="اعلان‌ها"><span>◌</span><b id="notifyBadge" hidden>0</b></button>
+      <button class="icon-btn" id="notifyBtn" type="button" aria-label="اعلان‌ها">
+        <span>◌</span><b id="notifyBadge" hidden>0</b>
+      </button>
     </header>
 
     <main id="app" class="content">
       <section class="skeleton-page" id="loading">
-        <div class="sk hero"></div><div class="sk line"></div><div class="sk line short"></div><div class="sk card"></div>
+        <div class="sk hero"></div>
+        <div class="sk line"></div>
+        <div class="sk line short"></div>
+        <div class="sk card"></div>
       </section>
     </main>
 
     <nav class="bottom-nav">
-      <button data-tab="home" class="active"><span>⌂</span><small>خانه</small></button>
-      <button data-tab="services"><span>◈</span><small>سرویس‌ها</small></button>
-      <button data-tab="wallet"><span>₮</span><small>کیف پول</small></button>
-      <button data-tab="rewards"><span>✦</span><small>باشگاه</small></button>
-      <button data-tab="profile"><span>◯</span><small>پروفایل</small></button>
+      <button type="button" data-tab="home" class="active"><span>⌂</span><small>خانه</small></button>
+      <button type="button" data-tab="services"><span>◈</span><small>سرویس‌ها</small></button>
+      <button type="button" data-tab="wallet"><span>₮</span><small>کیف پول</small></button>
+      <button type="button" data-tab="rewards"><span>✦</span><small>باشگاه</small></button>
+      <button type="button" data-tab="profile"><span>◯</span><small>پروفایل</small></button>
     </nav>
   </div>
 
-  <div id="toast" class="toast"></div>
-  <div id="sheet" class="sheet-backdrop" hidden><div class="sheet"><button class="sheet-close" id="sheetClose">×</button><div id="sheetContent"></div></div></div>
+  <div id="toast" class="toast" role="status"></div>
+  <div id="sheet" class="sheet-backdrop" hidden>
+    <div class="sheet">
+      <button type="button" class="sheet-close" id="sheetClose">×</button>
+      <div id="sheetContent"></div>
+    </div>
+  </div>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/static/miniapp/app.js"></script>
+  <script src="/miniapp/assets/app.js"></script>
 </body>
 </html>

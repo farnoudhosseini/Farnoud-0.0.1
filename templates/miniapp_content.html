@@ -1,51 +1,75 @@
 {% extends "base.html" %}
+{% block title %}مینی‌اپ تلگرام{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div><h1>Mini App</h1><p>مدیریت محتوای تجربه کاربری تلگرام</p></div>
+<div class="dashboard">
+{% include "_sidebar.html" %}
+<main class="main">
+<header class="topbar"><h2>✦ مینی‌اپ تلگرام</h2></header>
+<div class="content">
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">اتصال به وب‌پنل / HTTPS</div>
+  <p class="muted" style="font-size:.88rem;margin-bottom:12px">
+    آدرس عمومی مینی‌اپ باید <strong>HTTPS</strong> باشد (مثلاً پشت Nginx). همین آدرس در دکمه WebApp ربات استفاده می‌شود.
+  </p>
+  <form method="post" action="{{ url_for('miniapp_settings_save') }}" class="inline-form" style="flex-wrap:wrap;gap:10px">
+    <input name="miniapp_url" value="{{ miniapp_url }}" placeholder="https://YOUR-IP-OR-DOMAIN/miniapp/" style="flex:1;min-width:240px">
+    <button class="btn-primary inline" type="submit">ذخیره آدرس</button>
+  </form>
+  {% if miniapp_url %}
+  <p style="margin-top:10px;font-size:.85rem">لینک فعلی: <a href="{{ miniapp_url }}" target="_blank" rel="noopener">{{ miniapp_url }}</a></p>
+  {% else %}
+  <p class="muted" style="margin-top:10px;color:var(--danger,#f87171)">آدرس مینی‌اپ هنوز تنظیم نشده — دکمه اپ در ربات نمایش داده نمی‌شود.</p>
+  {% endif %}
+  <p class="muted" style="font-size:.8rem;margin-top:8px">نمونه با SSL شما: <code>https://155.117.5.201/miniapp/</code></p>
 </div>
-<div class="cards">
+
+<div class="cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
   <div class="card">
     <h3>خبر جدید</h3>
     <form method="post" action="{{ url_for('miniapp_news_create') }}">
-      <input name="title" placeholder="عنوان" required>
-      <input name="image_url" placeholder="آدرس تصویر">
-      <input name="summary" placeholder="خلاصه">
-      <textarea name="content" placeholder="متن خبر"></textarea>
-      <button class="btn btn-primary" type="submit">انتشار خبر</button>
+      <div class="form-group"><input name="title" placeholder="عنوان" required></div>
+      <div class="form-group"><input name="image_url" placeholder="آدرس تصویر"></div>
+      <div class="form-group"><input name="summary" placeholder="خلاصه"></div>
+      <div class="form-group"><textarea name="content" placeholder="متن خبر" rows="3"></textarea></div>
+      <button class="btn-primary inline" type="submit">انتشار خبر</button>
     </form>
   </div>
   <div class="card">
-    <h3>Banner جدید</h3>
+    <h3>بنر جدید</h3>
     <form method="post" action="{{ url_for('miniapp_banner_create') }}">
-      <input name="title" placeholder="عنوان" required>
-      <input name="description" placeholder="توضیح">
-      <input name="image_url" placeholder="آدرس تصویر">
-      <input name="cta" placeholder="متن CTA">
-      <input name="link" placeholder="لینک">
-      <input name="priority" type="number" value="0" placeholder="اولویت">
-      <button class="btn btn-primary" type="submit">ذخیره Banner</button>
+      <div class="form-group"><input name="title" placeholder="عنوان" required></div>
+      <div class="form-group"><input name="description" placeholder="توضیح"></div>
+      <div class="form-group"><input name="image_url" placeholder="آدرس تصویر"></div>
+      <div class="form-group"><input name="cta" placeholder="متن دکمه"></div>
+      <div class="form-group"><input name="link" placeholder="لینک"></div>
+      <div class="form-group"><input name="priority" type="number" value="0" placeholder="اولویت"></div>
+      <button class="btn-primary inline" type="submit">ذخیره بنر</button>
     </form>
   </div>
   <div class="card">
     <h3>اعلان</h3>
     <form method="post" action="{{ url_for('miniapp_notification_create') }}">
-      <input name="telegram_id" placeholder="Telegram ID — خالی = همه">
-      <input name="title" placeholder="عنوان" required>
-      <textarea name="body" placeholder="متن اعلان" required></textarea>
-      <button class="btn btn-primary" type="submit">ارسال اعلان</button>
+      <div class="form-group"><input name="telegram_id" placeholder="Telegram ID — خالی = همه"></div>
+      <div class="form-group"><input name="title" placeholder="عنوان" required></div>
+      <div class="form-group"><textarea name="body" placeholder="متن اعلان" required rows="3"></textarea></div>
+      <button class="btn-primary inline" type="submit">ارسال اعلان</button>
     </form>
   </div>
 </div>
-<div class="card">
+
+<div class="card" style="margin-top:16px">
   <h3>خبرهای اخیر</h3>
-  <table><thead><tr><th>عنوان</th><th>وضعیت</th><th>تاریخ</th></tr></thead><tbody>
+  <table class="data-table"><thead><tr><th>عنوان</th><th>وضعیت</th><th>تاریخ</th></tr></thead><tbody>
   {% for n in news %}<tr><td>{{ n.title }}</td><td>{{ 'فعال' if n.is_active else 'خاموش' }}</td><td>{{ n.created_at }}</td></tr>{% else %}<tr><td colspan="3">خبری ثبت نشده</td></tr>{% endfor %}
   </tbody></table>
 </div>
-<div class="card">
-  <h3>Bannerهای اخیر</h3>
-  <table><thead><tr><th>عنوان</th><th>اولویت</th><th>وضعیت</th></tr></thead><tbody>
-  {% for b in banners %}<tr><td>{{ b.title }}</td><td>{{ b.priority }}</td><td>{{ 'فعال' if b.is_active else 'خاموش' }}</td></tr>{% else %}<tr><td colspan="3">Banner ثبت نشده</td></tr>{% endfor %}
+<div class="card" style="margin-top:16px">
+  <h3>بنرهای اخیر</h3>
+  <table class="data-table"><thead><tr><th>عنوان</th><th>اولویت</th><th>وضعیت</th></tr></thead><tbody>
+  {% for b in banners %}<tr><td>{{ b.title }}</td><td>{{ b.priority }}</td><td>{{ 'فعال' if b.is_active else 'خاموش' }}</td></tr>{% else %}<tr><td colspan="3">بنری ثبت نشده</td></tr>{% endfor %}
   </tbody></table>
 </div>
+
+</div></main></div>
 {% endblock %}

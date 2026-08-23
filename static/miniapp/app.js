@@ -1,13 +1,28 @@
 const tg = window.Telegram?.WebApp;
-if(tg){ tg.ready(); tg.expand(); try{tg.setHeaderColor(tg.themeParams?.bg_color || '#090910'); tg.setBackgroundColor(tg.themeParams?.bg_color || '#090910')}catch(e){} }
+if(tg){
+  try{ tg.ready(); tg.expand();
+    tg.setHeaderColor(tg.themeParams?.bg_color || '#090910');
+    tg.setBackgroundColor(tg.themeParams?.bg_color || '#090910');
+  }catch(e){}
+}
 const state={data:null,tab:'home'};
 const app=document.getElementById('app');
 const loading=document.getElementById('loading');
+const API_BASE = (location.pathname.indexOf('/miniapp')===0 ? '' : '') + '/miniapp/api';
 
-function initData(){ return tg?.initData || ''; }
+function initData(){
+  try{
+    if(tg && tg.initData) return tg.initData;
+  }catch(e){}
+  return '';
+}
 async function api(path,opts={}){
-  const headers={'X-Telegram-Init-Data':initData(),'Content-Type':'application/json',...(opts.headers||{})};
-  const r=await fetch('/miniapp/api'+path,{...opts,headers});
+  const headers=Object.assign({
+    'X-Telegram-Init-Data': initData(),
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  }, opts.headers||{});
+  const r=await fetch(API_BASE+path, Object.assign({}, opts, {headers}));
   const d=await r.json().catch(()=>({ok:false,error:'پاسخ نامعتبر'}));
   if(!r.ok||d.ok===false) throw new Error(d.error||'خطایی رخ داد');
   return d;
@@ -73,4 +88,9 @@ async function readNotif(id){try{await api('/notifications/read',{method:'POST',
 function faq(){showSheet(`<h2>پشتیبانی و راهنما</h2><div class="menu-list"><button class="menu-item"><span>◈</span><span class="grow"><strong>مشکل اتصال دارم</strong><small>راهنمای اتصال و عیب‌یابی</small></span></button><button class="menu-item"><span>?</span><span class="grow"><strong>سوالات متداول</strong><small>خرید، پرداخت، حجم و تمدید</small></span></button><button class="menu-item"><span>✈</span><span class="grow"><strong>پشتیبانی تلگرام</strong><small>ارتباط مستقیم با پشتیبانی</small></span></button></div>`)}
 function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=home();else if(state.tab==='services')app.innerHTML=services();else if(state.tab==='wallet')app.innerHTML=wallet();else if(state.tab==='rewards')app.innerHTML=rewards();else app.innerHTML=profile()}
 async function refresh(){state.data=await api('/bootstrap');document.getElementById('notifyBadge').hidden=!(state.data.notifications.unread>0);document.getElementById('notifyBadge').textContent=num(state.data.notifications.unread);loading.remove();render()}
-refresh().catch(e=>{loading.innerHTML=`<div class="empty"><span class="big">!</span><strong>اتصال برقرار نشد</strong><span>${esc(e.message)}</span><button class="btn primary" style="margin-top:15px" onclick="location.reload()">تلاش دوباره</button></div>`});
+refresh().catch(e=>{
+  const hint = !initData()
+    ? 'این صفحه باید از داخل تلگرام (دکمه مینی‌اپ) باز شود.'
+    : esc(e.message||'خطای ناشناخته');
+  loading.innerHTML=`<div class="empty"><span class="big">!</span><strong>اتصال برقرار نشد</strong><span>${hint}</span><button class="btn primary" style="margin-top:15px" onclick="location.reload()">تلاش دوباره</button></div>`;
+});

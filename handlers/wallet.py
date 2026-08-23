@@ -34,7 +34,9 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
         use_inline = bool(force_inline)
 
     menu_rows = build_menu_rows(get_menu_buttons())
-    miniapp_url = get_setting_sync('miniapp_url', '') or os.getenv('MINIAPP_URL', '')
+    miniapp_url = (get_setting_sync('miniapp_url', '') or os.getenv('MINIAPP_URL', '') or '').strip()
+    if miniapp_url and not miniapp_url.endswith('/'):
+        miniapp_url = miniapp_url + '/'
 
     if use_inline:
         rows = []
