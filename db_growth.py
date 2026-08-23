@@ -394,6 +394,10 @@ def calculate_purchase_points(amount: int) -> int:
 
 def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
     """اعطای اتمیزه و idempotent امتیاز برای خرید موفق."""
+    try:
+        ensure_growth_tables()
+    except Exception:
+        pass
     points = calculate_purchase_points(amount)
     if points <= 0:
         return 0
@@ -401,6 +405,14 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
     try:
         with conn.cursor() as cur:
             ref = str(order_id)
+            # ensure unique index exists (table may have been created without it)
+            try:
+                cur.execute(
+                    """ALTER TABLE loyalty_transactions
+                       ADD UNIQUE KEY uniq_loyalty_ref (telegram_id, type, reference_id)"""
+                )
+            except Exception:
+                pass
             cur.execute(
                 """SELECT id FROM loyalty_transactions
                    WHERE telegram_id=%s AND type='purchase' AND reference_id=%s
@@ -421,7 +433,46 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
                    ON DUPLICATE KEY UPDATE points=points+VALUES(points)""",
                 (telegram_id, points),
             )
+            # refresh level name based on new total
+            try:
+                cur.execute("SELECT points FROM loyalty_accounts WHERE telegram_id=%s", (telegram_id,))
+                row = cur.fetchone()
+                total_pts = int((row or {}).get("points") or points)
+                # reuse level logic without circular import
+                levels = [
+                    {"name": "Bronze", "min_points": 0},
+                    {"name": "Silver", "min_points": 2500},
+                    {"name": "Gold", "min_points": 7500},
+                    {"name": "Diamond", "min_points": 15000},
+                ]
+                try:
+                    raw = get_setting_sync("loyalty_config", "") or ""
+                    if raw:
+                        import json as _json
+                        cfg = _json.loads(raw)
+                        if isinstance(cfg.get("levels"), list) and cfg["levels"]:
+                            levels = cfg["levels"]
+                except Exception:
+                    pass
+                levels = sorted(levels, key=lambda x: int(x.get("min_points") or 0))
+                level_name = "Bronze"
+                for lv in levels:
+                    if total_pts >= int(lv.get("min_points") or 0):
+                        level_name = lv.get("name") or level_name
+                cur.execute(
+                    "UPDATE loyalty_accounts SET level=%s WHERE telegram_id=%s",
+                    (level_name, telegram_id),
+                )
+            except Exception as e:
+                print("award level update:", e)
             conn.commit()
             return points
+    except Exception as e:
+        print("award_purchase_points error:", e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return 0
     finally:
         conn.close()

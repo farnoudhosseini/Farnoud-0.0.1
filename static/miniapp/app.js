@@ -737,8 +737,9 @@ function renderAuthGate(issues){
   if(loading && loading.parentNode) loading.remove();
 }
 
-async function refresh(){
-  closeSheet();
+async function refresh(opts={}){
+  const soft = !!opts.soft;
+  if(!soft) closeSheet();
   state.data = await api('/bootstrap');
   if(state.data.theme) applyTheme(state.data.theme);
   if(state.data.auth_required && (state.data.auth_issues||[]).length){
@@ -753,9 +754,38 @@ async function refresh(){
   }
   if(badge){ badge.hidden = !(unread>0); badge.textContent = num(unread); }
   if(loading && loading.parentNode) loading.remove();
-  render();
+  // soft poll: update ring/metrics without closing open sheets
+  if(soft){
+    const sheet = document.getElementById('sheet');
+    const sheetOpen = sheet && sheet.classList.contains('is-open');
+    if(!sheetOpen) render();
+    // if sheet is open, state is still updated for next view
+  } else {
+    render();
+  }
 }
-refresh().catch(e=>{
+
+// Realtime volume ring: poll every 10s while miniapp is open
+let _usagePollTimer = null;
+function startUsagePolling(){
+  stopUsagePolling();
+  _usagePollTimer = setInterval(function(){
+    if(document.visibilityState === 'hidden') return;
+    refresh({soft:true}).catch(function(){});
+  }, 10000);
+}
+function stopUsagePolling(){
+  if(_usagePollTimer){ clearInterval(_usagePollTimer); _usagePollTimer = null; }
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible') refresh({soft:true}).catch(function(){});
+});
+window.addEventListener('pagehide', stopUsagePolling);
+window.addEventListener('beforeunload', stopUsagePolling);
+
+refresh().then(function(){
+  startUsagePolling();
+}).catch(function(e){
   closeSheet();
   const msg = (e && e.message) ? String(e.message) : 'خطای ناشناخته';
   const hint = !initData()

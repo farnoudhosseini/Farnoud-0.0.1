@@ -161,6 +161,7 @@ def ensure_miniapp_tables():
                     reference_id VARCHAR(100) NULL,
                     description VARCHAR(255) NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_loyalty_ref (telegram_id, type, reference_id),
                     INDEX idx_loyalty_user (telegram_id, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
                 """CREATE TABLE IF NOT EXISTS referrals (
@@ -550,7 +551,81 @@ def _subscription_payload(o, product=None):
         "vpn_username": o.get("vpn_username"), "panel_id": o.get("panel_id"),
         "amount": _jsonable(o.get("amount") or 0),
         "subscription_link": None,
+        "used_bytes": None, "total_bytes": None, "remaining_bytes": None,
     }
+
+
+def _enrich_subscription_live(payload, o):
+    """Fetch live traffic / expire from panel and update remaining_gb, remaining_days, etc."""
+    if not o or not o.get("vpn_username"):
+        return payload
+    try:
+        from services.panel_client import get_panel_client
+        from database import get_panel_by_id
+        from services.provision import fix_subscription_url
+        panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
+        if not panel:
+            panel = {
+                "base_url": o.get("base_url") or o.get("panel_base") or "",
+                "username": o.get("panel_user") or "",
+                "password": o.get("panel_pass") or "",
+                "panel_type": o.get("panel_type") or "pasarguard",
+                "api_key": o.get("api_key") or "",
+            }
+        client = get_panel_client(panel)
+        full = client.get_user(o["vpn_username"]) or {}
+        raw = full.get("subscription_url") or full.get("subscription_link") or ""
+        if not raw and full.get("subscription_token"):
+            raw = f"/sub/{full['subscription_token']}"
+        if not raw and full.get("subId") and hasattr(client, "subscription_url"):
+            try:
+                raw = client.subscription_url(full.get("subId"), email=o["vpn_username"])
+            except Exception:
+                pass
+        base = (panel.get("base_url") if isinstance(panel, dict) else "") or ""
+        payload["subscription_link"] = raw if str(raw).startswith("http") else fix_subscription_url(base, raw)
+        if payload.get("subscription_link"):
+            try:
+                qr_bytes = __import__("services.provision", fromlist=["make_qr_png"]).make_qr_png(payload["subscription_link"])
+                if qr_bytes:
+                    payload["qr_data_url"] = "data:image/png;base64," + base64.b64encode(qr_bytes).decode()
+            except Exception:
+                pass
+        used = int(full.get("used_traffic") or full.get("used") or 0)
+        limit = int(full.get("data_limit") or full.get("total") or 0)
+        payload["used_bytes"] = used
+        payload["total_bytes"] = limit
+        payload["remaining_bytes"] = max(0, limit - used) if limit else None
+        GB = 1073741824.0
+        if limit > 0:
+            payload["volume_gb"] = round(limit / GB, 2)
+            payload["remaining_gb"] = round(max(0, limit - used) / GB, 2)
+        elif used >= 0 and payload.get("volume_gb"):
+            # fallback: subtract used from configured volume
+            used_gb = used / GB
+            payload["remaining_gb"] = max(0.0, round(float(payload["volume_gb"]) - used_gb, 2))
+        if full.get("expire"):
+            payload["expire_at"] = full.get("expire")
+            try:
+                exp = full.get("expire")
+                dt = exp if isinstance(exp, datetime) else datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                payload["remaining_days"] = max(0, int((dt - datetime.now(timezone.utc)).total_seconds() / 86400))
+            except Exception:
+                pass
+        # status from panel if available
+        st = (full.get("status") or full.get("enable") or "").lower() if isinstance(full.get("status") or full.get("enable"), (str, int, bool)) else ""
+        if st in ("active", "1", "true", "enabled", True, 1):
+            payload["status"] = "active"
+        elif st in ("disabled", "0", "false", "disabled", False, 0, "expired"):
+            if "expir" in str(st) or payload.get("remaining_days", 1) <= 0:
+                payload["status"] = "expired"
+            else:
+                payload["status"] = "suspended"
+    except Exception as exc:
+        payload["live_error"] = str(exc)
+    return payload
 
 
 def _plans(user_id):
@@ -667,6 +742,27 @@ def _dashboard(user_id):
     subs = _subscriptions(user_id)
     # آخرین سرویس خریداری‌شده (لیست DESC بر اساس id)
     primary = subs[0] if subs else None
+    # Live usage for primary so the home ring is accurate (and stays accurate on 10s poll)
+    if primary:
+        try:
+            o = get_user_order(primary["id"], user_id)
+            if o:
+                _enrich_subscription_live(primary, o)
+                # keep list in sync for the same id
+                for s in subs:
+                    if s.get("id") == primary.get("id"):
+                        s.update({
+                            "remaining_gb": primary.get("remaining_gb"),
+                            "volume_gb": primary.get("volume_gb"),
+                            "remaining_days": primary.get("remaining_days"),
+                            "status": primary.get("status"),
+                            "used_bytes": primary.get("used_bytes"),
+                            "total_bytes": primary.get("total_bytes"),
+                            "remaining_bytes": primary.get("remaining_bytes"),
+                        })
+                        break
+        except Exception as e:
+            print("dashboard live enrich:", e)
     user = get_bot_user(user_id) or {}
     return {"subscription": primary, "subscriptions": subs, "has_subscription": bool(subs),
             "status": primary["status"] if primary else "no_subscription",
@@ -758,49 +854,8 @@ def subscription_detail(order_id):
         return jsonify({"ok": False, "error": "سرویس پیدا نشد"}), 404
     p = get_product(o["product_id"])
     payload = _subscription_payload(o, p)
-    # Live connection information is intentionally fetched only on demand.
-    if o.get("vpn_username"):
-        try:
-            from services.panel_client import get_panel_client
-            from database import get_panel_by_id
-            from services.provision import fix_subscription_url
-            panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
-            if not panel:
-                panel = {
-                    "base_url": o.get("base_url") or o.get("panel_base") or "",
-                    "username": o.get("panel_user") or "",
-                    "password": o.get("panel_pass") or "",
-                    "panel_type": o.get("panel_type") or "pasarguard",
-                    "api_key": o.get("api_key") or "",
-                }
-            client = get_panel_client(panel)
-            full = client.get_user(o["vpn_username"]) or {}
-            raw = full.get("subscription_url") or full.get("subscription_link") or ""
-            if not raw and full.get("subscription_token"):
-                raw = f"/sub/{full['subscription_token']}"
-            if not raw and full.get("subId") and hasattr(client, "subscription_url"):
-                try:
-                    raw = client.subscription_url(full.get("subId"), email=o["vpn_username"])
-                except Exception:
-                    pass
-            base = (panel.get("base_url") if isinstance(panel, dict) else "") or ""
-            payload["subscription_link"] = raw if str(raw).startswith("http") else fix_subscription_url(base, raw)
-            if payload["subscription_link"]:
-                try:
-                    qr_bytes = __import__("services.provision", fromlist=["make_qr_png"]).make_qr_png(payload["subscription_link"])
-                    if qr_bytes:
-                        payload["qr_data_url"] = "data:image/png;base64," + base64.b64encode(qr_bytes).decode()
-                except Exception:
-                    pass
-            used = int(full.get("used_traffic") or 0)
-            limit = int(full.get("data_limit") or 0)
-            payload["used_bytes"] = used
-            payload["total_bytes"] = limit
-            payload["remaining_bytes"] = max(0, limit-used) if limit else None
-            if full.get("expire"):
-                payload["expire_at"] = full.get("expire")
-        except Exception as exc:
-            payload["live_error"] = str(exc)
+    # Live traffic + link from panel
+    _enrich_subscription_live(payload, o)
     return jsonify({"ok": True, "subscription": _jsonable(payload)})
 
 
