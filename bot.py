@@ -159,6 +159,8 @@ async def menu_callback(update, context):
     return None
 
 def create_bot() -> Application:
+    from middleware_antispam import install_antispam
+
     application = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -166,6 +168,7 @@ def create_bot() -> Application:
         .post_shutdown(post_shutdown)
         .build()
     )
+    install_antispam(application)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("restart", start_command))

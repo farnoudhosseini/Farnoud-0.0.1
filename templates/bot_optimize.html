@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}بهینه‌سازی ربات{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}
+<main class="main">
+<header class="topbar"><h2>🧹 بهینه‌سازی ربات</h2></header>
+<div class="content" style="max-width:640px">
+<div class="card">
+  <div class="card-title">کاهش فشار روی ربات</div>
+  <p class="muted">حذف سفارش‌های لغو/منقضی و معلق قدیمی + پاکسازی لاگ‌های کهنه.</p>
+  <form method="post">
+    <button type="submit" class="btn-primary inline">اجرای بهینه‌سازی</button>
+  </form>
+  {% if result %}
+  <div style="margin-top:1rem;padding:12px;border-radius:10px;background:var(--primary-soft);white-space:pre-wrap">{{ result|safe }}</div>
+  {% endif %}
+</div>
+</div></main></div>
+{% endblock %}

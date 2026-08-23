@@ -265,6 +265,18 @@ def make_qr_png(data: str) -> Optional[bytes]:
 
 
 async def send_service_to_user(bot, telegram_id: int, result: dict):
+    try:
+        from handlers.group_reports import send_report
+        if result.get("ok"):
+            await send_report(
+                bot, "sales",
+                f"✅ سرویس تحویل شد\nکاربر: <code>{telegram_id}</code>\nیوزرنیم: <code>{result.get('vpn_username') or '—'}</code>",
+            )
+        else:
+            await send_report(bot, "errors", f"❌ خطا در ساخت سرویس: {result.get('error')}")
+    except Exception:
+        pass
+
     """ارسال پیام تحویل + QR"""
     if not result.get("ok"):
         await bot.send_message(telegram_id, f"❌ خطا در ساخت سرویس: {result.get('error')}")

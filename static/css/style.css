@@ -172,3 +172,26 @@ code,.ltr,.ip,.uuid,.username,.technical{font-family:var(--font-en),monospace;di
 @media(max-width:1100px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.stats{grid-template-columns:1fr 1fr;gap:9px}.stat{padding:14px}.stat-value{font-size:18px}.chart-wrap{height:250px}}
 @media(max-width:430px){.stats{grid-template-columns:1fr}}
+
+
+/* Login logo — fixed box, any upload size fits */
+.login-wrapper .logo-wrap{
+  width:72px;height:72px;margin:0 auto 12px;
+  border-radius:18px;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--primary-soft,rgba(99,102,241,.12));
+  border:1px solid var(--border,rgba(255,255,255,.08));
+}
+.login-wrapper .logo-wrap img{
+  width:100%;height:100%;
+  object-fit:contain;
+  object-position:center;
+  display:block;
+  max-width:72px;max-height:72px;
+}
+.login-header h1{margin-top:4px}
+.sidebar .logo-mini,.logo-mini{
+  width:38px;height:38px;flex:0 0 38px;
+  border-radius:12px;overflow:hidden;
+}
+.logo-mini img{width:100%;height:100%;object-fit:contain;display:block}

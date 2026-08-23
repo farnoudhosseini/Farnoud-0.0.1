@@ -44,7 +44,7 @@ def main_keyboard():
         [btn("🧾 درخواست‌های شارژ", "admin_charges")],
         [btn("✨ ایموجی پریمیوم", "admin_premiji"), btn("⌨️ منوی شیشه‌ای", "admin_inline_menu")],
         [btn("👮 ادمین‌های ربات", "admin_botadmins")],
-        [btn("⏱ سرویس ساعتی", "admin_hourly")],
+        [btn("⏱ سرویس ساعتی", "admin_hourly"), btn("🧹 بهینه‌سازی", "admin_optimize")],
         [btn("🏠 منوی اصلی", "admin_to_start")],
     ])
 
@@ -715,6 +715,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from db_users import approve_charge, render_template, user_vars, get_bot_user
         cid = int(data.replace("adm_ch_ok_", ""))
         user = approve_charge(cid)
+        try:
+            from handlers.group_reports import send_report
+            await send_report(context.bot, "charges", f"✅ شارژ تأیید شد — charge #{cid}")
+        except Exception:
+            pass
         if user:
             try:
                 from db_users import get_charge
@@ -1117,6 +1122,20 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # ---- ساعتی ----
+    
+    if data == "admin_optimize":
+        from services.optimize import optimize_bot_data, format_optimize_report
+        stats = optimize_bot_data()
+        await query.edit_message_text(
+            format_optimize_report(stats),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 دوباره", callback_data="admin_optimize")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
     if data == "admin_hourly":
         from database import get_setting_sync, set_setting_sync
         cur = get_setting_sync("hourly_global_enabled", "0")
