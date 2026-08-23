@@ -54,32 +54,6 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("buy_panel_"):
         panel_id = int(data.replace("buy_panel_", ""))
         context.user_data["buy_panel_id"] = panel_id
-        context.user_data.pop("buy_inbound_id", None)
-        panel = get_panel_by_id(panel_id)
-        # 3x-ui: انتخاب اینباند به‌جای گروه
-        from services.panel_client import is_xui_panel
-        if panel and is_xui_panel(panel):
-            try:
-                from services.panel_client import get_panel_client
-                xui = get_panel_client(panel)
-                inbounds = xui.list_inbound_choices()
-            except Exception as e:
-                await q.edit_message_text(f"❌ دریافت اینباندها ناموفق: {e}")
-                return ConversationHandler.END
-            if not inbounds:
-                await q.edit_message_text("اینباند فعالی در این پنل نیست.")
-                return ConversationHandler.END
-            rows = []
-            for ib in inbounds[:40]:
-                label = f"{ib.get('remark') or ib['id']} ({ib.get('protocol')}:{ib.get('port')})"
-                rows.append([InlineKeyboardButton(label[:60], callback_data=f"buy_inb_{ib['id']}")])
-            rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
-            await q.edit_message_text(
-                "📡 اینباند / لوکیشن را انتخاب کنید:",
-                reply_markup=InlineKeyboardMarkup(rows),
-            )
-            return ConversationHandler.END
-        # پاسارگارد: مستقیم محصولات
         products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True)
         if not products:
             await q.edit_message_text("برای این پنل محصولی تعریف نشده.")
@@ -95,17 +69,6 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
         else:
             await _show_products(q, context, panel_id, None, bu)
-        return ConversationHandler.END
-
-    if data.startswith("buy_inb_"):
-        inbound_id = int(data.replace("buy_inb_", ""))
-        context.user_data["buy_inbound_id"] = inbound_id
-        panel_id = context.user_data.get("buy_panel_id")
-        products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True)
-        if not products:
-            await q.edit_message_text("برای این پنل محصولی تعریف نشده.")
-            return ConversationHandler.END
-        await _show_products(q, context, panel_id, None, bu)
         return ConversationHandler.END
 
     if data.startswith("buy_cat_"):
@@ -166,8 +129,6 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return ConversationHandler.END
             order_id = create_order(user.id, pid, panel_id, hprice, hprice, 0)
-            if context.user_data.get("buy_inbound_id"):
-                update_order(order_id, inbound_id=int(context.user_data["buy_inbound_id"]))
             add_balance(user.id, -hprice, f"hourly_start#{order_id}")
             update_order(
                 order_id,
@@ -217,8 +178,6 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallet_used = min(balance, price)
         pay_amount = max(0, price - balance)
         order_id = create_order(user.id, pid, panel_id, price, wallet_used, pay_amount)
-        if context.user_data.get("buy_inbound_id"):
-            update_order(order_id, inbound_id=int(context.user_data["buy_inbound_id"]))
 
         vars_ = {
             "product_name": product["name"],

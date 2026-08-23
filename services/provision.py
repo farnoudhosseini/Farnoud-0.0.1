@@ -85,34 +85,53 @@ def provision_order(order_id: int) -> dict:
     username = _rand_username("fn")
     expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
 
+    # پیکربندی گروه/اینباند از محصول (تنظیم ادمین)
+    panel_cfg = {}
+    try:
+        panel_cfg = (product.get("panel_config") or {}).get(int(panel["id"])) or {}
+    except Exception:
+        panel_cfg = {}
+
     if is_xui_panel(panel):
         # ---- 3x-ui ----
         xui = get_panel_client(panel)
-        inbound_id = order.get("inbound_id") or order.get("xui_inbound_id")
-        if not inbound_id:
-            # fallback: first enabled inbound
+        inbound_ids = list(panel_cfg.get("inbound_ids") or [])
+        if not inbound_ids:
             try:
                 choices = xui.list_inbound_choices()
                 if choices:
-                    inbound_id = choices[0]["id"]
+                    inbound_ids = [choices[0]["id"]]
             except Exception as e:
                 return {"ok": False, "error": f"لیست اینباند: {e}"}
-        if not inbound_id:
-            return {"ok": False, "error": "اینباندی برای ساخت کلاینت انتخاب نشده"}
-        # limitIp از hwid_limit محصول استفاده می‌شود (معادل IP Limit در ثنایی)
+        if not inbound_ids:
+            return {"ok": False, "error": "برای این محصول اینباندی در پنل تنظیم نشده"}
         limit_ip = int(hwid) if hwid else 0
-        try:
-            created = xui.add_client(
-                inbound_id=int(inbound_id),
-                email=username,
-                total_gb=volume_gb if volume_gb > 0 else 0,
-                days=days if days > 0 else 0,
-                limit_ip=limit_ip,
-                tg_id=int(order.get("telegram_id") or 0),
-            )
-        except Exception as e:
-            return {"ok": False, "error": f"ساخت کلاینت 3x-ui: {e}"}
-        sub_id = created.get("subId") or ""
+        created = None
+        last_err = None
+        # روی همه اینباندهای انتخاب‌شده کلاینت بساز (همان email/subId)
+        shared_email = username
+        shared_sub = None
+        shared_uuid = None
+        for iid in inbound_ids:
+            try:
+                created = xui.add_client(
+                    inbound_id=int(iid),
+                    email=shared_email,
+                    total_gb=volume_gb if volume_gb > 0 else 0,
+                    days=days if days > 0 else 0,
+                    limit_ip=limit_ip,
+                    tg_id=int(order.get("telegram_id") or 0),
+                    client_uuid=shared_uuid,
+                    sub_id=shared_sub,
+                )
+                shared_sub = created.get("subId") or shared_sub
+                shared_uuid = created.get("uuid") or created.get("id") or shared_uuid
+                shared_email = created.get("email") or shared_email
+            except Exception as e:
+                last_err = e
+        if not created:
+            return {"ok": False, "error": f"ساخت کلاینت 3x-ui: {last_err}"}
+        sub_id = created.get("subId") or shared_sub or ""
         sub_link = xui.subscription_url(sub_id)
         full = {
             "username": created.get("email") or username,
@@ -121,7 +140,7 @@ def provision_order(order_id: int) -> dict:
             "limitIp": limit_ip,
             "subId": sub_id,
             "id": created.get("id"),
-            "inbound_id": inbound_id,
+            "inbound_ids": inbound_ids,
             "subscription_url": sub_link,
         }
         status = "active"
@@ -131,13 +150,14 @@ def provision_order(order_id: int) -> dict:
     else:
         # ---- PasarGuard ----
         client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
-        group_ids = []
-        try:
-            groups = client.get_groups()
-            if groups:
-                group_ids = [groups[0].get("id") or groups[0]["id"]]
-        except Exception:
-            group_ids = []
+        group_ids = list(panel_cfg.get("group_ids") or [])
+        if not group_ids:
+            try:
+                groups = client.get_groups()
+                if groups:
+                    group_ids = [groups[0].get("id") or groups[0]["id"]]
+            except Exception:
+                group_ids = []
 
         payload = client.build_user_payload(
             username=username,

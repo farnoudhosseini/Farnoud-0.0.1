@@ -5,8 +5,8 @@
 <header class="topbar"><h2>{% if mode=='add' %}محصول جدید{% else %}ویرایش{% endif %}</h2>
 <a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
 <div class="content">
-<div class="card" style="max-width:640px">
-<form method="post">
+<div class="card" style="max-width:720px">
+<form method="post" id="productForm">
 <div class="form-group"><label>نام محصول *</label>
 <input name="name" required value="{{ product.name if product else '' }}"></div>
 <div class="form-group"><label>دسته‌بندی</label>
@@ -22,10 +22,11 @@
 <input type="number" step="0.1" name="volume_gb" value="{{ product.volume_gb if product else 0 }}"></div>
 <div class="form-group"><label>مدت (روز)</label>
 <input type="number" name="duration_days" value="{{ product.duration_days if product else 30 }}"></div>
-<div class="form-group"><label>محدودیت HWID (خالی = نامحدود)</label>
-<input type="number" name="hwid_limit" min="0" placeholder="نامحدود" value="{{ product.hwid_limit if product and product.hwid_limit is not none else '' }}"></div>
+<div class="form-group"><label>محدودیت دستگاه / IP Limit (خالی = نامحدود)</label>
+<input type="number" name="hwid_limit" min="0" placeholder="نامحدود" value="{{ product.hwid_limit if product and product.hwid_limit is not none else '' }}">
+<p class="muted" style="font-size:.8rem">پاسارگارد: HWID · ثنایی: limitIp</p></div>
 <div class="form-group"><label><input type="checkbox" name="hourly_enabled" value="1" {% if product and product.hourly_enabled %}checked{% endif %}> قابل خرید ساعتی</label></div>
-<div class="form-group"><label>قیمت هر ساعت (تومان) — برای سرویس ساعتی</label>
+<div class="form-group"><label>قیمت هر ساعت (تومان)</label>
 <input type="number" step="0.01" name="hourly_price" value="{{ product.hourly_price if product and product.hourly_price else '' }}" placeholder="اختیاری"></div>
 <div class="form-group"><label>نوع کاربر هدف</label>
 <select name="target_role" class="form-select">
@@ -33,16 +34,34 @@
 <option value="{{ k }}" {% if product and product.target_role==k %}selected{% endif %}>{{ v }}</option>
 {% endfor %}
 </select></div>
+
 <div class="form-group"><label>پنل‌های مرتبط</label>
-<div class="checkbox-list">
+<p class="muted" style="font-size:.85rem;margin-bottom:.5rem">با تیک زدن هر پنل، گزینه‌های گروه/اینباند همان پنل باز می‌شود.</p>
+<div class="checkbox-list" id="panelList">
 {% set selected = product.panel_ids if product else [] %}
+{% set pcfg = product.panel_config if product and product.panel_config else {} %}
 {% for pan in panels %}
-<label class="check-item">
-<input type="checkbox" name="panel_ids" value="{{ pan.id }}" {% if pan.id in selected %}checked{% endif %}>
-{{ pan.name }}
-</label>
+  {% set ptype = (pan.panel_type or 'pasarguard')|lower %}
+  <div class="panel-block" style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+    <label class="check-item" style="font-weight:600">
+      <input type="checkbox" class="panel-check" name="panel_ids" value="{{ pan.id }}"
+             data-type="{{ ptype }}" data-id="{{ pan.id }}"
+             {% if pan.id in selected %}checked{% endif %}>
+      {{ pan.name }}
+      <span class="muted" style="font-weight:400;font-size:.8rem">({{ pan.panel_type or 'pasarguard' }})</span>
+    </label>
+    <div class="panel-sub" id="sub-{{ pan.id }}" style="margin-top:8px;padding-right:8px;{% if pan.id not in selected %}display:none{% endif %}">
+      <div class="muted" style="font-size:.8rem;margin-bottom:4px">
+        {% if ptype in ['3x-ui','3xui','xui','sanaei'] %}اینباندهای مجاز برای این محصول:{% else %}گروه‌های مجاز برای این محصول:{% endif %}
+      </div>
+      <div class="sub-options" data-panel="{{ pan.id }}" data-type="{{ ptype }}">
+        <span class="muted">در حال بارگذاری…</span>
+      </div>
+    </div>
+  </div>
 {% else %}<span style="color:var(--text-tertiary)">ابتدا پنل اضافه کنید</span>{% endfor %}
 </div></div>
+
 <div class="form-group"><label>توضیحات (فاکتور)</label>
 <textarea name="description" rows="3">{{ product.description if product and product.description else '' }}</textarea></div>
 {% if mode=='edit' %}
@@ -51,4 +70,55 @@
 <button class="btn-primary inline" type="submit">ذخیره</button>
 </form>
 </div></div></main></div>
+<script>
+(function(){
+  const preselect = {{ (product.panel_config if product and product.panel_config else {}) | tojson }};
+  async function loadSub(panelId, ptype, box){
+    box.innerHTML = '<span class="muted">بارگذاری…</span>';
+    try{
+      const url = (ptype === '3x-ui' || ptype === '3xui' || ptype === 'xui' || ptype === 'sanaei')
+        ? '/api/panels/' + panelId + '/inbounds'
+        : '/api/panels/' + panelId + '/groups';
+      const res = await fetch(url, {credentials:'same-origin'});
+      const data = await res.json();
+      if(!data.ok){ box.innerHTML = '<span style="color:var(--error)">'+ (data.error||'خطا') +'</span>'; return; }
+      const items = data.items || [];
+      if(!items.length){ box.innerHTML = '<span class="muted">موردی یافت نشد</span>'; return; }
+      const cfg = preselect[panelId] || preselect[String(panelId)] || {};
+      const selected = new Set(
+        (ptype.indexOf('3x')>=0 || ptype==='xui' || ptype==='sanaei')
+          ? (cfg.inbound_ids||[]).map(String)
+          : (cfg.group_ids||[]).map(String)
+      );
+      const name = (ptype.indexOf('3x')>=0 || ptype==='xui' || ptype==='sanaei')
+        ? 'panel_inbounds_'+panelId : 'panel_groups_'+panelId;
+      box.innerHTML = items.map(it=>{
+        const id = String(it.id);
+        const label = it.label || it.name || it.remark || id;
+        const chk = selected.has(id) ? 'checked' : '';
+        return '<label class="check-item" style="display:block;margin:4px 0"><input type="checkbox" name="'+name+'" value="'+id+'" '+chk+'> '+label+'</label>';
+      }).join('');
+    }catch(e){
+      box.innerHTML = '<span style="color:var(--error)">خطا در دریافت</span>';
+    }
+  }
+  function onToggle(cb){
+    const id = cb.dataset.id;
+    const type = (cb.dataset.type||'').toLowerCase();
+    const sub = document.getElementById('sub-'+id);
+    const box = sub.querySelector('.sub-options');
+    if(cb.checked){
+      sub.style.display='block';
+      loadSub(id, type, box);
+    } else {
+      sub.style.display='none';
+      box.innerHTML='';
+    }
+  }
+  document.querySelectorAll('.panel-check').forEach(cb=>{
+    cb.addEventListener('change', ()=>onToggle(cb));
+    if(cb.checked) onToggle(cb);
+  });
+})();
+</script>
 {% endblock %}

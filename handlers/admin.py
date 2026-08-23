@@ -259,8 +259,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("پنل یافت نشد.")
             return ConversationHandler.END
         try:
-            client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
-            s = client.get_system_stats()
+            from services.panel_client import get_panel_client
+            client = get_panel_client(panel)
+            from database import update_panel_status
+            s = client.get_system_stats() or {}
+            if s.get("error"):
+                raise RuntimeError(s.get("error"))
+            update_panel_status(pid, "online")
             cpu = s.get("cpu_usage", s.get("cpu", "—"))
             users = s.get("users") or {}
             total_u = s.get("total_user", s.get("users_total", users.get("total", "—")))
@@ -279,6 +284,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"کاربران فعال: <code>{active_u}</code>"
             )
         except Exception as e:
+            try:
+                from database import update_panel_status
+                update_panel_status(pid, "offline")
+            except Exception:
+                pass
             text = (
                 f"📊 <b>{panel['name']}</b>\n"
                 f"وضعیت: ❌ آفلاین\n"

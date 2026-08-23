@@ -573,6 +573,68 @@ def gifts_manage():
 
 
 # ---------- محصولات ----------
+
+def _parse_panel_config_from_form(panel_ids):
+    """از فرم: panel_groups_{id} / panel_inbounds_{id}"""
+    cfg = {}
+    for pid in panel_ids:
+        pid = int(pid)
+        groups = request.form.getlist(f"panel_groups_{pid}")
+        inbounds = request.form.getlist(f"panel_inbounds_{pid}")
+        entry = {}
+        if groups:
+            entry["group_ids"] = [int(x) for x in groups if str(x).isdigit()]
+        if inbounds:
+            entry["inbound_ids"] = [int(x) for x in inbounds if str(x).isdigit()]
+        if entry:
+            cfg[pid] = entry
+    return cfg
+
+
+@app.route("/api/panels/<int:panel_id>/groups")
+@login_required
+def api_panel_groups(panel_id):
+    from database import get_panel_by_id
+    panel = get_panel_by_id(panel_id)
+    if not panel:
+        return jsonify({"ok": False, "error": "پنل یافت نشد"}), 404
+    try:
+        client = get_client_for_panel(panel)
+        groups = client.get_groups() if hasattr(client, "get_groups") else []
+        items = []
+        for g in groups or []:
+            items.append({
+                "id": g.get("id"),
+                "label": g.get("name") or g.get("title") or str(g.get("id")),
+            })
+        return jsonify({"ok": True, "items": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/panels/<int:panel_id>/inbounds")
+@login_required
+def api_panel_inbounds(panel_id):
+    from database import get_panel_by_id
+    panel = get_panel_by_id(panel_id)
+    if not panel:
+        return jsonify({"ok": False, "error": "پنل یافت نشد"}), 404
+    try:
+        client = get_client_for_panel(panel)
+        if not hasattr(client, "list_inbound_choices"):
+            return jsonify({"ok": False, "error": "این پنل اینباند ندارد"})
+        choices = client.list_inbound_choices()
+        items = []
+        for ib in choices or []:
+            items.append({
+                "id": ib.get("id"),
+                "label": f"{ib.get('remark') or ib.get('id')} ({ib.get('protocol')}:{ib.get('port')})",
+            })
+        return jsonify({"ok": True, "items": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @app.route("/products")
 @login_required
 def products_list():
@@ -604,6 +666,7 @@ def products_add():
     cats = list_categories()
     if request.method == "POST":
         panel_ids = request.form.getlist("panel_ids")
+        pcfg = _parse_panel_config_from_form(panel_ids)
         cat = request.form.get("category_id") or None
         pid = create_product(
             name=request.form.get("name", "").strip(),
@@ -615,6 +678,7 @@ def products_add():
             category_id=int(cat) if cat else None,
             description=request.form.get("description") or None,
             panel_ids=panel_ids,
+            panel_config=pcfg,
         )
         update_product(
             pid,
@@ -641,9 +705,12 @@ def products_edit(pid):
     cats = list_categories()
     if request.method == "POST":
         cat = request.form.get("category_id") or None
+        pids = request.form.getlist("panel_ids")
+        pcfg = _parse_panel_config_from_form(pids)
         update_product(
             pid,
-            panel_ids=request.form.getlist("panel_ids"),
+            panel_ids=pids,
+            panel_config=pcfg,
             name=request.form.get("name", "").strip(),
             price=int(request.form.get("price") or 0),
             volume_gb=float(request.form.get("volume_gb") or 0),

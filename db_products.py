@@ -53,6 +53,7 @@ def ensure_product_tables():
             CREATE TABLE IF NOT EXISTS product_panels (
                 product_id INT NOT NULL,
                 panel_id INT NOT NULL,
+                extra_json TEXT NULL,
                 PRIMARY KEY (product_id, panel_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
@@ -197,10 +198,21 @@ def get_product(pid: int) -> Optional[dict]:
             r = cur.fetchone()
             if not r:
                 return None
-            cur.execute("SELECT panel_id FROM product_panels WHERE product_id=%s", (pid,))
-            r["panel_ids"] = [x["panel_id"] for x in (cur.fetchall() or [])]
+            cur.execute("SELECT panel_id, extra_json FROM product_panels WHERE product_id=%s", (pid,))
+            rows = cur.fetchall() or []
+            r["panel_ids"] = [x["panel_id"] for x in rows]
+            import json as _json
+            r["panel_config"] = {}
+            for x in rows:
+                cfg = {}
+                if x.get("extra_json"):
+                    try:
+                        cfg = _json.loads(x["extra_json"]) or {}
+                    except Exception:
+                        cfg = {}
+                r["panel_config"][int(x["panel_id"])] = cfg
             cur.execute(
-                """SELECT vp.id, vp.name FROM product_panels pp
+                """SELECT vp.id, vp.name, vp.panel_type, pp.extra_json FROM product_panels pp
                    JOIN vpn_panels vp ON vp.id=pp.panel_id WHERE pp.product_id=%s""",
                 (pid,),
             )
@@ -210,7 +222,11 @@ def get_product(pid: int) -> Optional[dict]:
         conn.close()
 
 def create_product(name, price, volume_gb, duration_days, target_role="all",
-                   category_id=None, description=None, panel_ids=None, hwid_limit=None) -> int:
+                   category_id=None, description=None, panel_ids=None, hwid_limit=None,
+                   panel_config=None) -> int:
+    """panel_config: {panel_id: {"group_ids": [...]} or {"inbound_ids": [...]}}"""
+    ensure_product_panel_extra()
+    import json as _json
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -222,23 +238,34 @@ def create_product(name, price, volume_gb, duration_days, target_role="all",
                 (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, n),
             )
             pid = cur.lastrowid
+            panel_config = panel_config or {}
             for panel_id in (panel_ids or []):
-                cur.execute(
-                    "INSERT IGNORE INTO product_panels (product_id, panel_id) VALUES (%s,%s)",
-                    (pid, int(panel_id)),
-                )
+                cfg = panel_config.get(int(panel_id)) or panel_config.get(str(panel_id)) or {}
+                extra = _json.dumps(cfg, ensure_ascii=False) if cfg else None
+                try:
+                    cur.execute(
+                        "INSERT INTO product_panels (product_id, panel_id, extra_json) VALUES (%s,%s,%s)",
+                        (pid, int(panel_id), extra),
+                    )
+                except Exception:
+                    cur.execute(
+                        "INSERT IGNORE INTO product_panels (product_id, panel_id) VALUES (%s,%s)",
+                        (pid, int(panel_id)),
+                    )
             conn.commit()
             return pid
     finally:
         conn.close()
 
-def update_product(pid: int, panel_ids=None, **fields):
+def update_product(pid: int, panel_ids=None, panel_config=None, **fields):
     allowed = {"name", "category_id", "price", "volume_gb", "duration_days", "hwid_limit",
                "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
             sets.append(f"`{k}`=%s"); vals.append(v)
+    ensure_product_panel_extra()
+    import json as _json
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -247,11 +274,20 @@ def update_product(pid: int, panel_ids=None, **fields):
                 cur.execute(f"UPDATE products SET {','.join(sets)} WHERE id=%s", vals)
             if panel_ids is not None:
                 cur.execute("DELETE FROM product_panels WHERE product_id=%s", (pid,))
+                panel_config = panel_config or {}
                 for panel_id in panel_ids:
-                    cur.execute(
-                        "INSERT INTO product_panels (product_id, panel_id) VALUES (%s,%s)",
-                        (pid, int(panel_id)),
-                    )
+                    cfg = panel_config.get(int(panel_id)) or panel_config.get(str(panel_id)) or {}
+                    extra = _json.dumps(cfg, ensure_ascii=False) if cfg else None
+                    try:
+                        cur.execute(
+                            "INSERT INTO product_panels (product_id, panel_id, extra_json) VALUES (%s,%s,%s)",
+                            (pid, int(panel_id), extra),
+                        )
+                    except Exception:
+                        cur.execute(
+                            "INSERT INTO product_panels (product_id, panel_id) VALUES (%s,%s)",
+                            (pid, int(panel_id)),
+                        )
             conn.commit()
     finally:
         conn.close()
@@ -356,7 +392,7 @@ def ensure_service_mgmt_columns():
                 ("duration_days_override", "INT DEFAULT NULL"),
                 ("expire_at", "TIMESTAMP NULL DEFAULT NULL"),
                 ("custom_name", "VARCHAR(100) DEFAULT NULL"),
-                ("hourly_notify_mute", "inbound_id", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_notify_mute", "TINYINT(1) NOT NULL DEFAULT 0"),
                 ("inbound_id", "INT DEFAULT NULL"),
             ]:
                 try:
@@ -475,5 +511,17 @@ def reorder_products(ids: list) -> bool:
                 cur.execute("UPDATE products SET sort_order=%s WHERE id=%s", (pos, pid))
             conn.commit()
         return True
+    finally:
+        conn.close()
+
+def ensure_product_panel_extra():
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("ALTER TABLE product_panels ADD COLUMN extra_json TEXT NULL")
+            except Exception:
+                pass
+            conn.commit()
     finally:
         conn.close()
