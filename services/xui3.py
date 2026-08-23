@@ -1,6 +1,8 @@
-# کلاینت API پنل 3x-ui (Sanaei)
-# Auth: session cookie via /login  OR  Authorization: Bearer <api_token>
-# Docs: https://github.com/MHSanaei/3x-ui
+# کلاینت API پنل 3x-ui (MHSanaei / ثنایی)
+# Auth:
+#   1) Bearer API Token  → مستقیم، بدون login
+#   2) username/password → CSRF + /login + session cookie
+# URL نمونه: https://example.com:2053/secretpath
 
 from __future__ import annotations
 
@@ -9,13 +11,21 @@ import secrets
 import string
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 import requests
 
+# نام‌های رایج کوکی نشست در نسخه‌های مختلف 3x-ui
+COOKIE_NAMES = ("3x-ui", "session", "lang")
+
 
 def normalize_xui_base(url: str) -> str:
+    """
+    آدرس پایه پنل با webBasePath.
+    مثال ورودی: https://example.com:2053/mysecret
+    یا: https://example.com:2053/mysecret/panel/inbounds  → برش تا قبل /panel
+    """
     url = (url or "").strip().rstrip("/")
     if not url:
         raise ValueError("آدرس پنل خالی است")
@@ -25,13 +35,16 @@ def normalize_xui_base(url: str) -> str:
     if not parsed.netloc:
         raise ValueError("آدرس پنل نامعتبر است")
     path = (parsed.path or "").rstrip("/")
-    # strip common UI tails
     lower = path.lower()
-    for marker in ("/panel/inbounds", "/panel/", "/xui/", "/login"):
-        idx = lower.find(marker.rstrip("/"))
-        if idx > 0:
-            path = path[:idx]
+    # فقط پسوندهای UI را جدا کن؛ خود webBasePath را نگه دار
+    for marker in ("/panel/inbounds", "/panel/api", "/xui/", "/login"):
+        idx = lower.find(marker)
+        if idx >= 0:
+            path = path[:idx].rstrip("/")
             break
+    # اگر دقیقاً به /panel ختم شد
+    if path.lower().endswith("/panel"):
+        path = path[: -len("/panel")].rstrip("/")
     base = urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
     return base.rstrip("/")
 
@@ -65,9 +78,9 @@ def _rand_sub_id(n: int = 16) -> str:
 
 class XUI3Client:
     """
-    3x-ui (MHSanaei) API client.
-    - Login with username/password → session cookie
-    - Or Bearer API token (Settings → Security → API Token)
+    3x-ui client.
+    - اگر api_token باشد: فقط Bearer، بدون یوزر/پسورد
+    - وگرنه: CSRF → login → cookie
     """
 
     def __init__(
@@ -76,47 +89,107 @@ class XUI3Client:
         username: str = "",
         password: str = "",
         api_token: str = "",
-        timeout: int = 25,
+        timeout: int = 30,
         verify_ssl: bool = False,
     ):
         self.base_url = normalize_xui_base(base_url)
-        self.username = username or ""
+        self.username = (username or "").strip()
         self.password = password or ""
         self.api_token = (api_token or "").strip()
+        # اگر با Bearer شروع شده بود، پاک کن
+        if self.api_token.lower().startswith("bearer "):
+            self.api_token = self.api_token[7:].strip()
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.session = requests.Session()
         self.session.verify = verify_ssl
         self._logged_in = False
+        self._csrf_token: Optional[str] = None
 
-    def _headers(self) -> dict:
+        if not self.api_token and not (self.username and self.password):
+            raise ValueError("برای 3x-ui یا API Token یا نام‌کاربری و رمز عبور لازم است")
+
+    def _url(self, path: str) -> str:
+        path = path if path.startswith("/") else f"/{path}"
+        return f"{self.base_url}{path}"
+
+    def _auth_headers(self) -> dict:
         h = {"Accept": "application/json"}
         if self.api_token:
             h["Authorization"] = f"Bearer {self.api_token}"
+        elif self._csrf_token:
+            h["X-CSRF-Token"] = self._csrf_token
         return h
+
+    def _fetch_csrf(self) -> Optional[str]:
+        """بعضی نسخه‌ها CSRF می‌خواهند؛ اگر نبود نادیده می‌گیریم."""
+        try:
+            r = self.session.get(
+                self._url("/csrf-token"),
+                headers={"Accept": "application/json"},
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+            )
+            if r.status_code >= 400:
+                return None
+            data = r.json() if r.content else {}
+            token = data.get("obj") if isinstance(data, dict) else None
+            if isinstance(token, str) and token:
+                self._csrf_token = token
+                return token
+        except Exception:
+            pass
+        return None
 
     def login(self) -> bool:
         if self.api_token:
+            # با توکن نیازی به login نیست
             self._logged_in = True
             return True
-        if not self.username or not self.password:
-            raise RuntimeError("برای 3x-ui یا API Token یا نام‌کاربری/رمز لازم است")
-        url = f"{self.base_url}/login"
+
+        self._csrf_token = None
+        csrf = self._fetch_csrf()
+        headers = {"Accept": "application/json"}
+        if csrf:
+            headers["X-CSRF-Token"] = csrf
+
+        data = {
+            "username": self.username,
+            "password": self.password,
+        }
         r = self.session.post(
-            url,
-            data={"username": self.username, "password": self.password},
-            headers={"Accept": "application/json"},
+            self._url("/login"),
+            data=data,
+            headers=headers,
             timeout=self.timeout,
             verify=self.verify_ssl,
         )
         if r.status_code >= 400:
-            raise RuntimeError(f"لاگین 3x-ui ناموفق: HTTP {r.status_code}")
+            raise RuntimeError(f"لاگین 3x-ui ناموفق (HTTP {r.status_code}). آدرس/مسیر پنل را چک کنید.")
+
         try:
-            data = r.json()
+            body = r.json()
         except Exception:
-            data = {}
-        if data.get("success") is False:
-            raise RuntimeError(data.get("msg") or "لاگین 3x-ui ناموفق")
+            body = {}
+
+        if isinstance(body, dict) and body.get("success") is False:
+            raise RuntimeError(body.get("msg") or "نام کاربری یا رمز اشتباه است")
+
+        # کوکی نشست
+        got_cookie = False
+        for name in COOKIE_NAMES:
+            if self.session.cookies.get(name):
+                got_cookie = True
+                break
+        if not got_cookie:
+            # هر کوکی غیرخالی
+            if list(self.session.cookies):
+                got_cookie = True
+        if not got_cookie and body.get("success") is not True:
+            raise RuntimeError(
+                "لاگین 3x-ui: نشست برقرار نشد. مسیر (webBasePath) و یوزر/رمز را بررسی کنید."
+            )
+
         self._logged_in = True
         return True
 
@@ -126,22 +199,22 @@ class XUI3Client:
 
     def _request(self, method: str, path: str, **kwargs) -> Any:
         self.ensure_auth()
-        if not path.startswith("/"):
-            path = "/" + path
-        url = self.base_url + path
-        headers = self._headers()
+        headers = self._auth_headers()
         headers.update(kwargs.pop("headers", {}) or {})
+        url = self._url(path)
         r = self.session.request(
             method, url, headers=headers, timeout=self.timeout, verify=self.verify_ssl, **kwargs
         )
+        # یک‌بار retry بعد از 401 با لاگین دوباره (فقط وقتی توکن نیست)
         if r.status_code == 401 and not self.api_token:
             self._logged_in = False
             self.login()
+            headers = self._auth_headers()
             r = self.session.request(
                 method, url, headers=headers, timeout=self.timeout, verify=self.verify_ssl, **kwargs
             )
         if r.status_code >= 400:
-            raise RuntimeError(f"3x-ui {method} {path}: HTTP {r.status_code} {r.text[:300]}")
+            raise RuntimeError(f"3x-ui {method} {path}: HTTP {r.status_code} — {(r.text or '')[:250]}")
         try:
             data = r.json()
         except Exception:
@@ -153,19 +226,19 @@ class XUI3Client:
         return data
 
     def test_connection(self) -> bool:
+        """تست واقعی: لاگین/توکن + لیست اینباند."""
         self.login()
-        # try list inbounds as health check
         self.list_inbounds()
         return True
 
     def get_system_stats(self) -> dict:
-        try:
-            return self._request("GET", "/panel/api/server/status") or {}
-        except Exception:
+        for path in ("/panel/api/server/status", "/server/status"):
             try:
-                return self._request("GET", "/server/status") or {}
+                obj = self._request("GET", path)
+                return obj if isinstance(obj, dict) else {"raw": obj}
             except Exception as e:
-                return {"error": str(e)}
+                last = e
+        return {"error": str(last) if last else "status unavailable"}
 
     def list_inbounds(self) -> List[dict]:
         obj = self._request("GET", "/panel/api/inbounds/list")
@@ -179,7 +252,6 @@ class XUI3Client:
         return self._request("GET", f"/panel/api/inbounds/get/{int(inbound_id)}")
 
     def list_inbound_choices(self) -> List[dict]:
-        """Simplified list for bot UI: id, remark, protocol, port, enable"""
         out = []
         for ib in self.list_inbounds():
             if not ib.get("enable", True):
@@ -212,12 +284,6 @@ class XUI3Client:
         sub_id: str = None,
         flow: str = "",
     ) -> dict:
-        """
-        Add client to one inbound (classic addClient API).
-        total_gb: 0 = unlimited
-        limit_ip: 0 = unlimited (IP Limit / Fail2Ban related)
-        expiry: milliseconds unix; 0 = unlimited
-        """
         email = email or _rand_email()
         sub_id = sub_id or _rand_sub_id()
         client_uuid = client_uuid or str(uuid.uuid4())
@@ -239,17 +305,12 @@ class XUI3Client:
             "subId": sub_id,
             "reset": 0,
         }
-        # Trojan uses password field instead of id in some versions
         settings = json.dumps({"clients": [client_obj]}, ensure_ascii=False)
         payload = {"id": int(inbound_id), "settings": settings}
         try:
             result = self._request("POST", "/panel/api/inbounds/addClient", json=payload)
         except Exception:
-            # newer clients API
-            payload2 = {
-                "inboundIds": [int(inbound_id)],
-                "client": client_obj,
-            }
+            payload2 = {"inboundIds": [int(inbound_id)], "client": client_obj}
             result = self._request("POST", "/panel/api/clients/add", json=payload2)
 
         return {
@@ -277,32 +338,12 @@ class XUI3Client:
             "POST", f"/panel/api/inbounds/{int(inbound_id)}/resetClientTraffic/{email}"
         )
 
-    def set_client_enable(self, inbound_id: int, email: str, enable: bool, client_meta: dict = None) -> Any:
-        """Enable/disable client by re-pushing client config."""
-        meta = client_meta or {}
-        client_obj = {
-            "id": meta.get("id") or meta.get("uuid") or str(uuid.uuid4()),
-            "email": email,
-            "enable": bool(enable),
-            "limitIp": int(meta.get("limitIp") or 0),
-            "totalGB": int(meta.get("totalGB") or 0),
-            "expiryTime": int(meta.get("expiryTime") or 0),
-            "tgId": str(meta.get("tgId") or ""),
-            "subId": meta.get("subId") or "",
-            "flow": meta.get("flow") or "",
-            "reset": 0,
-        }
-        cid = client_obj["id"]
-        return self.update_client(cid, inbound_id, client_obj)
-
     def subscription_url(self, sub_id: str) -> str:
         if not sub_id:
             return ""
-        # default path /sub/{subId} — panel may use custom sub path
         return f"{self.base_url}/sub/{sub_id}"
 
     def find_client_in_inbounds(self, email: str) -> Optional[dict]:
-        """Search all inbounds for client by email. Returns {inbound, client}."""
         for ib in self.list_inbounds():
             settings = ib.get("settings")
             if isinstance(settings, str):
@@ -310,11 +351,9 @@ class XUI3Client:
                     settings = json.loads(settings)
                 except Exception:
                     settings = {}
-            clients = (settings or {}).get("clients") or []
-            for c in clients:
+            for c in (settings or {}).get("clients") or []:
                 if (c.get("email") or "") == email:
                     return {"inbound": ib, "client": c, "inbound_id": ib.get("id")}
-        # traffic endpoint fallback
         tr = self.get_client_traffics(email)
         if tr:
             return {"inbound": None, "client": tr, "inbound_id": tr.get("inboundId")}

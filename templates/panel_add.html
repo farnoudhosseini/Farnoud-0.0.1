@@ -10,41 +10,56 @@
                 <a href="{{ url_for('panels_list') }}" class="greeting">بازگشت</a>
             </div>
         </header>
-        <div class="content">
-            <div class="card" style="max-width:600px">
-                <div class="card-title">اتصال پنل VPN</div>
-                <div class="card-desc">پاسارگارد یا 3x-ui (ثنایی). برای 3x-ui می‌توانید API Token بگذارید یا یوزر/پسورد.</div>
+        <div class="content" style="max-width:640px">
+
+            {# ---- مرحله ۱: انتخاب نوع ---- #}
+            <div class="card" id="stepType" {% if selected_type %}style="display:none"{% endif %}>
+                <div class="card-title">نوع پنل را انتخاب کنید</div>
+                <div class="card-desc">هر نوع فیلدهای مخصوص خودش را دارد.</div>
+                <div style="display:grid;gap:12px;margin-top:1rem">
+                    <form method="GET" action="{{ url_for('panels_add') }}">
+                        <input type="hidden" name="type" value="pasarguard">
+                        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;padding:14px">
+                            PasarGuard (پاسارگارد)
+                        </button>
+                    </form>
+                    <form method="GET" action="{{ url_for('panels_add') }}">
+                        <input type="hidden" name="type" value="3x-ui">
+                        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;padding:14px;background:linear-gradient(135deg,#0ea5e9,#6366f1)">
+                            3x-ui (ثنایی / Sanaei)
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {# ---- مرحله ۲: فرم پاسارگارد ---- #}
+            {% if selected_type == 'pasarguard' %}
+            <div class="card">
+                <div class="card-title">اتصال پاسارگارد</div>
+                <div class="card-desc">آدرس پنل + نام کاربری و رمز ادمین. اتصال قبل از ذخیره تست می‌شود.</div>
+                <p class="muted" style="margin-bottom:1rem">
+                    <a href="{{ url_for('panels_add') }}">← تغییر نوع پنل</a>
+                </p>
                 <form method="POST" action="{{ url_for('panels_add') }}">
+                    <input type="hidden" name="panel_type" value="pasarguard">
                     <div class="form-group">
                         <label for="name">نام نمایشی</label>
                         <input type="text" id="name" name="name" placeholder="مثلاً سرور آلمان" required>
                     </div>
                     <div class="form-group">
-                        <label for="panel_type">نوع پنل</label>
-                        <select id="panel_type" name="panel_type" class="form-select">
-                            <option value="pasarguard" selected>PasarGuard (پاسارگارد)</option>
-                            <option value="3x-ui">3x-ui / ثنایی (Sanaei)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
                         <label for="panel_url">آدرس پنل</label>
-                        <input type="text" id="panel_url" name="panel_url" placeholder="https://example.com:2053/path" required>
+                        <input type="text" id="panel_url" name="panel_url" placeholder="https://panel.example.com:8000" required>
                     </div>
                     <div class="form-group">
                         <label for="username">نام کاربری ادمین</label>
-                        <input type="text" id="username" name="username" placeholder="admin" autocomplete="off">
+                        <input type="text" id="username" name="username" required autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="password">رمز عبور</label>
-                        <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password">
-                    </div>
-                    <div class="form-group" id="apiKeyGroup">
-                        <label for="api_key">API Token (اختیاری — مخصوص 3x-ui)</label>
-                        <input type="text" id="api_key" name="api_key" placeholder="Bearer token از Settings → Security">
-                        <p class="muted" style="font-size:.8rem;margin-top:.35rem">اگر Token بگذارید، یوزر/پسورد لازم نیست. برای پاسارگارد خالی بگذارید.</p>
+                        <input type="password" id="password" name="password" required autocomplete="new-password">
                     </div>
                     <div class="form-group">
-                        <label for="max_sales">حداکثر تعداد فروش (خالی = نامحدود)</label>
+                        <label for="max_sales">حداکثر فروش (خالی = نامحدود)</label>
                         <input type="number" id="max_sales" name="max_sales" min="0" placeholder="نامحدود">
                     </div>
                     <div class="card-actions">
@@ -52,6 +67,112 @@
                     </div>
                 </form>
             </div>
+            {% endif %}
+
+            {# ---- مرحله ۲: فرم 3x-ui ---- #}
+            {% if selected_type == '3x-ui' %}
+            <div class="card">
+                <div class="card-title">اتصال 3x-ui (ثنایی)</div>
+                <div class="card-desc">
+                    آدرس کامل با مسیر (webBasePath)، مثال:
+                    <code style="direction:ltr;display:inline-block">https://example.com:2053/secretpath</code>
+                </div>
+                <p class="muted" style="margin-bottom:1rem">
+                    <a href="{{ url_for('panels_add') }}">← تغییر نوع پنل</a>
+                </p>
+                <form method="POST" action="{{ url_for('panels_add') }}" id="xuiForm">
+                    <input type="hidden" name="panel_type" value="3x-ui">
+                    <div class="form-group">
+                        <label for="name">نام نمایشی</label>
+                        <input type="text" id="name" name="name" placeholder="مثلاً سرور ترکیه" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="panel_url">آدرس پنل (با path)</label>
+                        <input type="text" id="panel_url" name="panel_url"
+                               placeholder="https://example.com:2053/secretpath" required
+                               style="direction:ltr;text-align:left">
+                        <p class="muted" style="font-size:.8rem;margin-top:.35rem">
+                            همان آدرسی که در مرورگر برای ورود به پنل باز می‌کنید (بدون /login).
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label>روش احراز هویت</label>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:.4rem">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                <input type="radio" name="auth_mode" value="userpass" id="authUser" checked>
+                                یوزر / پسورد
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                <input type="radio" name="auth_mode" value="token" id="authToken">
+                                فقط API Token
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="boxUserpass">
+                        <div class="form-group">
+                            <label for="username">نام کاربری ادمین</label>
+                            <input type="text" id="username" name="username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="password">رمز عبور</label>
+                            <input type="password" id="password" name="password" autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <div id="boxToken" style="display:none">
+                        <div class="form-group">
+                            <label for="api_key">API Token</label>
+                            <input type="text" id="api_key" name="api_key"
+                                   placeholder="از Settings → Security → API Token"
+                                   style="direction:ltr;text-align:left">
+                            <p class="muted" style="font-size:.8rem;margin-top:.35rem">
+                                با وارد کردن Token، لاگین یوزر/پسورد انجام نمی‌شود و مستقیم با Bearer درخواست زده می‌شود.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="max_sales">حداکثر فروش (خالی = نامحدود)</label>
+                        <input type="number" id="max_sales" name="max_sales" min="0" placeholder="نامحدود">
+                    </div>
+                    <div class="card-actions">
+                        <button type="submit" class="btn-primary inline">تست و اتصال</button>
+                    </div>
+                </form>
+            </div>
+            <script>
+            (function(){
+                const authUser = document.getElementById('authUser');
+                const authToken = document.getElementById('authToken');
+                const boxUser = document.getElementById('boxUserpass');
+                const boxTok = document.getElementById('boxToken');
+                const u = document.getElementById('username');
+                const p = document.getElementById('password');
+                const t = document.getElementById('api_key');
+                function sync(){
+                    if(authToken.checked){
+                        boxUser.style.display='none';
+                        boxTok.style.display='block';
+                        if(u){ u.value=''; u.removeAttribute('required'); }
+                        if(p){ p.value=''; p.removeAttribute('required'); }
+                        if(t) t.setAttribute('required','required');
+                    } else {
+                        boxUser.style.display='block';
+                        boxTok.style.display='none';
+                        if(t){ t.value=''; t.removeAttribute('required'); }
+                        if(u) u.setAttribute('required','required');
+                        if(p) p.setAttribute('required','required');
+                    }
+                }
+                authUser.addEventListener('change', sync);
+                authToken.addEventListener('change', sync);
+                sync();
+            })();
+            </script>
+            {% endif %}
+
         </div>
     </main>
 </div>

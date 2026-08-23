@@ -135,47 +135,102 @@ def panels_list():
 @app.route("/panels/add", methods=["GET", "POST"])
 @login_required
 def panels_add():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        panel_type = request.form.get("panel_type", "pasarguard").strip()
-        raw_url = request.form.get("panel_url", "").strip()
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "").strip()
-        api_key = (request.form.get("api_key") or "").strip()
-        panel_type = (panel_type or "pasarguard").lower()
-        if panel_type not in ("pasarguard", "3x-ui", "3xui", "xui", "sanaei"):
-            flash("نوع پنل نامعتبر است", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        if panel_type in ("3xui", "xui", "sanaei"):
-            panel_type = "3x-ui"
-        if not name or not raw_url:
-            flash("نام و آدرس الزامی است", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        if panel_type == "pasarguard" and (not username or not password):
-            flash("برای پاسارگارد یوزر و رمز لازم است", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        if panel_type == "3x-ui" and not api_key and (not username or not password):
-            flash("برای 3x-ui یا API Token یا یوزر/رمز لازم است", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        try:
-            if panel_type == "3x-ui":
-                from services.xui3 import XUI3Client, normalize_xui_base
-                base_url = normalize_xui_base(raw_url)
-                client = XUI3Client(base_url, username, password, api_token=api_key, verify_ssl=False)
-            else:
-                base_url = normalize_base_url(raw_url)
-                client = PasarGuardClient(base_url, username, password, verify_ssl=False)
+    selected_type = (request.args.get("type") or request.form.get("panel_type") or "").strip().lower()
+    if selected_type in ("3xui", "xui", "sanaei"):
+        selected_type = "3x-ui"
+    if selected_type not in ("", "pasarguard", "3x-ui"):
+        selected_type = ""
+
+    if request.method == "GET":
+        return render_template(
+            "panel_add.html",
+            username=session.get("admin_username"),
+            active="panels",
+            selected_type=selected_type or None,
+        )
+
+    name = request.form.get("name", "").strip()
+    panel_type = (request.form.get("panel_type") or "").strip().lower()
+    if panel_type in ("3xui", "xui", "sanaei"):
+        panel_type = "3x-ui"
+    raw_url = request.form.get("panel_url", "").strip()
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+    api_key = (request.form.get("api_key") or "").strip()
+    auth_mode = (request.form.get("auth_mode") or "").strip()
+
+    def _form(ptype):
+        return render_template(
+            "panel_add.html",
+            username=session.get("admin_username"),
+            active="panels",
+            selected_type=ptype,
+        )
+
+    if panel_type not in ("pasarguard", "3x-ui"):
+        flash("نوع پنل را انتخاب کنید", "error")
+        return redirect(url_for("panels_add"))
+    if not name or not raw_url:
+        flash("نام و آدرس الزامی است", "error")
+        return _form(panel_type)
+
+    try:
+        if panel_type == "pasarguard":
+            if not username or not password:
+                flash("برای پاسارگارد یوزر و رمز لازم است", "error")
+                return _form("pasarguard")
+            base_url = normalize_base_url(raw_url)
+            client = PasarGuardClient(base_url, username, password, verify_ssl=False)
             client.test_connection()
-        except Exception as e:
-            flash(f"اتصال ناموفق: {e}", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        panel_id, slug = create_panel(name, panel_type, base_url, username or "api", password or "", api_key=api_key or None)
-        if not panel_id:
-            flash("خطا در ذخیره پنل", "error")
-            return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
-        flash(f"پنل «{name}» متصل شد", "success")
-        return redirect(url_for("panel_detail", slug=slug))
-    return render_template("panel_add.html", username=session.get("admin_username"), active="panels")
+            api_key = None
+        else:
+            from services.xui3 import XUI3Client, normalize_xui_base
+            use_token = (auth_mode == "token") or bool(api_key)
+            if use_token:
+                if not api_key:
+                    flash("API Token را وارد کنید", "error")
+                    return _form("3x-ui")
+                username, password = "", ""
+            else:
+                api_key = ""
+                if not username or not password:
+                    flash("نام کاربری و رمز عبور لازم است", "error")
+                    return _form("3x-ui")
+            base_url = normalize_xui_base(raw_url)
+            client = XUI3Client(
+                base_url,
+                username=username,
+                password=password,
+                api_token=api_key,
+                verify_ssl=False,
+            )
+            client.test_connection()
+    except Exception as e:
+        flash(f"اتصال ناموفق: {e}", "error")
+        return _form(panel_type)
+
+    panel_id, slug = create_panel(
+        name,
+        panel_type,
+        base_url,
+        username or ("token" if api_key else "admin"),
+        password or "",
+        api_key=api_key or None,
+    )
+    if not panel_id:
+        flash("خطا در ذخیره پنل", "error")
+        return _form(panel_type)
+
+    try:
+        ms = (request.form.get("max_sales") or "").strip()
+        if ms != "":
+            from database import set_panel_max_sales
+            set_panel_max_sales(panel_id, int(ms) if int(ms) > 0 else None)
+    except Exception:
+        pass
+
+    flash(f"پنل «{name}» ({panel_type}) متصل شد", "success")
+    return redirect(url_for("panel_detail", slug=slug))
 
 
 @app.route("/panels/<slug>")

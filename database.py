@@ -310,3 +310,12 @@ def set_panel_field(panel_id: int, field: str, value) -> bool:
         return False
     finally:
         conn.close()
+
+def set_panel_max_sales(panel_id: int, max_sales):
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE vpn_panels SET max_sales=%s WHERE id=%s", (max_sales, panel_id))
+            conn.commit()
+    finally:
+        conn.close()
