@@ -476,6 +476,29 @@ def bot_user_detail(telegram_id):
     )
 
 # ---------- پیام‌ها و کیف پول تنظیمات ----------
+
+@app.route("/bot/settings", methods=["GET", "POST"])
+@login_required
+def bot_settings():
+    if request.method == "POST":
+        if "welcome_message" in request.form:
+            set_setting_sync("welcome_message", request.form.get("welcome_message", "").strip())
+        if request.form.get("backup_interval_hours") is not None:
+            try:
+                _bh = max(1, min(int(float(request.form.get("backup_interval_hours") or 2)), 168))
+                set_setting_sync("backup_interval_hours", str(_bh))
+            except Exception:
+                flash("فاصله بکاپ نامعتبر", "error")
+        flash("ذخیره شد", "success")
+        return redirect(url_for("bot_settings"))
+    return render_template(
+        "bot_settings.html",
+        username=session.get("admin_username"),
+        active="bot_settings",
+        welcome_message=get_setting_sync("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋"),
+        backup_interval_hours=get_setting_sync("backup_interval_hours", "2"),
+    )
+
 @app.route("/messages", methods=["GET", "POST"])
 @login_required
 def messages_manage():

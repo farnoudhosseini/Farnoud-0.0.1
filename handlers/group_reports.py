@@ -23,6 +23,36 @@ TOPIC_KINDS = {
 }
 
 
+
+def get_backup_interval_seconds() -> int:
+    """فاصله بکاپ بر حسب ثانیه — حداقل 1 ساعت، پیش‌فرض 2 ساعت"""
+    try:
+        raw = get_setting_sync("backup_interval_hours", "2")
+        hours = float(raw or 2)
+    except Exception:
+        hours = 2.0
+    hours = max(1.0, min(hours, 168.0))  # 1h .. 7d
+    return int(hours * 3600)
+
+
+def reschedule_backup_job(application) -> float:
+    """حذف جاب قبلی و ثبت دوباره با فاصله جدید. برمی‌گرداند hours."""
+    jq = getattr(application, "job_queue", None)
+    if not jq:
+        return get_backup_interval_seconds() / 3600.0
+    # remove existing backup jobs
+    try:
+        for job in list(jq.jobs()):
+            name = getattr(job, "name", None) or ""
+            cb = getattr(job, "callback", None)
+            if name == "db_backup" or (cb and getattr(cb, "__name__", "") == "backup_job"):
+                job.schedule_removal()
+    except Exception as e:
+        print("reschedule remove:", e)
+    secs = get_backup_interval_seconds()
+    jq.run_repeating(backup_job, interval=secs, first=30, name="db_backup")
+    return secs / 3600.0
+
 async def setgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """فقط ادمین ربات — در گروه فروم/تاپیک اجرا شود"""
     user = update.effective_user
@@ -69,58 +99,216 @@ async def send_report(bot, kind: str, text: str, parse_mode: str = "HTML"):
         print(f"report send error ({kind}): {e}")
 
 
-def _mysqldump_bytes() -> bytes | None:
+def _db_params():
     host = DB_CONFIG.get("host", "localhost")
-    port = str(DB_CONFIG.get("port", 3306))
+    port = int(DB_CONFIG.get("port", 3306) or 3306)
     user = DB_CONFIG.get("user", "root")
-    password = DB_CONFIG.get("password", "")
-    db = DB_CONFIG.get("db") or DB_CONFIG.get("database", "farnoudbot")
+    password = DB_CONFIG.get("password", "") or ""
+    db = DB_CONFIG.get("db") or DB_CONFIG.get("database") or "farnoudbot"
+    return host, port, user, password, db
+
+
+def _mysqldump_bytes() -> tuple[bytes | None, str]:
+    """برمی‌گرداند (data, error_message)"""
+    host, port, user, password, db = _db_params()
     env = os.environ.copy()
     if password:
         env["MYSQL_PWD"] = password
+    cmd = [
+        "mysqldump",
+        f"-h{host}",
+        f"-P{port}",
+        f"-u{user}",
+        "--single-transaction",
+        "--routines",
+        "--triggers",
+        "--events",
+        "--default-character-set=utf8mb4",
+        "--result-file=/dev/stdout",
+        db,
+    ]
+    # بدون --result-file اگر پشتیبانی نشد
+    cmd_simple = [
+        "mysqldump",
+        "-h", host,
+        "-P", str(port),
+        "-u", user,
+        "--single-transaction",
+        "--routines",
+        "--triggers",
+        "--default-character-set=utf8mb4",
+        db,
+    ]
+    for c in (cmd_simple, cmd):
+        try:
+            proc = subprocess.run(
+                c,
+                capture_output=True,
+                env=env,
+                timeout=180,
+            )
+            if proc.returncode == 0 and proc.stdout:
+                return proc.stdout, ""
+            err = (proc.stderr or b"").decode("utf-8", errors="ignore")[:400]
+            if "No such file" in err or "not found" in err.lower():
+                return None, "mysqldump_not_found"
+            last_err = err or f"exit {proc.returncode}"
+        except FileNotFoundError:
+            return None, "mysqldump_not_found"
+        except Exception as e:
+            last_err = str(e)
+    return None, last_err if "last_err" in dir() else "mysqldump failed"
+
+
+def _pymysql_export_bytes() -> tuple[bytes | None, str]:
+    """اکسپورت با pymysql وقتی mysqldump نیست"""
     try:
-        proc = subprocess.run(
-            ["mysqldump", "-h", host, "-P", port, "-u", user, "--single-transaction", db],
-            capture_output=True,
-            env=env,
-            timeout=120,
+        import pymysql
+    except ImportError:
+        return None, "pymysql نصب نیست"
+    host, port, user, password, db = _db_params()
+    try:
+        conn = pymysql.connect(
+            host=host, port=port, user=user, password=password,
+            database=db, charset="utf8mb4",
+            cursorclass=pymysql.cursors.SSCursor,
         )
-        if proc.returncode == 0 and proc.stdout:
-            return proc.stdout
-        print("mysqldump err:", proc.stderr[:300] if proc.stderr else "unknown")
-        return None
     except Exception as e:
-        print("mysqldump exception:", e)
-        return None
+        return None, f"اتصال MySQL: {e}"
+    lines = [
+        f"-- FarnoudBot backup",
+        f"-- Database: `{db}`",
+        f"-- Date: {datetime.now().isoformat()}",
+        "SET NAMES utf8mb4;",
+        "SET FOREIGN_KEY_CHECKS=0;",
+        "",
+    ]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SHOW TABLES")
+            tables = [r[0] for r in cur.fetchall()]
+            for table in tables:
+                cur.execute(f"SHOW CREATE TABLE `{table}`")
+                row = cur.fetchone()
+                create_sql = row[1] if row else ""
+                lines.append(f"DROP TABLE IF EXISTS `{table}`;")
+                lines.append(create_sql + ";")
+                lines.append("")
+                cur.execute(f"SELECT * FROM `{table}`")
+                cols = [d[0] for d in cur.description] if cur.description else []
+                while True:
+                    batch = cur.fetchmany(200)
+                    if not batch:
+                        break
+                    for rec in batch:
+                        vals = []
+                        for v in rec:
+                            if v is None:
+                                vals.append("NULL")
+                            elif isinstance(v, (bytes, bytearray)):
+                                vals.append("0x" + v.hex())
+                            elif isinstance(v, (int, float)):
+                                vals.append(str(v))
+                            else:
+                                s = str(v).replace("\\", "\\\\").replace("'", "\\'")
+                                vals.append(f"'{s}'")
+                        col_list = ", ".join(f"`{c}`" for c in cols)
+                        lines.append(f"INSERT INTO `{table}` ({col_list}) VALUES ({', '.join(vals)});")
+                lines.append("")
+        lines.append("SET FOREIGN_KEY_CHECKS=1;")
+        data = "\n".join(lines).encode("utf-8")
+        return data, ""
+    except Exception as e:
+        return None, f"export: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def export_database() -> tuple[bytes | None, str, str]:
+    """
+    returns (data, error, method)
+    method: mysqldump | pymysql
+    """
+    data, err = _mysqldump_bytes()
+    if data:
+        return data, "", "mysqldump"
+    if err != "mysqldump_not_found":
+        # mysqldump هست ولی خطا داد — باز هم fallback
+        pass
+    data2, err2 = _pymysql_export_bytes()
+    if data2:
+        return data2, "", "pymysql"
+    return None, (err2 or err or "unknown"), "none"
+
+
+def _gzip_bytes(data: bytes) -> bytes:
+    import gzip
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6) as gz:
+        gz.write(data)
+    return buf.getvalue()
 
 
 async def send_db_backup(bot):
-    """ارسال بکاپ دیتابیس به تاپیک backup"""
+    """اکسپورت MySQL و ارسال به تاپیک backup"""
     gid = get_report_group()
     if not gid:
+        print("backup: report group not set")
         return
-    data = _mysqldump_bytes()
+
+    data, err, method = export_database()
     if not data:
-        await send_report(bot, "backup", "❌ بکاپ دیتابیس ناموفق بود.")
+        await send_report(
+            bot, "backup",
+            f"❌ بکاپ دیتابیس ناموفق بود.\n<code>{err}</code>",
+        )
         return
-    topic = get_report_topic("backup")
-    fname = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
-    kwargs = {
-        "chat_id": gid,
-        "document": io.BytesIO(data),
-        "filename": fname,
-        "caption": f"💾 بکاپ دیتابیس — {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    }
-    if topic:
-        kwargs["message_thread_id"] = topic
+
+    # فشرده‌سازی برای حجم کمتر
     try:
-        # python-telegram-bot InputFile
+        payload = _gzip_bytes(data)
+        fname = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql.gz"
+        size_note = f"{len(data)/1024:.0f}KB → gzip {len(payload)/1024:.0f}KB"
+    except Exception:
+        payload = data
+        fname = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+        size_note = f"{len(data)/1024:.0f}KB"
+
+    topic = get_report_topic("backup")
+    caption = (
+        f"💾 بکاپ دیتابیس\n"
+        f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        f"🛠 روش: <code>{method}</code>\n"
+        f"📦 {size_note}"
+    )
+    try:
         from telegram import InputFile
-        kwargs["document"] = InputFile(io.BytesIO(data), filename=fname)
+        kwargs = {
+            "chat_id": gid,
+            "document": InputFile(io.BytesIO(payload), filename=fname),
+            "caption": caption,
+            "parse_mode": "HTML",
+        }
+        if topic:
+            kwargs["message_thread_id"] = int(topic)
         await bot.send_document(**kwargs)
     except Exception as e:
         print("backup send error:", e)
+        await send_report(bot, "backup", f"❌ ارسال فایل بکاپ ناموفق:\n<code>{e}</code>")
 
+
+
+async def backup_command(update, context):
+    """ادمین: بکاپ فوری دیتابیس"""
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID:
+        return
+    await update.message.reply_text("⏳ در حال تهیه بکاپ...")
+    await send_db_backup(context.bot)
+    await update.message.reply_text("✅ اگر گروه گزارش ست باشد، فایل به تاپیک بکاپ ارسال شد.")
 
 async def backup_job(context: ContextTypes.DEFAULT_TYPE):
     await send_db_backup(context.bot)

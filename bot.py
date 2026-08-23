@@ -52,11 +52,13 @@ async def post_init(application: Application):
     except Exception as e:
         print(f"user tables: {e}")
     try:
-        from handlers.group_reports import backup_job, hourly_job
+        from handlers.group_reports import backup_job, hourly_job, get_backup_interval_seconds
         jq = application.job_queue
         if jq:
-            jq.run_repeating(backup_job, interval=7200, first=60)
-            jq.run_repeating(hourly_job, interval=3600, first=120)
+            bsecs = get_backup_interval_seconds()
+            jq.run_repeating(backup_job, interval=bsecs, first=60, name="db_backup")
+            jq.run_repeating(hourly_job, interval=3600, first=120, name="hourly_charges")
+            print(f"backup job every {bsecs/3600:.1f}h")
     except Exception as e:
         print(f"jobs: {e}")
 
@@ -180,8 +182,9 @@ def create_bot() -> Application:
     application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("wallet", show_wallet))
-    from handlers.group_reports import setgroup_command
+    from handlers.group_reports import setgroup_command, backup_command
     application.add_handler(CommandHandler("setgroup", setgroup_command))
+    application.add_handler(CommandHandler("backup", backup_command))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(trial_callback, pattern="^trial_"))
 

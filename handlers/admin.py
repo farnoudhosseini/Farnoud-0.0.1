@@ -45,6 +45,7 @@ def main_keyboard():
         [btn("✨ ایموجی پریمیوم", "admin_premiji"), btn("⌨️ منوی شیشه‌ای", "admin_inline_menu")],
         [btn("👮 ادمین‌های ربات", "admin_botadmins")],
         [btn("⏱ سرویس ساعتی", "admin_hourly"), btn("🧹 بهینه‌سازی", "admin_optimize")],
+        [btn("💾 فاصله بکاپ", "admin_backup_cfg")],
         [btn("🏠 منوی اصلی", "admin_to_start")],
     ])
 
@@ -1123,6 +1124,80 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- ساعتی ----
     
+
+    if data == "admin_backup_cfg":
+        from database import get_setting_sync
+        from handlers.group_reports import get_backup_interval_seconds
+        hours = get_backup_interval_seconds() / 3600.0
+        cur = get_setting_sync("backup_interval_hours", "2")
+        await query.edit_message_text(
+            f"💾 <b>فاصله بکاپ دیتابیس</b>\n"
+            f"فعلی: هر <b>{hours:g}</b> ساعت (تنظیم: <code>{cur}</code>)\n\n"
+            f"یک گزینه را انتخاب کنید یا عدد ساعت را بفرستید.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("۱ ساعت", callback_data="admin_backup_set_1"),
+                    InlineKeyboardButton("۲ ساعت", callback_data="admin_backup_set_2"),
+                    InlineKeyboardButton("۶ ساعت", callback_data="admin_backup_set_6"),
+                ],
+                [
+                    InlineKeyboardButton("۱۲ ساعت", callback_data="admin_backup_set_12"),
+                    InlineKeyboardButton("۲۴ ساعت", callback_data="admin_backup_set_24"),
+                ],
+                [
+                    InlineKeyboardButton("▶️ بکاپ الان", callback_data="admin_backup_now"),
+                    InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel"),
+                ],
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_backup_set_"):
+        from database import set_setting_sync
+        from handlers.group_reports import reschedule_backup_job
+        raw = data.replace("admin_backup_set_", "")
+        try:
+            h = float(raw)
+        except Exception:
+            h = 2
+        h = max(1, min(h, 168))
+        set_setting_sync("backup_interval_hours", str(h))
+        try:
+            reschedule_backup_job(context.application)
+        except Exception as e:
+            print("reschedule:", e)
+        await query.answer(f"هر {h:g} ساعت")
+        # refresh view
+        data = "admin_backup_cfg"
+        # fallthrough by re-dispatching - simpler message:
+        await query.edit_message_text(
+            f"✅ فاصله بکاپ روی <b>هر {h:g} ساعت</b> تنظیم شد.\nجاب زمان‌بندی دوباره ثبت شد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💾 تنظیمات بکاپ", callback_data="admin_backup_cfg")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data == "admin_backup_now":
+        from handlers.group_reports import send_db_backup
+        await query.answer("در حال بکاپ...")
+        try:
+            await send_db_backup(context.bot)
+            msg = "✅ بکاپ ارسال شد (اگر گروه گزارش ست باشد)."
+        except Exception as e:
+            msg = f"❌ خطا: {e}"
+        await query.edit_message_text(
+            msg,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💾 تنظیمات بکاپ", callback_data="admin_backup_cfg")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+        )
+        return ConversationHandler.END
+
     if data == "admin_optimize":
         from services.optimize import optimize_bot_data, format_optimize_report
         stats = optimize_bot_data()
