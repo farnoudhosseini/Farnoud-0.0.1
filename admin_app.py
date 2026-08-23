@@ -1131,21 +1131,6 @@ def panel_settings(panel_id):
     return redirect(url_for("panel_detail", slug=panel["slug"]))
 
 
-@app.route("/bot/optimize", methods=["GET", "POST"])
-@login_required
-def bot_optimize():
-    from services.optimize import optimize_bot_data, format_optimize_report
-    result = None
-    if request.method == "POST":
-        stats = optimize_bot_data()
-        result = format_optimize_report(stats)
-        flash("بهینه‌سازی انجام شد", "success")
-    return render_template(
-        "bot_optimize.html",
-        username=session.get("admin_username"),
-        active="optimize",
-        result=result,
-    )
 
 @app.route("/logout")
 def logout():
