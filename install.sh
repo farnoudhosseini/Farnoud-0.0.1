@@ -6,6 +6,9 @@
 # ============================================================
 set -euo pipefail
 
+# نکته: این اسکریپت با curl | sudo bash هم منوی تعاملی دارد
+# (ورودی از /dev/tty خوانده می‌شود، نه از stdin پایپ)
+
 REPO_URL="https://github.com/FarnoudHosseini/FarnoudBot.git"
 REPO_RAW="https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main"
 INSTALL_DIR="/opt/farnoudbot"
@@ -50,6 +53,22 @@ random_str() {
 
 random_pass() {
   tr -dc 'A-Za-z0-9!@#%+=_' </dev/urandom | head -c 20
+}
+
+# خواندن از ترمینال واقعی — حتی وقتی اسکریپت با curl | bash پایپ شده
+ask() {
+  local prompt="$1"
+  local __var="$2"
+  local __val=""
+  if [ -r /dev/tty ]; then
+    # shellcheck disable=SC2162
+    printf "%s" "$prompt" > /dev/tty
+    IFS= read -r __val < /dev/tty || true
+  else
+    # fallback (نادر)
+    read -r -p "$prompt" __val || true
+  fi
+  printf -v "$__var" '%s' "$__val"
 }
 
 install_prereqs() {
@@ -101,7 +120,7 @@ prompt_domain() {
   echo ""
   echo -e "${CYAN}🌐 دامنه خود را وارد کنید (باید روی IP این سرور ست شده باشد)${NC}"
   echo -e "   مثال: panel.example.com"
-  read -r -p "Domain: " DOMAIN
+  ask "Domain: " DOMAIN
   DOMAIN=$(echo "$DOMAIN" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
   if [ -z "$DOMAIN" ]; then
     echo -e "${RED}دامنه خالی است.${NC}"
@@ -115,7 +134,7 @@ prompt_domain() {
     echo -e "IP دامنه: ${YELLOW}${DOMAIN_IP}${NC}"
     if [ "$DOMAIN_IP" != "$SERVER_IP" ]; then
       echo -e "${YELLOW}⚠️  IP دامنه با سرور یکی نیست. SSL ممکن است شکست بخورد. ادامه می‌دهید؟ (y/N)${NC}"
-      read -r cont
+      ask "> " cont
       [[ "$cont" =~ ^[Yy]$ ]] || exit 1
     fi
   else
@@ -215,7 +234,7 @@ NGINX
 prompt_bot_token() {
   echo ""
   echo -e "${CYAN}🤖 توکن ربات تلگرام را وارد کنید (از @BotFather)${NC}"
-  read -r -p "BOT_TOKEN: " BOT_TOKEN
+  ask "BOT_TOKEN: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | tr -d '[:space:]')
   if [ -z "$BOT_TOKEN" ]; then
     echo -e "${RED}توکن خالی است.${NC}"
@@ -227,7 +246,7 @@ prompt_admin_id() {
   echo ""
   echo -e "${CYAN}👤 آیدی عددی ادمین تلگرام را وارد کنید${NC}"
   echo -e "   (از @userinfobot یا مشابه بگیرید)"
-  read -r -p "ADMIN_ID: " ADMIN_ID
+  ask "ADMIN_ID: " ADMIN_ID
   ADMIN_ID=$(echo "$ADMIN_ID" | tr -d '[:space:]')
   if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
     echo -e "${RED}آیدی باید عدد باشد.${NC}"
@@ -432,7 +451,7 @@ do_uninstall() {
   require_root
   print_banner
   echo -e "${RED}⚠️  حذف کامل Farnoud Bot (دیتابیس، سرویس، nginx، فایل‌ها)${NC}"
-  read -r -p "آیا مطمئن هستید؟ بنویسید YES: " conf
+  ask "آیا مطمئن هستید؟ بنویسید YES: " conf
   if [ "$conf" != "YES" ]; then
     echo "لغو شد."
     exit 0
@@ -451,22 +470,30 @@ do_uninstall() {
 }
 
 show_menu() {
-  print_banner
-  echo -e "  ${CYAN}1)${NC} Install"
-  echo -e "  ${CYAN}2)${NC} Update"
-  echo -e "  ${CYAN}3)${NC} Full Uninstall"
-  echo ""
-  echo -e "  Repo:   https://github.com/FarnoudHosseini/FarnoudBot"
-  echo -e "  Credit: Farnoud Hosseini"
-  echo -e "  Donate: https://donofa.ir/farnoudhosseini"
-  echo ""
-  read -r -p "انتخاب (1/2/3): " choice
-  case "$choice" in
-    1) do_install ;;
-    2) do_update ;;
-    3) do_uninstall ;;
-    *) echo -e "${RED}گزینه نامعتبر${NC}"; exit 1 ;;
-  esac
+  while true; do
+    print_banner
+    echo -e "  ${CYAN}1)${NC} نصب کامل (Install)"
+    echo -e "  ${CYAN}2)${NC} به‌روزرسانی (Update)"
+    echo -e "  ${CYAN}3)${NC} حذف کامل (Full Uninstall)"
+    echo -e "  ${CYAN}0)${NC} خروج"
+    echo ""
+    echo -e "  Repo:   https://github.com/FarnoudHosseini/FarnoudBot"
+    echo -e "  Credit: Farnoud Hosseini"
+    echo -e "  Donate: https://donofa.ir/farnoudhosseini"
+    echo ""
+    # مهم: از /dev/tty بخوان تا با curl | bash هم منو کار کند
+    ask "انتخاب کنید [0-3]: " choice
+    case "$choice" in
+      1|install|Install|INSTALL) do_install; break ;;
+      2|update|Update|UPDATE) do_update; break ;;
+      3|uninstall|Uninstall|UNINSTALL) do_uninstall; break ;;
+      0|q|Q|exit|quit) echo "خروج."; exit 0 ;;
+      *)
+        echo -e "${RED}گزینه نامعتبر. دوباره انتخاب کنید.${NC}"
+        sleep 1
+        ;;
+    esac
+  done
 }
 
 # اگر آرگومان داده شد
@@ -474,5 +501,16 @@ case "${1:-}" in
   install|--install|-i) do_install ;;
   update|--update|-u) do_update ;;
   uninstall|--uninstall|-x) do_uninstall ;;
-  *) show_menu ;;
+  menu|--menu|"") show_menu ;;
+  *)
+    echo -e "${YELLOW}استفاده:${NC}"
+    echo "  sudo bash install.sh           # منوی تعاملی"
+    echo "  sudo bash install.sh install   # نصب مستقیم"
+    echo "  sudo bash install.sh update"
+    echo "  sudo bash install.sh uninstall"
+    echo ""
+    echo "یک‌خطی:"
+    echo "  curl -sSL https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh | sudo bash"
+    exit 1
+    ;;
 esac
