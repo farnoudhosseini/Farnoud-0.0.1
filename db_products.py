@@ -459,7 +459,8 @@ def get_order_full(oid: int):
             cur.execute(
                 """SELECT o.*, p.name AS product_name, p.volume_gb, p.duration_days, p.hwid_limit,
                           p.hourly_enabled AS product_hourly, p.hourly_price AS product_hourly_price,
-                          vp.name AS panel_name, vp.base_url, vp.username AS panel_user, vp.password AS panel_pass
+                          vp.name AS panel_name, vp.base_url, vp.username AS panel_user, vp.password AS panel_pass,
+                          vp.panel_type, vp.api_key
                    FROM service_orders o
                    LEFT JOIN products p ON p.id=o.product_id
                    LEFT JOIN vpn_panels vp ON vp.id=o.panel_id

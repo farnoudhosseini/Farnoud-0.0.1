@@ -10,6 +10,7 @@ from db_support import (
 )
 from db_products import get_product
 from services.pasarguard import PasarGuardClient
+from services.panel_client import get_panel_client, is_xui_panel
 from services.provision import fix_subscription_url, make_qr_png
 from database import get_setting_sync
 import io
@@ -25,11 +26,40 @@ def _panel_creds(o: dict):
     pwd = o.get("panel_pass") or o.get("password")
     return base, user, pwd
 
-def _client(o: dict) -> PasarGuardClient:
-    base, user, pwd = _panel_creds(o)
-    if not base or not user:
+def _client(o: dict):
+    """کلاینت پنل بر اساس نوع (پاسارگارد / 3x-ui)"""
+    base = o.get("base_url") or o.get("panel_base") or ""
+    user = o.get("panel_user") or o.get("username") or ""
+    pwd = o.get("panel_pass") or o.get("password") or ""
+    api_key = o.get("api_key") or ""
+    ptype = o.get("panel_type") or "pasarguard"
+    if not base:
+        # fallback: load panel by id
+        try:
+            from database import get_panel_by_id
+            panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
+            if panel:
+                return get_panel_client(panel)
+        except Exception:
+            pass
         raise RuntimeError("اطلاعات پنل ناقص است")
-    return PasarGuardClient(base, user, pwd or "", verify_ssl=False)
+    panel = {
+        "base_url": base,
+        "username": user,
+        "password": pwd,
+        "api_key": api_key,
+        "panel_type": ptype,
+    }
+    # اگر api_key/type در سفارش نبود از DB بگیر
+    if o.get("panel_id") and (not api_key or ptype == "pasarguard"):
+        try:
+            from database import get_panel_by_id
+            full = get_panel_by_id(o["panel_id"])
+            if full:
+                panel = full
+        except Exception:
+            pass
+    return get_panel_client(panel)
 
 def back_main_kb():
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="svc_list")]])
@@ -112,18 +142,28 @@ def build_service_status_text(o: dict) -> str:
 
     try:
         client = _client(o)
-        full = client.get_user(o["vpn_username"])
+        full = client.get_user(o["vpn_username"]) or {}
         raw = full.get("subscription_url") or full.get("subscription_link") or ""
         if not raw and full.get("subscription_token"):
             raw = f"/sub/{full['subscription_token']}"
-        base, _, _ = _panel_creds(o)
-        link = fix_subscription_url(base, raw)
+        if not raw and full.get("subId") and hasattr(client, "subscription_url"):
+            try:
+                raw = client.subscription_url(full.get("subId"), email=o["vpn_username"])
+            except Exception:
+                raw = ""
+        base = o.get("base_url") or o.get("panel_base") or ""
+        if not base:
+            try:
+                base, _, _ = _panel_creds(o)
+            except Exception:
+                base = ""
+        link = raw if (raw or "").startswith("http") else fix_subscription_url(base, raw)
 
         st = full.get("status") or "—"
         hwid = full.get("hwid_limit")
         if hwid is None:
-            hwid = "نامحدود"
-        elif hwid == 0:
+            hwid = full.get("limitIp")
+        if hwid is None or hwid == 0 or hwid == "0":
             hwid = "نامحدود"
 
         used = full.get("used_traffic") or 0

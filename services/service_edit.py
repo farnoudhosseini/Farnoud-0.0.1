@@ -8,13 +8,23 @@ from db_products import get_order_full, update_order, get_product
 from services.pasarguard import PasarGuardClient, gb_to_bytes
 
 
-def _client_from_order(o: dict) -> PasarGuardClient:
-    base = o.get("base_url") or ""
-    user = o.get("panel_user") or o.get("username") or ""
-    pwd = o.get("panel_pass") or o.get("password") or ""
-    if not base or not user:
+def _client_from_order(o: dict):
+    from services.panel_client import get_panel_client
+    from database import get_panel_by_id
+    if o.get("panel_id"):
+        panel = get_panel_by_id(o["panel_id"])
+        if panel:
+            return get_panel_client(panel)
+    panel = {
+        "base_url": o.get("base_url") or "",
+        "username": o.get("panel_user") or o.get("username") or "",
+        "password": o.get("panel_pass") or o.get("password") or "",
+        "api_key": o.get("api_key") or "",
+        "panel_type": o.get("panel_type") or "pasarguard",
+    }
+    if not panel["base_url"]:
         raise RuntimeError("اطلاعات پنل ناقص است")
-    return PasarGuardClient(base, user, pwd, verify_ssl=False)
+    return get_panel_client(panel)
 
 
 def edit_sold_service(

@@ -567,6 +567,36 @@ class XUI3Client:
         row["subscription_url"] = self.subscription_url(row.get("subId") or "", email=username)
         return row
 
+
+    def modify_user(self, username: str, payload: dict) -> dict:
+        """سازگاری با مسیرهای پاسارگارد: status active/disabled → enable"""
+        found = self.find_client_in_inbounds(username)
+        if not found:
+            raise RuntimeError(f"کلاینت یافت نشد: {username}")
+        c = dict(found.get("client") or {})
+        ib = found.get("inbound") or {}
+        inbound_id = found.get("inbound_id") or ib.get("id")
+        if payload.get("status"):
+            st = str(payload["status"]).lower()
+            c["enable"] = st in ("active", "enabled", "on", "1", "true")
+        if "hwid_limit" in payload or "limitIp" in payload:
+            lim = payload.get("limitIp", payload.get("hwid_limit"))
+            c["limitIp"] = int(lim or 0)
+        if payload.get("data_limit") is not None:
+            c["totalGB"] = int(payload["data_limit"] or 0)
+        if payload.get("expire"):
+            # ISO → ms
+            try:
+                from datetime import datetime
+                s = str(payload["expire"]).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(s)
+                c["expiryTime"] = int(dt.timestamp() * 1000)
+            except Exception:
+                pass
+        client_id = c.get("id") or c.get("password") or username
+        self.update_client(str(client_id), int(inbound_id), c)
+        return c
+
     def delete_user(self, username: str) -> None:
         found = self.find_client_in_inbounds(username)
         if not found:

@@ -183,8 +183,9 @@ def list_user_orders(telegram_id, limit=50):
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT o.*, p.name AS product_name, p.volume_gb, p.duration_days, p.price,
-                          vp.name AS panel_name, vp.base_url AS panel_base, vp.username AS panel_user,
-                          vp.password AS panel_pass
+                          vp.name AS panel_name, vp.base_url AS panel_base, vp.base_url,
+                          vp.username AS panel_user, vp.password AS panel_pass,
+                          vp.panel_type, vp.api_key
                    FROM service_orders o
                    LEFT JOIN products p ON p.id=o.product_id
                    LEFT JOIN vpn_panels vp ON vp.id=o.panel_id
@@ -203,7 +204,8 @@ def get_user_order(order_id, telegram_id=None):
             if telegram_id:
                 cur.execute(
                     """SELECT o.*, p.name AS product_name, p.volume_gb, p.duration_days,
-                              vp.name AS panel_name, vp.base_url, vp.username AS panel_user, vp.password AS panel_pass
+                              vp.name AS panel_name, vp.base_url, vp.username AS panel_user, vp.password AS panel_pass,
+                              vp.panel_type, vp.api_key
                        FROM service_orders o
                        LEFT JOIN products p ON p.id=o.product_id
                        LEFT JOIN vpn_panels vp ON vp.id=o.panel_id

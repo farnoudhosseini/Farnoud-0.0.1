@@ -1,26 +1,47 @@
 {% extends "base.html" %}
 {% block title %}ورود | پنل مدیریت فرنود{% endblock %}
 {% block content %}
-<div class="login-wrapper">
-    <div class="login-card">
-        <div class="login-header">
-            <div class="logo-wrap" style="width:72px;height:72px;margin:0 auto 12px;border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center">
-                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="فرنود" style="width:72px;height:72px;object-fit:contain;display:block">
-            </div>
-            <h1>فرنود</h1>
-            <p>ورود به پنل مدیریت</p>
-        </div>
-        <form method="POST" action="{{ url_for('login') }}">
-            <div class="form-group">
-                <label for="username">نام کاربری</label>
-                <input type="text" id="username" name="username" placeholder="نام کاربری" required autocomplete="username">
-            </div>
-            <div class="form-group">
-                <label for="password">رمز عبور</label>
-                <input type="password" id="password" name="password" placeholder="رمز عبور" required autocomplete="current-password">
-            </div>
-            <button type="submit" class="btn-primary">ورود</button>
-        </form>
+<div class="login-page">
+  <div class="login-bg" aria-hidden="true"></div>
+  <div class="login-card glass">
+    <div class="login-header">
+      <div class="logo-wrap">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="فرنود">
+      </div>
+      <h1>فرنود</h1>
+      <p>ورود به پنل مدیریت</p>
     </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="login-alerts">
+          {% for cat, msg in messages %}
+            <div class="login-alert login-alert-{{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <form method="POST" action="{{ url_for('login') }}" class="login-form" autocomplete="on">
+      <div class="form-group">
+        <label for="username">نام کاربری</label>
+        <div class="input-icon">
+          <span class="ico" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          <input type="text" id="username" name="username" placeholder="نام کاربری" required autocomplete="username" autofocus>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="password">رمز عبور</label>
+        <div class="input-icon">
+          <span class="ico" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+      </div>
+      <button type="submit" class="btn-login">ورود به پنل</button>
+    </form>
+    <p class="login-foot">Farnoud Admin Panel</p>
+  </div>
 </div>
 {% endblock %}
