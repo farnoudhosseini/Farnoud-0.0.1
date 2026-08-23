@@ -564,7 +564,7 @@ do_finish() {
 show_menu() {
   while true; do
     print_banner
-    echo "  1) Full Install"
+    echo "  1) Install"
     echo "  2) Update"
     echo "  3) Uninstall"
     echo "  4) Finish / Resume (if stuck at database)"
