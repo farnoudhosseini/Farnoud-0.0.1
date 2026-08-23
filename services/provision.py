@@ -82,7 +82,23 @@ def provision_order(order_id: int) -> dict:
 
     from services.panel_client import get_panel_client, is_xui_panel
 
-    username = _rand_username("fn")
+    # Deterministic username makes retries idempotent: the same order maps to the same VPN identity.
+    # Existing orders with vpn_username are never recreated.
+    username = (order.get("vpn_username") or f"fn{int(order_id):08d}")[:100]
+    if order.get("vpn_username") and order.get("status") == "provisioned":
+        try:
+            existing_panel = get_panel_by_id(order["panel_id"])
+            existing_client = get_panel_client(existing_panel)
+            existing_full = existing_client.get_user(order["vpn_username"]) or {}
+            raw = existing_full.get("subscription_url") or existing_full.get("subscription_link") or ""
+            if not raw and existing_full.get("subscription_token"):
+                raw = f"/sub/{existing_full['subscription_token']}"
+            sub_link = fix_subscription_url(existing_panel.get("base_url") or "", raw)
+            return {"ok": True, "text": "", "qr_bytes": make_qr_png(sub_link) if sub_link else None,
+                    "user_data": existing_full, "subscription_link": sub_link,
+                    "vpn_username": order["vpn_username"], "idempotent": True}
+        except Exception:
+            pass
     expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
 
     # پیکربندی گروه/اینباند از محصول (تنظیم ادمین)
@@ -170,7 +186,13 @@ def provision_order(order_id: int) -> dict:
             for_create=True,
         )
         try:
-            created = client.create_user(payload)
+            # If a previous attempt created the remote user but failed before DB commit,
+            # recover it instead of creating a duplicate.
+            try:
+                existing_remote = client.get_user(username)
+            except Exception:
+                existing_remote = None
+            created = existing_remote or client.create_user(payload)
         except Exception as e:
             return {"ok": False, "error": f"ساخت اکانت: {e}"}
 

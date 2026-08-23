@@ -36,6 +36,13 @@ from db_users import (
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
+# Telegram Mini App: public API routes are isolated in a Blueprint and use Telegram initData auth.
+try:
+    from miniapp import miniapp_bp
+    app.register_blueprint(miniapp_bp)
+except Exception as _miniapp_import_error:
+    print('Mini App registration warning:', _miniapp_import_error)
+
 try:
     ensure_tables_sync()
     ensure_user_tables()
@@ -1154,6 +1161,96 @@ def panel_settings(panel_id):
     return redirect(url_for("panel_detail", slug=panel["slug"]))
 
 
+
+
+# ---------- Telegram Mini App content management ----------
+
+@app.route("/miniapp-content")
+@login_required
+def miniapp_content():
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM news ORDER BY id DESC LIMIT 30")
+            news = cur.fetchall() or []
+            cur.execute("SELECT * FROM banners ORDER BY id DESC LIMIT 30")
+            banners = cur.fetchall() or []
+        return render_template("miniapp_content.html", username=session.get("admin_username"),
+                               active="miniapp", news=news, banners=banners)
+    finally:
+        conn.close()
+
+
+@app.route("/miniapp-content/news", methods=["POST"])
+@login_required
+def miniapp_news_create():
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO news (title,summary,content,image_url,published_at,is_active)
+                           VALUES (%s,%s,%s,%s,NOW(),1)""",
+                        (request.form.get("title","").strip(),
+                         request.form.get("summary","").strip(),
+                         request.form.get("content","").strip(),
+                         request.form.get("image_url","").strip() or None))
+            conn.commit()
+        flash("خبر منتشر شد", "success")
+    except Exception as e:
+        flash(f"خطا در انتشار خبر: {e}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("miniapp_content"))
+
+
+@app.route("/miniapp-content/banners", methods=["POST"])
+@login_required
+def miniapp_banner_create():
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        priority = int(request.form.get("priority") or 0)
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO banners
+                           (title,description,image_url,cta,link,priority,is_active)
+                           VALUES (%s,%s,%s,%s,%s,%s,1)""",
+                        (request.form.get("title","").strip(),
+                         request.form.get("description","").strip(),
+                         request.form.get("image_url","").strip() or None,
+                         request.form.get("cta","").strip() or None,
+                         request.form.get("link","").strip() or None,
+                         priority))
+            conn.commit()
+        flash("Banner ذخیره شد", "success")
+    except Exception as e:
+        flash(f"خطا در ذخیره Banner: {e}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("miniapp_content"))
+
+
+@app.route("/miniapp-content/notifications", methods=["POST"])
+@login_required
+def miniapp_notification_create():
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        raw_id = request.form.get("telegram_id","").strip()
+        tg_id = int(raw_id) if raw_id else None
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO notifications
+                           (telegram_id,type,title,body)
+                           VALUES (%s,'admin',%s,%s)""",
+                        (tg_id, request.form.get("title","").strip(),
+                         request.form.get("body","").strip()))
+            conn.commit()
+        flash("اعلان ارسال شد", "success")
+    except Exception as e:
+        flash(f"خطا در ارسال اعلان: {e}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("miniapp_content"))
 
 @app.route("/logout")
 def logout():

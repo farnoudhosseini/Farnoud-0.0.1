@@ -17,6 +17,9 @@
         <a href="{{ url_for('dashboard') }}" class="nav-item {% if active == 'dashboard' %}active{% endif %}" data-tooltip="داشبورد">
             <i data-lucide="layout-dashboard"></i><span>داشبورد</span>
         </a>
+        <a href="{{ url_for('miniapp_content') }}" class="nav-item {% if active == 'miniapp' %}active{% endif %}" data-tooltip="Telegram Mini App">
+            <i data-lucide="smartphone"></i><span>Telegram Mini App</span>
+        </a>
 
         <div class="nav-section-label">Management</div>
         <div class="nav-group {% if active in ['bot_users'] %}open{% endif %}">

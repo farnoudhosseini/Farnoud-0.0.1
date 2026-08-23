@@ -27,3 +27,29 @@
 5. اجرای پنل وب با `python admin_app.py`
 
 > مهاجرت‌های جدید در startup اجرا می‌شوند. قبل از آپدیت از دیتابیس backup بگیرید.
+
+
+## Telegram Mini App — Production UI/API
+
+یک Mini App موبایل‌محور در مسیر `/miniapp/` اضافه شده است. این بخش از کد فعلی خرید، محصولات، کیف پول، سفارش و پنل VPN استفاده می‌کند و برای Authentication از `Telegram.WebApp.initData` با HMAC سمت سرور استفاده می‌کند.
+
+### مسیرهای اصلی
+- `GET /miniapp/` — رابط Mini App
+- `GET /miniapp/api/bootstrap` — داشبورد تجمیعی
+- `GET /miniapp/api/subscriptions/<id>` — وضعیت زنده سرویس
+- `POST /miniapp/api/orders` — خرید با کیف پول + idempotency + provision
+- `GET /miniapp/api/wallet` — کیف پول و تراکنش‌ها
+- `POST /miniapp/api/wallet/topup` — ایجاد درخواست شارژ
+- `POST /miniapp/api/notifications/read` — خواندن اعلان
+
+### اتصال به Bot
+برای نمایش دکمه Mini App در منوی ربات، مقدار `MINIAPP_URL` را در `.env` قرار دهید؛ مثال:
+`MINIAPP_URL=https://your-domain.example/miniapp/`
+
+`BOT_USERNAME` نیز برای ساخت لینک Referral در Mini App لازم است.
+
+### امنیت
+Frontend هیچ‌گاه منبع حقیقت برای قیمت، موجودی یا مالکیت سرویس نیست. قیمت از Database خوانده و محاسبه می‌شود، مالکیت Subscription با Telegram ID اعتبارسنجی‌شده کنترل می‌شود و خرید کیف‌پولی با قفل ردیف کاربر انجام می‌شود. `Idempotency-Key` برای جلوگیری از سفارش تکراری استفاده می‌شود.
+
+### نکته مهم
+فایل `.env` عمداً در بسته خروجی قرار داده نشده تا Secretهای محیط اجرایی منتشر نشوند. از `.env.example` برای تنظیمات استفاده کنید.

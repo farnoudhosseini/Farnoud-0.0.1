@@ -1,6 +1,7 @@
 # کیف پول، شارژ، کد هدیه، زیرمجموعه
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, BOT_TOKEN
 from db_users import (
@@ -33,9 +34,12 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
         use_inline = bool(force_inline)
 
     menu_rows = build_menu_rows(get_menu_buttons())
+    miniapp_url = get_setting_sync('miniapp_url', '') or os.getenv('MINIAPP_URL', '')
 
     if use_inline:
         rows = []
+        if miniapp_url:
+            rows.append([InlineKeyboardButton('✦ ورود به اپلیکیشن', web_app=WebAppInfo(url=miniapp_url))])
         for group in menu_rows:
             row = []
             for item in group:
@@ -61,6 +65,11 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
     # Reply keyboard — رنگ واقعی با style (Bot API 9.4+ / PTB 22.7+)
     # primary=آبی · success=سبز · danger=قرمز
     rows = []
+    if miniapp_url:
+        try:
+            rows.append([KeyboardButton('✦ اپلیکیشن یونیک تی سی آی', web_app=WebAppInfo(url=miniapp_url))])
+        except TypeError:
+            pass
     for group in menu_rows:
         row = []
         for item in group:

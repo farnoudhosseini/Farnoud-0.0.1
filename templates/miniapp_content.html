@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Mini App</h1><p>مدیریت محتوای تجربه کاربری تلگرام</p></div>
+</div>
+<div class="cards">
+  <div class="card">
+    <h3>خبر جدید</h3>
+    <form method="post" action="{{ url_for('miniapp_news_create') }}">
+      <input name="title" placeholder="عنوان" required>
+      <input name="image_url" placeholder="آدرس تصویر">
+      <input name="summary" placeholder="خلاصه">
+      <textarea name="content" placeholder="متن خبر"></textarea>
+      <button class="btn btn-primary" type="submit">انتشار خبر</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Banner جدید</h3>
+    <form method="post" action="{{ url_for('miniapp_banner_create') }}">
+      <input name="title" placeholder="عنوان" required>
+      <input name="description" placeholder="توضیح">
+      <input name="image_url" placeholder="آدرس تصویر">
+      <input name="cta" placeholder="متن CTA">
+      <input name="link" placeholder="لینک">
+      <input name="priority" type="number" value="0" placeholder="اولویت">
+      <button class="btn btn-primary" type="submit">ذخیره Banner</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>اعلان</h3>
+    <form method="post" action="{{ url_for('miniapp_notification_create') }}">
+      <input name="telegram_id" placeholder="Telegram ID — خالی = همه">
+      <input name="title" placeholder="عنوان" required>
+      <textarea name="body" placeholder="متن اعلان" required></textarea>
+      <button class="btn btn-primary" type="submit">ارسال اعلان</button>
+    </form>
+  </div>
+</div>
+<div class="card">
+  <h3>خبرهای اخیر</h3>
+  <table><thead><tr><th>عنوان</th><th>وضعیت</th><th>تاریخ</th></tr></thead><tbody>
+  {% for n in news %}<tr><td>{{ n.title }}</td><td>{{ 'فعال' if n.is_active else 'خاموش' }}</td><td>{{ n.created_at }}</td></tr>{% else %}<tr><td colspan="3">خبری ثبت نشده</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+<div class="card">
+  <h3>Bannerهای اخیر</h3>
+  <table><thead><tr><th>عنوان</th><th>اولویت</th><th>وضعیت</th></tr></thead><tbody>
+  {% for b in banners %}<tr><td>{{ b.title }}</td><td>{{ b.priority }}</td><td>{{ 'فعال' if b.is_active else 'خاموش' }}</td></tr>{% else %}<tr><td colspan="3">Banner ثبت نشده</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}
