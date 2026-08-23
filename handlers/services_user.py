@@ -558,7 +558,6 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("سرویس معتبر نیست.", reply_markup=back_main_kb())
             return ConversationHandler.END
         from db_growth import count_location_changes, record_location_change
-        from db_users import get_bot_user, add_balance
         from database import get_panel_by_id, list_panels
         from services.pasarguard import PasarGuardClient, gb_to_bytes
         from datetime import datetime, timedelta, timezone

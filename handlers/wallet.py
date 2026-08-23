@@ -58,22 +58,32 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
             rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
         return InlineKeyboardMarkup(rows)
 
-    # Reply keyboard — رنگ با نشانگر؛ ایموجی پریمیوم روی ReplyKeyboard پشتیبانی نمی‌شود
-    COLOR_PREFIX = {"blue": "🔵", "primary": "🔵", "green": "🟢", "success": "🟢",
-                    "red": "🔴", "danger": "🔴"}
+    # Reply keyboard — رنگ واقعی با style (Bot API 9.4+ / PTB 22.7+)
+    # primary=آبی · success=سبز · danger=قرمز
     rows = []
     for group in menu_rows:
         row = []
         for item in group:
             raw_label = (item.get("label") or item.get("key") or "—").split("\n")[0]
-            clean = strip_premium_codes(raw_label)[:36] or "•"
-            prefix = COLOR_PREFIX.get((item.get("color") or "none").lower(), "")
-            text = f"{prefix} {clean}".strip() if prefix else clean
-            row.append(KeyboardButton(text[:40]))
+            clean, eid = extract_premium_from_label(raw_label)
+            clean = (clean or "•")[:40]
+            style = COLOR_TO_STYLE.get((item.get("color") or "none").lower())
+            kwargs = {"text": clean}
+            if style:
+                kwargs["style"] = style
+            if eid:
+                kwargs["icon_custom_emoji_id"] = eid
+            try:
+                row.append(KeyboardButton(**kwargs))
+            except TypeError:
+                row.append(KeyboardButton(clean))
         if row:
             rows.append(row)
     if is_admin:
-        rows.append([KeyboardButton("⚙️ مدیریت")])
+        try:
+            rows.append([KeyboardButton("⚙️ مدیریت", style="primary")])
+        except TypeError:
+            rows.append([KeyboardButton("⚙️ مدیریت")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
