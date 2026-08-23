@@ -471,6 +471,114 @@ class XUI3Client:
             return f"{scheme}://{host}{sub_path}{sub_id}"
         return f"{scheme}://{host}:{sub_port}{sub_path}{sub_id}"
 
+
+    def _client_to_user_row(self, client: dict, inbound: dict = None) -> dict:
+        """نرمال‌سازی کلاینت 3x-ui به شکل مشابه پاسارگارد برای وب‌پنل"""
+        email = client.get("email") or client.get("username") or ""
+        total = int(client.get("totalGB") or client.get("total") or 0)
+        up = int(client.get("up") or 0)
+        down = int(client.get("down") or 0)
+        # clientStats sometimes separate
+        used = up + down
+        if client.get("used_traffic") is not None:
+            used = int(client.get("used_traffic") or 0)
+        exp = client.get("expiryTime") or client.get("expire") or 0
+        try:
+            exp_i = int(exp)
+        except Exception:
+            exp_i = 0
+        expire_str = None
+        if exp_i and exp_i > 0:
+            # ms or sec
+            ts = exp_i / 1000 if exp_i > 10_000_000_000 else exp_i
+            try:
+                from datetime import datetime, timezone
+                expire_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                expire_str = str(exp_i)
+        enable = client.get("enable", True)
+        return {
+            "username": email,
+            "email": email,
+            "status": "active" if enable else "disabled",
+            "used_traffic": used,
+            "data_limit": total,
+            "expire": expire_str,
+            "hwid_limit": client.get("limitIp") if client.get("limitIp") else None,
+            "subId": client.get("subId") or "",
+            "id": client.get("id") or client.get("uuid") or "",
+            "inbound_id": (inbound or {}).get("id"),
+            "inbound_remark": (inbound or {}).get("remark") or "",
+            "enable": enable,
+        }
+
+    def get_users(self, offset: int = 0, limit: int = 200, search: str = None) -> dict:
+        """لیست کلاینت‌ها از همه اینباندها — سازگار با وب‌پنل"""
+        users = []
+        seen = set()
+        for ib in self.list_inbounds():
+            settings = ib.get("settings")
+            if isinstance(settings, str):
+                try:
+                    settings = json.loads(settings)
+                except Exception:
+                    settings = {}
+            clients = (settings or {}).get("clients") or []
+            # traffic from clientStats
+            stats_map = {}
+            for st in (ib.get("clientStats") or []):
+                em = st.get("email")
+                if em:
+                    stats_map[em] = st
+            for c in clients:
+                email = c.get("email") or ""
+                if not email or email in seen:
+                    continue
+                if search and search.lower() not in email.lower():
+                    continue
+                st = stats_map.get(email) or {}
+                merged = dict(c)
+                if st:
+                    merged["up"] = st.get("up", 0)
+                    merged["down"] = st.get("down", 0)
+                    if st.get("total"):
+                        merged["totalGB"] = st.get("total")
+                row = self._client_to_user_row(merged, ib)
+                users.append(row)
+                seen.add(email)
+        total = len(users)
+        users = users[offset: offset + limit]
+        return {"users": users, "total": total}
+
+    def get_user(self, username: str) -> dict:
+        found = self.find_client_in_inbounds(username)
+        if not found:
+            return {}
+        c = found.get("client") or {}
+        ib = found.get("inbound") or {}
+        st = self.get_client_traffics(username) or {}
+        merged = dict(c)
+        if isinstance(st, dict):
+            merged["up"] = st.get("up", merged.get("up", 0))
+            merged["down"] = st.get("down", merged.get("down", 0))
+            if st.get("total"):
+                merged["totalGB"] = st.get("total")
+        row = self._client_to_user_row(merged, ib)
+        row["subscription_url"] = self.subscription_url(row.get("subId") or "", email=username)
+        return row
+
+    def delete_user(self, username: str) -> None:
+        found = self.find_client_in_inbounds(username)
+        if not found:
+            raise RuntimeError(f"کلاینت یافت نشد: {username}")
+        ib = found.get("inbound") or {}
+        c = found.get("client") or {}
+        inbound_id = found.get("inbound_id") or ib.get("id")
+        client_id = c.get("id") or c.get("password") or username
+        if not inbound_id:
+            raise RuntimeError("inbound_id نامشخص")
+        self.delete_client(int(inbound_id), str(client_id))
+
     def find_client_in_inbounds(self, email: str) -> Optional[dict]:
         for ib in self.list_inbounds():
             settings = ib.get("settings")
