@@ -37,11 +37,13 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
     miniapp_url = (get_setting_sync('miniapp_url', '') or os.getenv('MINIAPP_URL', '') or '').strip()
     if miniapp_url and not miniapp_url.endswith('/'):
         miniapp_url = miniapp_url + '/'
+    miniapp_btn_enabled = get_setting_sync('miniapp_btn_enabled', '1') != '0'
+    miniapp_btn_label = (get_setting_sync('miniapp_btn_label', '') or '✦ ورود به اپلیکیشن').strip() or '✦ ورود به اپلیکیشن'
 
     if use_inline:
         rows = []
-        if miniapp_url:
-            rows.append([InlineKeyboardButton('✦ ورود به اپلیکیشن', web_app=WebAppInfo(url=miniapp_url))])
+        if miniapp_url and miniapp_btn_enabled:
+            rows.append([InlineKeyboardButton(miniapp_btn_label[:64], web_app=WebAppInfo(url=miniapp_url))])
         for group in menu_rows:
             row = []
             for item in group:
@@ -67,9 +69,9 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
     # Reply keyboard — رنگ واقعی با style (Bot API 9.4+ / PTB 22.7+)
     # primary=آبی · success=سبز · danger=قرمز
     rows = []
-    if miniapp_url:
+    if miniapp_url and miniapp_btn_enabled:
         try:
-            rows.append([KeyboardButton('✦ اپلیکیشن یونیک تی سی آی', web_app=WebAppInfo(url=miniapp_url))])
+            rows.append([KeyboardButton(miniapp_btn_label[:64], web_app=WebAppInfo(url=miniapp_url))])
         except TypeError:
             pass
     for group in menu_rows:

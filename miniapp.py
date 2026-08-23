@@ -839,7 +839,7 @@ def wallet_topup():
             conn.commit()
             return jsonify({"ok": True, "charge_id": charge_id,
                             "card": _jsonable(card),
-                            "message": "واریز را انجام دهید و رسید را از طریق ربات ارسال کنید."})
+                            "message": "واریز را انجام دهید و رسید را همین‌جا یا در ربات ارسال کنید."})
     finally:
         conn.close()
 
@@ -849,6 +849,609 @@ def wallet_topup():
 def referral_copy():
     # Kept server-side for auditability; actual clipboard operation is client-side.
     return jsonify({"ok": True, "referrals": _referrals(int(request.tg_user["id"]))})
+
+
+# ---------------------------------------------------------------------------
+# Catalog (step-by-step buy: panel → category → product)
+# ---------------------------------------------------------------------------
+
+@miniapp_bp.get("/api/catalog/panels")
+@auth_required
+def catalog_panels():
+    from database import list_panels
+    panels = list_panels() or []
+    out = []
+    for p in panels:
+        out.append({
+            "id": p["id"],
+            "name": p.get("name") or f"پنل {p['id']}",
+            "description": p.get("description") or "",
+        })
+    return jsonify({"ok": True, "panels": out})
+
+
+@miniapp_bp.get("/api/catalog/categories")
+@auth_required
+def catalog_categories():
+    from db_products import list_categories, list_products as lp
+    panel_id = request.args.get("panel_id")
+    try:
+        panel_id = int(panel_id) if panel_id is not None else None
+    except Exception:
+        return jsonify({"ok": False, "error": "پنل نامعتبر"}), 400
+    user_id = int(request.tg_user["id"])
+    bu = get_bot_user(user_id) or {}
+    role = bu.get("role") or "user"
+    products = lp(panel_id=panel_id, role=role, active_only=True) if panel_id else lp(role=role, active_only=True)
+    cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
+    cats = [c for c in (list_categories(active_only=True) or []) if c["id"] in cat_ids]
+    return jsonify({"ok": True, "categories": _jsonable(cats), "has_uncategorized": any(not p.get("category_id") for p in products)})
+
+
+@miniapp_bp.get("/api/catalog/products")
+@auth_required
+def catalog_products():
+    from db_products import list_products as lp
+    from database import get_setting_sync
+    panel_id = request.args.get("panel_id")
+    category_id = request.args.get("category_id")
+    try:
+        panel_id = int(panel_id) if panel_id not in (None, "", "null") else None
+        category_id = int(category_id) if category_id not in (None, "", "null", "0") else None
+    except Exception:
+        return jsonify({"ok": False, "error": "پارامتر نامعتبر"}), 400
+    user_id = int(request.tg_user["id"])
+    bu = get_bot_user(user_id) or {}
+    role = bu.get("role") or "user"
+    products = lp(panel_id=panel_id, category_id=category_id, role=role, active_only=True) or []
+    hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
+    out = []
+    for p in products:
+        hourly_ok = bool(hourly_global and p.get("hourly_enabled") and p.get("hourly_price"))
+        out.append({
+            "id": p["id"],
+            "name": p["name"],
+            "description": p.get("description") or "",
+            "price": _jsonable(p.get("price") or 0),
+            "volume_gb": _jsonable(p.get("volume_gb") or 0),
+            "duration_days": p.get("duration_days") or 0,
+            "hwid_limit": p.get("hwid_limit"),
+            "hourly_enabled": hourly_ok,
+            "hourly_price": _jsonable(p.get("hourly_price") or 0) if hourly_ok else None,
+            "category_id": p.get("category_id"),
+        })
+    return jsonify({"ok": True, "products": out})
+
+
+@miniapp_bp.get("/api/catalog/product/<int:pid>")
+@auth_required
+def catalog_product_detail(pid):
+    from database import get_setting_sync
+    product = get_product(pid)
+    if not product or not product.get("is_active"):
+        return jsonify({"ok": False, "error": "محصول یافت نشد"}), 404
+    hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
+    hourly_ok = bool(hourly_global and product.get("hourly_enabled") and product.get("hourly_price"))
+    panels = product.get("panels") or []
+    balance = int((get_bot_user(int(request.tg_user["id"])) or {}).get("balance") or 0)
+    return jsonify({
+        "ok": True,
+        "product": {
+            "id": product["id"],
+            "name": product["name"],
+            "description": product.get("description") or "",
+            "price": _jsonable(product.get("price") or 0),
+            "volume_gb": _jsonable(product.get("volume_gb") or 0),
+            "duration_days": product.get("duration_days") or 0,
+            "hwid_limit": product.get("hwid_limit"),
+            "hourly_enabled": hourly_ok,
+            "hourly_price": _jsonable(product.get("hourly_price") or 0) if hourly_ok else None,
+            "panels": _jsonable(panels),
+        },
+        "balance": balance,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Orders: prepare → confirm wallet / card / hourly + receipt
+# ---------------------------------------------------------------------------
+
+def _tg_api(method, payload=None, files=None):
+    """Call Telegram Bot API synchronously."""
+    token = (BOT_TOKEN or "").strip().strip('"').strip("'")
+    if not token:
+        return None
+    import urllib.request
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    try:
+        if files:
+            import requests as _req
+            r = _req.post(url, data=payload or {}, files=files, timeout=60)
+            return r.json() if r.ok else None
+        data = json.dumps(payload or {}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print("tg_api error:", method, e)
+        return None
+
+
+def _notify_user(telegram_id, text, reply_markup=None):
+    payload = {"chat_id": telegram_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return _tg_api("sendMessage", payload)
+
+
+def _notify_admin_order(order_id, text, photo_bytes=None, photo_b64=None):
+    from config import ADMIN_ID
+    if not ADMIN_ID:
+        return
+    kb = {
+        "inline_keyboard": [[
+            {"text": "✅ تایید و ساخت سرویس", "callback_data": f"adm_ord_ok_{order_id}"},
+            {"text": "❌ رد", "callback_data": f"adm_ord_no_{order_id}"},
+        ]]
+    }
+    _tg_api("sendMessage", {"chat_id": ADMIN_ID, "text": text, "reply_markup": kb})
+    if photo_bytes or photo_b64:
+        try:
+            import io
+            raw = photo_bytes
+            if not raw and photo_b64:
+                raw = base64.b64decode(photo_b64.split(",")[-1] if "," in photo_b64 else photo_b64)
+            files = {"photo": ("receipt.jpg", io.BytesIO(raw), "image/jpeg")}
+            _tg_api("sendPhoto", {"chat_id": str(ADMIN_ID), "caption": f"رسید سفارش #{order_id}"}, files=files)
+        except Exception as e:
+            print("admin photo notify:", e)
+
+
+@miniapp_bp.post("/api/orders/prepare")
+@auth_required
+def prepare_order():
+    """Create pending order and return payment options (mirrors bot buy flow)."""
+    from db_products import create_order, update_order
+    from database import get_panel_by_id, get_setting_sync, get_sync_connection
+    from datetime import datetime, timezone as tz
+
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    try:
+        product_id = int(body.get("product_id"))
+        panel_id = int(body.get("panel_id"))
+    except Exception:
+        return jsonify({"ok": False, "error": "محصول یا پنل نامعتبر"}), 400
+
+    buy_mode = (body.get("mode") or "full").strip()  # full | hourly
+    coupon_code = (body.get("coupon_code") or "").strip()
+
+    product = get_product(product_id)
+    panel = get_panel_by_id(panel_id)
+    if not product or not product.get("is_active") or not panel:
+        return jsonify({"ok": False, "error": "محصول یا پنل در دسترس نیست"}), 404
+
+    panels = product.get("panels") or []
+    if panel_id not in [int(x["id"]) for x in panels]:
+        return jsonify({"ok": False, "error": "این پنل برای محصول فعال نیست"}), 400
+
+    try:
+        max_s = panel.get("max_sales")
+        if max_s is not None and int(max_s) > 0:
+            conn = get_sync_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS c FROM service_orders WHERE panel_id=%s AND status IN ('paid','provisioned')",
+                    (panel_id,),
+                )
+                cnt = int((cur.fetchone() or {}).get("c") or 0)
+            conn.close()
+            if cnt >= int(max_s):
+                return jsonify({"ok": False, "error": "ظرفیت فروش این پنل تکمیل شده است."}), 400
+    except Exception as e:
+        print("max_sales", e)
+
+    hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
+    hourly_ok = bool(hourly_global and product.get("hourly_enabled") and product.get("hourly_price"))
+
+    bu = get_bot_user(user_id) or {}
+    balance = int(bu.get("balance") or 0)
+
+    if buy_mode == "hourly":
+        if not hourly_ok:
+            return jsonify({"ok": False, "error": "خرید ساعتی برای این محصول فعال نیست"}), 400
+        hprice = int(float(product.get("hourly_price") or 0))
+        if balance < hprice:
+            return jsonify({
+                "ok": False, "error": "موجودی کافی نیست.",
+                "required": hprice, "balance": balance,
+            }), 402
+        order_id = create_order(user_id, product_id, panel_id, hprice, hprice, 0)
+        from db_users import add_balance
+        add_balance(user_id, -hprice, f"hourly_start#{order_id}")
+        now_s = datetime.now(tz.utc).strftime("%Y-%m-%d %H:%M:%S")
+        update_order(
+            order_id,
+            status="paid",
+            wallet_used=hprice,
+            pay_amount=0,
+            is_hourly=1,
+            hourly_rate=hprice,
+            hourly_active=1,
+            hourly_started_at=now_s,
+            hourly_last_charge_at=now_s,
+        )
+        result = provision_order(order_id)
+        if result.get("ok"):
+            _notify_user(
+                user_id,
+                f"✅ سرویس ساعتی فعال شد.\nهر ساعت {hprice:,} تومان از کیف پول کسر می‌شود.",
+            )
+            return jsonify({"ok": True, "mode": "hourly", "order_id": order_id, "message": "سرویس ساعتی فعال شد.", "provision": _jsonable(result)})
+        return jsonify({"ok": False, "error": result.get("error") or "ساخت سرویس ناموفق"}), 502
+
+    price = int(product.get("price") or 0)
+    discount = 0
+    if coupon_code:
+        discount, derr = _calculate_discount(user_id, product, coupon_code)
+        if derr:
+            return jsonify({"ok": False, "error": derr}), 400
+    final_price = max(0, price - discount)
+    wallet_used = min(balance, final_price)
+    pay_amount = max(0, final_price - balance)
+    order_id = create_order(user_id, product_id, panel_id, final_price, wallet_used, pay_amount)
+    if coupon_code and discount:
+        try:
+            update_order(order_id, coupon_code=coupon_code, discount_amount=discount)
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "mode": "full",
+        "order_id": order_id,
+        "product_name": product["name"],
+        "panel_name": panel.get("name"),
+        "price": price,
+        "discount": discount,
+        "final_price": final_price,
+        "balance": balance,
+        "wallet_used": wallet_used,
+        "pay_amount": pay_amount,
+        "can_pay_wallet": pay_amount <= 0,
+        "hourly_available": hourly_ok,
+        "hourly_price": _jsonable(product.get("hourly_price") or 0) if hourly_ok else None,
+        "message": "فاکتور آماده است.",
+    })
+
+
+@miniapp_bp.post("/api/orders/<int:order_id>/confirm-wallet")
+@auth_required
+def confirm_wallet_order(order_id):
+    from db_products import get_order, update_order
+    from db_users import add_balance
+    user_id = int(request.tg_user["id"])
+    order = get_order(order_id)
+    if not order or int(order["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    if order.get("status") not in ("pending_payment", "waiting_receipt"):
+        return jsonify({"ok": False, "error": "این سفارش قابل پرداخت نیست"}), 400
+    price = int(order.get("amount") or 0)
+    bu = get_bot_user(user_id) or {}
+    balance = int(bu.get("balance") or 0)
+    if balance < price:
+        return jsonify({"ok": False, "error": f"موجودی کافی نیست. موجودی: {balance:,} / لازم: {price:,}"}), 402
+    add_balance(user_id, -price, f"order#{order_id}")
+    update_order(order_id, status="paid", wallet_used=price, pay_amount=0)
+    result = provision_order(order_id)
+    try:
+        from db_growth import pay_referral_commission
+        pay_referral_commission(user_id, price)
+    except Exception:
+        pass
+    if result.get("ok"):
+        _notify_user(user_id, f"✅ سفارش #{order_id} با موفقیت فعال شد.")
+        from config import ADMIN_ID
+        if ADMIN_ID:
+            _notify_user(ADMIN_ID, f"✅ سفارش #{order_id} تحویل شد (کیف پول مینی‌اپ)\nکاربر: {user_id}")
+        return jsonify({"ok": True, "message": "خرید با موفقیت انجام شد.", "order_id": order_id, "provision": _jsonable(result)})
+    return jsonify({"ok": False, "error": result.get("error") or "ساخت سرویس ناموفق"}), 502
+
+
+@miniapp_bp.post("/api/orders/<int:order_id>/pay-card")
+@auth_required
+def pay_card_order(order_id):
+    from db_products import get_order, update_order
+    from db_users import list_cards
+    user_id = int(request.tg_user["id"])
+    order = get_order(order_id)
+    if not order or int(order["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    cards = list_cards(active_only=True) or []
+    if not cards:
+        return jsonify({"ok": False, "error": "کارتی تعریف نشده. با پشتیبانی تماس بگیرید."}), 503
+    card = cards[0]
+    update_order(order_id, method_key="card", card_id=card["id"], status="waiting_receipt")
+    card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
+    pay_amount = int(order.get("pay_amount") or order.get("amount") or 0)
+    _notify_user(
+        user_id,
+        f"💳 مبلغ <b>{pay_amount:,}</b> تومان را واریز کنید:\n\n"
+        f"شماره کارت: <code>{card_num}</code>\n"
+        f"به نام: {card.get('owner_name') or '—'}\n\n"
+        f"سپس تصویر رسید را در مینی‌اپ یا ربات ارسال کنید.\n"
+        f"سفارش: #{order_id}",
+    )
+    return jsonify({
+        "ok": True,
+        "order_id": order_id,
+        "pay_amount": pay_amount,
+        "card": {
+            "id": card["id"],
+            "card_number": card_num,
+            "owner_name": card.get("owner_name"),
+            "bank_name": card.get("bank_name"),
+        },
+        "message": "واریز را انجام دهید و رسید را آپلود کنید.",
+    })
+
+
+@miniapp_bp.post("/api/orders/<int:order_id>/receipt")
+@auth_required
+def upload_order_receipt(order_id):
+    """Accept receipt photo (base64) from miniapp, store + forward to admin & bot."""
+    from db_products import get_order, update_order
+    user_id = int(request.tg_user["id"])
+    order = get_order(order_id)
+    if not order or int(order["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    if order.get("status") not in ("waiting_receipt", "pending_payment", "pending_review"):
+        return jsonify({"ok": False, "error": "این سفارش منتظر رسید نیست"}), 400
+
+    body = request.get_json(silent=True) or {}
+    photo_b64 = body.get("photo") or body.get("image") or ""
+    if not photo_b64:
+        return jsonify({"ok": False, "error": "تصویر رسید ارسال نشده"}), 400
+
+    update_order(order_id, status="pending_review", receipt_file_id=f"miniapp:{order_id}")
+
+    pay_amount = int(order.get("pay_amount") or order.get("amount") or 0)
+    wallet_used = int(order.get("wallet_used") or 0)
+    admin_text = (
+        f"🧾 رسید سفارش سرویس #{order_id} (از مینی‌اپ)\n"
+        f"کاربر: {user_id}\n"
+        f"مبلغ قابل پرداخت: {pay_amount:,} تومان\n"
+        f"(موجودی کیف پول رزرو: {wallet_used:,})"
+    )
+    _notify_admin_order(order_id, admin_text, photo_b64=photo_b64)
+    _notify_user(user_id, f"⏳ رسید سفارش #{order_id} ثبت شد. پس از تایید ادمین سرویس برایتان ساخته می‌شود.")
+
+    return jsonify({"ok": True, "message": "رسید ثبت شد و برای تایید ارسال شد.", "order_id": order_id})
+
+
+@miniapp_bp.post("/api/orders/<int:order_id>/discount")
+@auth_required
+def apply_discount(order_id):
+    from db_products import get_order, update_order
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    code = (body.get("coupon_code") or "").strip()
+    order = get_order(order_id)
+    if not order or int(order["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    product = get_product(order["product_id"])
+    if not product:
+        return jsonify({"ok": False, "error": "محصول نامعتبر"}), 404
+    discount, err = _calculate_discount(user_id, product, code)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    price = int(product.get("price") or 0)
+    final_price = max(0, price - discount)
+    bu = get_bot_user(user_id) or {}
+    balance = int(bu.get("balance") or 0)
+    wallet_used = min(balance, final_price)
+    pay_amount = max(0, final_price - balance)
+    try:
+        update_order(order_id, amount=final_price, wallet_used=wallet_used, pay_amount=pay_amount,
+                     coupon_code=code, discount_amount=discount)
+    except Exception:
+        update_order(order_id, amount=final_price, wallet_used=wallet_used, pay_amount=pay_amount)
+    return jsonify({
+        "ok": True,
+        "discount": discount,
+        "final_price": final_price,
+        "wallet_used": wallet_used,
+        "pay_amount": pay_amount,
+        "can_pay_wallet": pay_amount <= 0,
+        "message": f"تخفیف {discount:,} تومان اعمال شد.",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Service actions
+# ---------------------------------------------------------------------------
+
+@miniapp_bp.post("/api/subscriptions/<int:order_id>/action")
+@auth_required
+def subscription_action(order_id):
+    from db_products import update_order
+    user_id = int(request.tg_user["id"])
+    o = get_user_order(order_id, user_id)
+    if not o:
+        return jsonify({"ok": False, "error": "سرویس پیدا نشد"}), 404
+    body = request.get_json(silent=True) or {}
+    action = (body.get("action") or "").strip()
+
+    if action == "refresh":
+        return subscription_detail(order_id)
+
+    if action == "rename":
+        name = (body.get("name") or "").strip()[:80]
+        if not name:
+            return jsonify({"ok": False, "error": "نام خالی است"}), 400
+        update_order(order_id, custom_name=name)
+        return jsonify({"ok": True, "message": "نام سرویس تغییر کرد.", "name": name})
+
+    if action == "toggle":
+        try:
+            from services.service_edit import toggle_user
+            result = toggle_user(o)
+            return jsonify({"ok": True, "message": result.get("message") or "وضعیت تغییر کرد.", "result": _jsonable(result)})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    if action == "reset":
+        try:
+            from services.service_edit import reset_subscription
+            result = reset_subscription(o)
+            return jsonify({"ok": True, "message": result.get("message") or "اشتراک بازنشانی شد.", "result": _jsonable(result)})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    if action == "hourly_toggle":
+        try:
+            from services.service_edit import toggle_hourly
+            result = toggle_hourly(o)
+            return jsonify({"ok": True, "message": result.get("message") or "وضعیت ساعتی تغییر کرد.", "result": _jsonable(result)})
+        except Exception:
+            active = not bool(o.get("hourly_active"))
+            update_order(order_id, hourly_active=1 if active else 0)
+            return jsonify({"ok": True, "message": "سرویس ساعتی " + ("فعال" if active else "متوقف") + " شد."})
+
+    if action == "link":
+        return subscription_detail(order_id)
+
+    return jsonify({"ok": False, "error": "عملیات ناشناخته"}), 400
+
+
+# ---------------------------------------------------------------------------
+# Support tickets
+# ---------------------------------------------------------------------------
+
+@miniapp_bp.get("/api/support/departments")
+@auth_required
+def support_departments():
+    from db_support import list_departments
+    return jsonify({"ok": True, "departments": _jsonable(list_departments(active_only=True) or [])})
+
+
+@miniapp_bp.get("/api/support/tickets")
+@auth_required
+def support_tickets_list():
+    from db_support import list_user_tickets
+    user_id = int(request.tg_user["id"])
+    tickets = list_user_tickets(user_id, 40) or []
+    return jsonify({"ok": True, "tickets": _jsonable(tickets)})
+
+
+@miniapp_bp.post("/api/support/tickets")
+@auth_required
+def support_ticket_create():
+    from db_support import create_ticket, add_ticket_message, list_departments
+    from config import ADMIN_ID
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    try:
+        dep_id = int(body.get("department_id"))
+    except Exception:
+        return jsonify({"ok": False, "error": "دپارتمان نامعتبر"}), 400
+    subject = (body.get("subject") or body.get("message") or "پیام پشتیبانی").strip()[:200]
+    message = (body.get("message") or subject).strip()
+    if not message:
+        return jsonify({"ok": False, "error": "متن پیام خالی است"}), 400
+    deps = {d["id"] for d in (list_departments(active_only=True) or [])}
+    if dep_id not in deps:
+        return jsonify({"ok": False, "error": "دپارتمان یافت نشد"}), 404
+    tid = create_ticket(user_id, dep_id, subject)
+    add_ticket_message(tid, "user", message)
+    if ADMIN_ID:
+        _notify_user(ADMIN_ID, f"🎫 تیکت جدید #{tid}\nکاربر: {user_id}\nموضوع: {subject}\n\n{message[:500]}")
+    return jsonify({"ok": True, "ticket_id": tid, "message": "تیکت ثبت شد."})
+
+
+@miniapp_bp.get("/api/support/tickets/<int:tid>")
+@auth_required
+def support_ticket_detail(tid):
+    from db_support import get_ticket, get_ticket_messages
+    user_id = int(request.tg_user["id"])
+    t = get_ticket(tid)
+    if not t or int(t["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "تیکت یافت نشد"}), 404
+    msgs = get_ticket_messages(tid) or []
+    return jsonify({"ok": True, "ticket": _jsonable(t), "messages": _jsonable(msgs)})
+
+
+@miniapp_bp.post("/api/support/tickets/<int:tid>/messages")
+@auth_required
+def support_ticket_message(tid):
+    from db_support import get_ticket, add_ticket_message
+    from config import ADMIN_ID
+    user_id = int(request.tg_user["id"])
+    t = get_ticket(tid)
+    if not t or int(t["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "تیکت یافت نشد"}), 404
+    if t.get("status") == "closed":
+        return jsonify({"ok": False, "error": "تیکت بسته شده است"}), 400
+    body = request.get_json(silent=True) or {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "متن خالی است"}), 400
+    add_ticket_message(tid, "user", message)
+    if ADMIN_ID:
+        _notify_user(ADMIN_ID, f"💬 پیام جدید در تیکت #{tid}\nکاربر: {user_id}\n\n{message[:500]}")
+    return jsonify({"ok": True, "message": "پیام ارسال شد."})
+
+
+@miniapp_bp.post("/api/wallet/topup/receipt")
+@auth_required
+def wallet_topup_receipt():
+    """Upload receipt for a charge request created in miniapp."""
+    from db_users import get_charge
+    from config import ADMIN_ID
+    user_id = int(request.tg_user["id"])
+    body = request.get_json(silent=True) or {}
+    try:
+        charge_id = int(body.get("charge_id"))
+    except Exception:
+        return jsonify({"ok": False, "error": "شناسه شارژ نامعتبر"}), 400
+    ch = get_charge(charge_id)
+    if not ch or int(ch.get("telegram_id") or 0) != user_id:
+        return jsonify({"ok": False, "error": "درخواست شارژ یافت نشد"}), 404
+    photo_b64 = body.get("photo") or ""
+    if not photo_b64:
+        return jsonify({"ok": False, "error": "تصویر رسید لازم است"}), 400
+    try:
+        from db_users import set_charge_receipt
+        set_charge_receipt(charge_id, f"miniapp:{charge_id}")
+    except Exception:
+        pass
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE charge_requests SET status='pending_review' WHERE id=%s", (charge_id,))
+            conn.commit()
+    finally:
+        conn.close()
+    amount = int(ch.get("amount") or 0)
+    if ADMIN_ID:
+        kb = {"inline_keyboard": [[
+            {"text": "✅ تایید", "callback_data": f"adm_ch_ok_{charge_id}"},
+            {"text": "❌ رد", "callback_data": f"adm_ch_no_{charge_id}"},
+        ]]}
+        _tg_api("sendMessage", {
+            "chat_id": ADMIN_ID,
+            "text": f"🧾 رسید شارژ #{charge_id} (مینی‌اپ)\nکاربر: {user_id}\nمبلغ: {amount:,} تومان",
+            "reply_markup": kb,
+        })
+        try:
+            import io
+            raw = base64.b64decode(photo_b64.split(",")[-1] if "," in photo_b64 else photo_b64)
+            _tg_api("sendPhoto", {"chat_id": str(ADMIN_ID), "caption": f"رسید شارژ #{charge_id}"},
+                    files={"photo": ("receipt.jpg", io.BytesIO(raw), "image/jpeg")})
+        except Exception as e:
+            print("charge photo:", e)
+    _notify_user(user_id, f"⏳ رسید شارژ #{charge_id} ثبت شد و در انتظار تایید است.")
+    return jsonify({"ok": True, "message": "رسید شارژ ثبت شد."})
 
 
 @miniapp_bp.errorhandler(Exception)
