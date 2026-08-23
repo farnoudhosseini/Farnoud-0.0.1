@@ -144,6 +144,21 @@ def create_discount(code, percent=None, amount=None, max_uses=0):
     finally:
         conn.close()
 
+
+def delete_discount(discount_id: int) -> bool:
+    """حذف دائمی یک کد تخفیف بر اساس id."""
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM discount_codes WHERE id=%s", (int(discount_id),))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
 def apply_discount(code: str, price: int) -> Tuple[bool, int, str]:
     """returns ok, new_price, message"""
     conn = get_sync_connection()

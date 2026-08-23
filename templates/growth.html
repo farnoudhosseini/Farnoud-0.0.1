@@ -45,11 +45,18 @@
 <button class="btn-primary inline" type="submit">ساخت</button>
 </form>
 {% for d in discounts %}
-<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.9rem">
+<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.9rem;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+<span>
 <code>{{ d.code }}</code> —
 {% if d.percent %}{{ d.percent }}%{% endif %}
 {% if d.amount %}{{ d.amount }} تومان{% endif %}
 — {{ d.used_count }}/{% if d.max_uses %}{{ d.max_uses }}{% else %}∞{% endif %}
+</span>
+<form method="post" style="margin:0" onsubmit="return confirm('کد {{ d.code }} حذف شود؟');">
+<input type="hidden" name="action" value="delete_discount">
+<input type="hidden" name="discount_id" value="{{ d.id }}">
+<button type="submit" class="btn-danger" style="padding:4px 10px;font-size:.8rem">🗑 حذف</button>
+</form>
 </div>
 {% endfor %}
 </div>

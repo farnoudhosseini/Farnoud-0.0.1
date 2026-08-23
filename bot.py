@@ -108,7 +108,22 @@ async def text_router(update, context):
     if text == "⚙️ مدیریت":
         from handlers.admin import is_admin
         if is_admin(uid):
-            return await admin_panel(update, context)
+            result = await admin_panel(update, context)
+            # لینک مخزن کنار پنل مدیریت
+            try:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📂 گیت‌هاب پروژه", url="https://github.com/farnoudhosseini/FarnoudBot")],
+                ])
+                await context.bot.send_message(
+                    uid,
+                    "🔗 مخزن پروژه فرنود:\nhttps://github.com/farnoudhosseini/FarnoudBot",
+                    reply_markup=kb,
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                pass
+            return result
     return None
 
 
@@ -133,7 +148,21 @@ async def menu_callback(update, context):
     if data == "menu_reseller":
         return await start_reseller_request(update, context)
     if data == "menu_admin" and uid == ADMIN_ID:
-        return await admin_panel(update, context)
+        result = await admin_panel(update, context)
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📂 گیت‌هاب پروژه", url="https://github.com/farnoudhosseini/FarnoudBot")],
+            ])
+            await context.bot.send_message(
+                uid,
+                "🔗 مخزن پروژه فرنود:\nhttps://github.com/farnoudhosseini/FarnoudBot",
+                reply_markup=kb,
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            pass
+        return result
     if data == "menu_home":
         from handlers.wallet import main_user_keyboard
         from database import get_setting_sync

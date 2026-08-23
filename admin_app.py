@@ -21,7 +21,7 @@ from db_support import (
 )
 from db_stats import dashboard_counts, chart_series
 from db_growth import (
-    ensure_growth_tables, list_discounts, create_discount,
+    ensure_growth_tables, list_discounts, create_discount, delete_discount,
     list_reseller_requests, review_reseller_request, get_reseller_request,
 )
 from database import list_panels as db_list_panels
@@ -947,6 +947,13 @@ def growth_settings():
                 max_uses=int(request.form.get("max_uses") or 0),
             )
             flash("کد ساخته شد" if ok else "خطا", "success" if ok else "error")
+        elif action == "delete_discount":
+            try:
+                did = int(request.form.get("discount_id") or 0)
+            except Exception:
+                did = 0
+            ok = delete_discount(did) if did else False
+            flash("کد تخفیف حذف شد" if ok else "کد یافت نشد یا حذف نشد", "success" if ok else "error")
         return redirect(url_for("growth_settings"))
     return render_template(
         "growth.html",
