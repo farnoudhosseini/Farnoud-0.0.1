@@ -32,9 +32,26 @@ function num(n){return new Intl.NumberFormat('fa-IR').format(Number(n||0))}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function toast(s){const e=document.getElementById('toast');e.textContent=s;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2600)}
 function haptic(type='light'){try{tg?.HapticFeedback?.impactOccurred(type)}catch(e){}}
-function showSheet(html){document.getElementById('sheetContent').innerHTML=html;document.getElementById('sheet').hidden=false}
-function closeSheet(){document.getElementById('sheet').hidden=true}
-document.getElementById('sheetClose').onclick=closeSheet;document.getElementById('sheet').onclick=e=>{if(e.target.id==='sheet')closeSheet()}
+function showSheet(html){
+  const el=document.getElementById('sheet');
+  document.getElementById('sheetContent').innerHTML=html;
+  el.hidden=false;
+  el.classList.add('is-open');
+}
+function closeSheet(){
+  const el=document.getElementById('sheet');
+  el.classList.remove('is-open');
+  el.hidden=true;
+  document.getElementById('sheetContent').innerHTML='';
+}
+(function bindSheet(){
+  const el=document.getElementById('sheet');
+  const btn=document.getElementById('sheetClose');
+  if(btn) btn.onclick=function(e){e.preventDefault();e.stopPropagation();closeSheet()};
+  if(el) el.addEventListener('click',function(e){ if(e.target===el) closeSheet(); });
+  // ensure closed on boot
+  closeSheet();
+})();
 function setTab(tab){state.tab=tab;document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));render()}
 document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 document.getElementById('notifyBtn').onclick=()=>renderNotifications();
@@ -87,10 +104,23 @@ function bannerClick(link){if(!link)return;try{tg?.openLink(link)}catch(e){locat
 async function readNotif(id){try{await api('/notifications/read',{method:'POST',body:JSON.stringify({id})});await refresh();renderNotifications()}catch(e){toast(e.message)}}
 function faq(){showSheet(`<h2>پشتیبانی و راهنما</h2><div class="menu-list"><button class="menu-item"><span>◈</span><span class="grow"><strong>مشکل اتصال دارم</strong><small>راهنمای اتصال و عیب‌یابی</small></span></button><button class="menu-item"><span>?</span><span class="grow"><strong>سوالات متداول</strong><small>خرید، پرداخت، حجم و تمدید</small></span></button><button class="menu-item"><span>✈</span><span class="grow"><strong>پشتیبانی تلگرام</strong><small>ارتباط مستقیم با پشتیبانی</small></span></button></div>`)}
 function render(){if(!state.data)return; if(state.tab==='home')app.innerHTML=home();else if(state.tab==='services')app.innerHTML=services();else if(state.tab==='wallet')app.innerHTML=wallet();else if(state.tab==='rewards')app.innerHTML=rewards();else app.innerHTML=profile()}
-async function refresh(){state.data=await api('/bootstrap');document.getElementById('notifyBadge').hidden=!(state.data.notifications.unread>0);document.getElementById('notifyBadge').textContent=num(state.data.notifications.unread);loading.remove();render()}
+async function refresh(){
+  closeSheet();
+  state.data = await api('/bootstrap');
+  const unread = (state.data.notifications && state.data.notifications.unread) || 0;
+  const badge = document.getElementById('notifyBadge');
+  if(badge){ badge.hidden = !(unread>0); badge.textContent = num(unread); }
+  if(loading && loading.parentNode) loading.remove();
+  render();
+}
 refresh().catch(e=>{
+  closeSheet();
+  const msg = (e && e.message) ? String(e.message) : 'خطای ناشناخته';
   const hint = !initData()
-    ? 'این صفحه باید از داخل تلگرام (دکمه مینی‌اپ) باز شود.'
-    : esc(e.message||'خطای ناشناخته');
-  loading.innerHTML=`<div class="empty"><span class="big">!</span><strong>اتصال برقرار نشد</strong><span>${hint}</span><button class="btn primary" style="margin-top:15px" onclick="location.reload()">تلاش دوباره</button></div>`;
+    ? 'این صفحه را از داخل تلگرام با دکمه مینی‌اپ باز کنید.\n(در مرورگر معمولی initData وجود ندارد.)'
+    : msg;
+  if(loading){
+    loading.innerHTML = '<div class="empty"><span class="big">!</span><strong>اتصال برقرار نشد</strong><span style="white-space:pre-wrap;display:block;margin-top:8px">'+esc(hint)+'</span><button class="btn primary" style="margin-top:15px" type="button" onclick="location.reload()">تلاش دوباره</button></div>';
+  }
+  console.error('miniapp bootstrap failed', e);
 });

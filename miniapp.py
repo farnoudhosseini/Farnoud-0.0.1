@@ -201,22 +201,22 @@ except Exception as exc:
 
 def _validate_init_data(init_data: str):
     if not BOT_TOKEN or not init_data:
-        return None, "Telegram authentication is not configured"
+        return None, "BOT_TOKEN روی سرور تنظیم نشده"
     try:
         pairs = dict(parse_qsl(init_data, keep_blank_values=True))
         supplied_hash = pairs.pop("hash", "")
         if not supplied_hash:
-            return None, "Missing Telegram signature"
+            return None, "داده احراز هویت تلگرام موجود نیست — از داخل ربات باز کنید"
         data_check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
         # Telegram docs: secret_key = HMAC_SHA256(key=bot_token, msg="WebAppData")
         secret = hmac.new(BOT_TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
         expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, supplied_hash):
-            return None, "Invalid Telegram signature"
+            return None, "امضای تلگرام نامعتبر است (BOT_TOKEN را در .env چک کنید)"
         auth_date = int(pairs.get("auth_date", "0"))
         max_age = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE", "86400"))
         if auth_date <= 0 or time.time() - auth_date > max_age:
-            return None, "Telegram session expired"
+            return None, "نشست تلگرام منقضی شده — اپ را ببندید و دوباره باز کنید"
         user_raw = pairs.get("user")
         if not user_raw:
             return None, "Telegram user is missing"
@@ -466,13 +466,30 @@ def miniapp_asset(filename):
 def bootstrap():
     user_id = int(request.tg_user["id"])
     role = (request.db_user or {}).get("role") or "user"
-    content = _content(user_id, role)
-    return jsonify({"ok": True, "user": _jsonable(request.db_user),
-                    "dashboard": _dashboard(user_id), "plans": _plans(user_id),
-                    "wallet": {"balance": _jsonable(request.db_user.get("balance") or 0),
-                               "transactions": _wallet_transactions(user_id)},
-                    "loyalty": _loyalty(user_id), "referrals": _referrals(user_id),
-                    "notifications": _notifications(user_id), **content})
+    def safe(fn, default):
+        try:
+            return fn()
+        except Exception as e:
+            print("bootstrap part error:", fn, e)
+            return default
+    content = safe(lambda: _content(user_id, role), {"news": [], "banners": []})
+    if not isinstance(content, dict):
+        content = {"news": [], "banners": []}
+    payload = {
+        "ok": True,
+        "user": _jsonable(request.db_user),
+        "dashboard": safe(lambda: _dashboard(user_id), {"subscription": None, "subscriptions": [], "has_subscription": False, "status": "no_subscription", "balance": 0}),
+        "plans": safe(lambda: _plans(user_id), []),
+        "wallet": {
+            "balance": _jsonable((request.db_user or {}).get("balance") or 0),
+            "transactions": safe(lambda: _wallet_transactions(user_id), []),
+        },
+        "loyalty": safe(lambda: _loyalty(user_id), {"points": 0, "level": "Bronze", "current_min": 0, "next_min": 2500, "progress": 0}),
+        "referrals": safe(lambda: _referrals(user_id), {"code": None, "total": 0, "active": 0, "link": None}),
+        "notifications": safe(lambda: _notifications(user_id), {"items": [], "unread": 0}),
+    }
+    payload.update(content)
+    return jsonify(payload)
 
 
 @miniapp_bp.get("/api/subscriptions/<int:order_id>")
