@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}ویرایش پنل | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>ویرایش پنل</h2></header>
+<div class="content">
+<div class="card" style="max-width:720px">
+<form method="post">
+  <label>نام نمایشی پنل</label>
+  <input class="form-control" name="name" value="{{ panel.name }}" maxlength="150" required>
+  <label style="display:block;margin-top:1rem">سقف فروش پنل</label>
+  <input class="form-control" type="number" name="max_sales" min="0" value="{{ max_sales or '' }}" placeholder="خالی = بدون محدودیت">
+  <label style="display:block;margin-top:1rem">روش تمدید</label>
+  <select class="form-control" name="renew_mode">
+    <option value="reset_both" {% if renew_mode == 'reset_both' %}selected{% endif %}>ریست زمان و حجم</option>
+    <option value="reset_time" {% if renew_mode == 'reset_time' %}selected{% endif %}>ریست زمان فقط</option>
+    <option value="reset_volume" {% if renew_mode == 'reset_volume' %}selected{% endif %}>ریست حجم فقط</option>
+    <option value="additive" {% if renew_mode == 'additive' %}selected{% endif %}>بدون ریست (افزایشی)</option>
+  </select>
+  <label style="display:flex;gap:.5rem;align-items:center;margin-top:1rem">
+    <input type="checkbox" name="is_active" {% if panel.is_active %}checked{% endif %}> پنل فعال باشد
+  </label>
+  <div class="muted" style="margin-top:.6rem">اطلاعات اتصال (آدرس/API/نام کاربری/رمز) از این فرم تغییر نمی‌کنند.</div>
+  <div style="display:flex;gap:.6rem;margin-top:1rem">
+    <button class="btn-primary" type="submit">💾 ذخیره تغییرات</button>
+    <a class="btn-secondary" href="{{ url_for('panel_detail', slug=panel.slug) }}">انصراف</a>
+  </div>
+</form>
+</div></div></main></div>
+{% endblock %}

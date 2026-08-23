@@ -126,6 +126,13 @@ async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, pane
             )
         else:
             await context.bot.send_message(user.id, text, parse_mode="Markdown")
+        await context.bot.send_message(
+            user.id, "👇",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
         log_activity(user.id, "trial", f"panel={panel_id}")
     except Exception as e:
-        await context.bot.send_message(user.id, f"❌ خطا در ساخت تست: {e}")
+        await context.bot.send_message(
+            user.id, f"❌ خطا در ساخت تست: {e}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )

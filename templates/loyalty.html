@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}امتیاز خرید | فرنود{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>امتیاز خرید</h2></header>
+<div class="content">
+<div class="card" style="max-width:760px">
+<p class="muted">امتیاز فقط بعد از خرید موفق و ساخت موفق سرویس ثبت می‌شود و برای یک سفارش دوباره محاسبه نمی‌شود.</p>
+<form method="post">
+  <label style="display:flex;gap:.5rem;align-items:center;margin:1rem 0">
+    <input type="checkbox" name="enabled" {% if enabled %}checked{% endif %}> فعال بودن امتیاز خرید
+  </label>
+  <label>به ازای هر چند تومان؟</label>
+  <input class="form-control" type="number" name="unit" min="1" value="{{ unit }}" required>
+  <label style="display:block;margin-top:1rem">چند امتیاز؟</label>
+  <input class="form-control" type="number" name="value" min="0" value="{{ value }}" required>
+  <div class="muted" style="margin-top:.8rem">مثال: ۱۰٬۰۰۰ تومان = ۱ امتیاز؛ خرید ۵۰٬۰۰۰ تومانی = ۵ امتیاز.</div>
+  <button class="btn-primary" type="submit" style="margin-top:1rem">💾 ذخیره</button>
+</form>
+</div></div></main></div>
+{% endblock %}

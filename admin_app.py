@@ -248,6 +248,48 @@ def panels_add():
     return redirect(url_for("panel_detail", slug=slug))
 
 
+@app.route("/panels/<slug>/edit", methods=["GET", "POST"])
+@login_required
+def panel_edit(slug):
+    panel = get_panel_by_slug(slug)
+    if not panel:
+        flash("پنل یافت نشد", "error")
+        return redirect(url_for("panels_list"))
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        renew_mode = (request.form.get("renew_mode") or "").strip()
+        active = 1 if request.form.get("is_active") else 0
+        try:
+            raw_max = (request.form.get("max_sales") or "").strip()
+            max_sales = int(raw_max) if raw_max else None
+            if max_sales is not None and max_sales < 0:
+                raise ValueError
+        except ValueError:
+            flash("سقف فروش نامعتبر است", "error")
+            return redirect(url_for("panel_edit", slug=panel["slug"]))
+        if not name:
+            flash("نام پنل نمی‌تواند خالی باشد", "error")
+        elif renew_mode not in ("reset_both", "reset_time", "reset_volume", "additive"):
+            flash("روش تمدید نامعتبر است", "error")
+        else:
+            from database import set_panel_field
+            ok = (
+                set_panel_field(panel["id"], "name", name[:150])
+                and set_panel_field(panel["id"], "max_sales", max_sales)
+                and set_panel_field(panel["id"], "renew_mode", renew_mode)
+                and set_panel_field(panel["id"], "is_active", active)
+            )
+            if ok:
+                flash("تنظیمات پنل با موفقیت ذخیره شد", "success")
+                return redirect(url_for("panel_detail", slug=panel["slug"]))
+            flash("ذخیره ناموفق بود", "error")
+    return render_template(
+        "panel_edit.html",
+        username=session.get("admin_username"), active="panels", panel=panel,
+        max_sales=panel.get("max_sales"), renew_mode=panel.get("renew_mode") or "reset_both",
+    )
+
+
 @app.route("/panels/<slug>")
 @login_required
 def panel_detail(slug):
@@ -953,6 +995,32 @@ def referral_settings():
             "referral_monthly_cap": get_setting_sync("referral_monthly_cap", "0"),
             "referral_notify": get_setting_sync("referral_notify", "1"),
         },
+    )
+
+
+@app.route("/loyalty", methods=["GET", "POST"])
+@login_required
+def loyalty_settings():
+    from db_growth import calculate_purchase_points
+    if request.method == "POST":
+        enabled = "1" if request.form.get("enabled") else "0"
+        try:
+            unit = max(1, int(float(request.form.get("unit") or 10000)))
+            value = max(0, int(float(request.form.get("value") or 1)))
+        except ValueError:
+            flash("مقادیر امتیاز خرید نامعتبر است", "error")
+            return redirect(url_for("loyalty_settings"))
+        set_setting_sync("purchase_points_enabled", enabled)
+        set_setting_sync("purchase_points_unit", str(unit))
+        set_setting_sync("purchase_points_value", str(value))
+        flash("تنظیمات امتیاز خرید ذخیره شد", "success")
+        return redirect(url_for("loyalty_settings"))
+    return render_template(
+        "loyalty.html",
+        username=session.get("admin_username"), active="loyalty",
+        enabled=get_setting_sync("purchase_points_enabled", "1") == "1",
+        unit=get_setting_sync("purchase_points_unit", "10000"),
+        value=get_setting_sync("purchase_points_value", "1"),
     )
 
 

@@ -45,6 +45,27 @@ def ensure_growth_tables():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS loyalty_accounts (
+                telegram_id BIGINT PRIMARY KEY,
+                points BIGINT NOT NULL DEFAULT 0,
+                level VARCHAR(50) NOT NULL DEFAULT 'Bronze',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS loyalty_transactions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                points INT NOT NULL,
+                type VARCHAR(40) NOT NULL,
+                reference_id VARCHAR(100) NULL,
+                description VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_loyalty_ref (telegram_id, type, reference_id),
+                INDEX idx_loyalty_user (telegram_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS reseller_requests (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 telegram_id BIGINT NOT NULL,
@@ -75,6 +96,9 @@ def ensure_growth_tables():
                 ("btn_trial", "🎁 تست رایگان"),
                 ("btn_reseller", "🤝 درخواست نمایندگی"),
                 ("reseller_request_enabled", "1"),
+                ("purchase_points_enabled", "1"),
+                ("purchase_points_unit", "10000"),
+                ("purchase_points_value", "1"),
             ]
             for k, v in defaults:
                 cur.execute("INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)", (k, v))
@@ -351,5 +375,53 @@ def user_pending_reseller_request(telegram_id: int) -> Optional[dict]:
                 (telegram_id,),
             )
             return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def calculate_purchase_points(amount: int) -> int:
+    """محاسبه امتیاز خرید بر اساس تنظیمات وب‌پنل."""
+    try:
+        if get_setting_sync("purchase_points_enabled", "1") != "1":
+            return 0
+        unit = max(1, int(get_setting_sync("purchase_points_unit", "10000") or 10000))
+        value = max(0, int(get_setting_sync("purchase_points_value", "1") or 1))
+        amount = max(0, int(amount or 0))
+        return (amount // unit) * value
+    except Exception:
+        return 0
+
+
+def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
+    """اعطای اتمیزه و idempotent امتیاز برای خرید موفق."""
+    points = calculate_purchase_points(amount)
+    if points <= 0:
+        return 0
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            ref = str(order_id)
+            cur.execute(
+                """SELECT id FROM loyalty_transactions
+                   WHERE telegram_id=%s AND type='purchase' AND reference_id=%s
+                   LIMIT 1""",
+                (telegram_id, ref),
+            )
+            if cur.fetchone():
+                return 0
+            cur.execute(
+                """INSERT INTO loyalty_transactions
+                   (telegram_id, points, type, reference_id, description)
+                   VALUES (%s,%s,'purchase',%s,%s)""",
+                (telegram_id, points, ref, "امتیاز خرید"),
+            )
+            cur.execute(
+                """INSERT INTO loyalty_accounts (telegram_id, points, level)
+                   VALUES (%s,%s,'Bronze')
+                   ON DUPLICATE KEY UPDATE points=points+VALUES(points)""",
+                (telegram_id, points),
+            )
+            conn.commit()
+            return points
     finally:
         conn.close()

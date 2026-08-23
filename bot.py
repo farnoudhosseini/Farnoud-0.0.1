@@ -280,7 +280,7 @@ def create_bot() -> Application:
         per_message=False,
     )
     application.add_handler(admin_conv)
-    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin_|adm_ch_|adm_ord_)"))
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin_|adm_ch_|adm_ord_|adm_ref_)"))
 
     # درخواست نمایندگی
     reseller_conv = ConversationHandler(

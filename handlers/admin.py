@@ -982,6 +982,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_order(oid, status="paid")
         await query.edit_message_text(f"⏳ ساخت سرویس #{oid}...")
         result = provision_order(oid)
+        if result.get("ok"):
+            try:
+                from db_growth import award_purchase_points
+                award_purchase_points(order["telegram_id"], int(order.get("amount") or 0), oid)
+            except Exception as e:
+                print("admin purchase points:", e)
         try:
             await send_service_to_user(context.bot, order["telegram_id"], result)
         except Exception as e:

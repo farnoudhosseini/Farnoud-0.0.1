@@ -62,7 +62,10 @@ def _client(o: dict):
     return get_panel_client(panel)
 
 def back_main_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="svc_list")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="svc_list")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+    ])
 
 def service_card_keyboard(order_id: int):
     return InlineKeyboardMarkup([
@@ -200,7 +203,10 @@ async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
     orders = list_user_orders(user.id)
     if not orders:
         text = "هنوز سرویسی ندارید.\nاز «خرید سرویس جدید» یک سرویس بگیرید."
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🛒 خرید سرویس", callback_data="buy_go")]])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛒 خرید سرویس", callback_data="buy_go")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+        ])
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(text, reply_markup=kb)
@@ -773,6 +779,7 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("✍️ پیام جدید", callback_data="sup_new")],
         [InlineKeyboardButton("📋 تیکت‌های من", callback_data="sup_my")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
     ])
     if update.callback_query:
         await update.callback_query.answer()

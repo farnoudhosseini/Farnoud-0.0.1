@@ -961,18 +961,11 @@ def create_mini_order():
             conn.close()
         return jsonify({"ok": False, "error": "ساخت سرویس انجام نشد؛ مبلغ به کیف پول برگشت."}), 502
 
+    from db_growth import award_purchase_points
+    points = award_purchase_points(user_id, amount, order_id)
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO loyalty_accounts (telegram_id,points,level)
-                           VALUES (%s,%s,'Bronze')
-                           ON DUPLICATE KEY UPDATE points=points+VALUES(points)""",
-                        (user_id, max(1, amount // 10000)))
-            cur.execute("""INSERT INTO loyalty_transactions
-                           (telegram_id,points,type,reference_id,description)
-                           VALUES (%s,%s,'purchase',%s,%s)""",
-                        (user_id, max(1, amount // 10000), str(order_id), "امتیاز خرید"))
-            points = max(1, amount // 10000)
             cur.execute("""INSERT INTO notifications (telegram_id,type,title,body)
                            VALUES (%s,'purchase','خرید موفق',%s)""",
                         (user_id, f"سرویس {product.get('name') or ''} با موفقیت فعال شد."))
@@ -1288,6 +1281,11 @@ def prepare_order():
         )
         result = provision_order(order_id)
         if result.get("ok"):
+            try:
+                from db_growth import award_purchase_points
+                award_purchase_points(user_id, hprice, order_id)
+            except Exception as e:
+                print("hourly purchase points:", e)
             _notify_user(
                 user_id,
                 f"✅ سرویس ساعتی فعال شد.\nهر ساعت {hprice:,} تومان از کیف پول کسر می‌شود.",
@@ -1378,6 +1376,11 @@ def confirm_wallet_order(order_id):
     except Exception:
         pass
     if result.get("ok"):
+        try:
+            from db_growth import award_purchase_points
+            award_purchase_points(user_id, price, order_id)
+        except Exception as e:
+            print("purchase points:", e)
         _notify_user(user_id, f"✅ سفارش #{order_id} با موفقیت فعال شد.")
         from config import ADMIN_ID
         if ADMIN_ID:
@@ -1736,6 +1739,14 @@ def _try_auto_approve_order(order_id, user_id):
         from db_products import update_order
         update_order(order_id, status="paid")
         result = provision_order(order_id)
+        if result.get("ok"):
+            try:
+                from db_products import get_order
+                from db_growth import award_purchase_points
+                o = get_order(order_id) or {}
+                award_purchase_points(user_id, int(o.get("amount") or 0), order_id)
+            except Exception as e:
+                print("auto order points:", e)
         return bool(result.get("ok"))
     except Exception as e:
         print("auto approve order:", e)
@@ -1840,16 +1851,23 @@ def subscription_delete(order_id):
         finally:
             conn.close()
     amount = int(o.get("amount") or 0)
+    kb = {"inline_keyboard": [[
+        {"text": "تایید حذف و بازگشت وجه", "callback_data": "adm_ref_ok_%s" % order_id},
+        {"text": "رد درخواست", "callback_data": "adm_ref_no_%s" % order_id},
+    ]]}
+    text = (
+        "درخواست حذف سرویس #%s\nکاربر: %s\nمبلغ قابل بازگشت: %s تومان\n"
+        "سرویس فعلا غیرفعال شد. با تایید، حذف کامل و بازگشت وجه انجام میشود."
+    ) % (order_id, user_id, f"{amount:,}")
+    try:
+        from db_extras import list_bot_admins
+        admin_ids = [int(a["telegram_id"]) for a in list_bot_admins()]
+    except Exception:
+        admin_ids = []
     if ADMIN_ID:
-        kb = {"inline_keyboard": [[
-            {"text": "تایید حذف و بازگشت وجه", "callback_data": "adm_ref_ok_%s" % order_id},
-            {"text": "رد درخواست", "callback_data": "adm_ref_no_%s" % order_id},
-        ]]}
-        text = (
-            "درخواست حذف سرویس #%s\nکاربر: %s\nمبلغ قابل بازگشت: %s تومان\n"
-            "سرویس فعلا غیرفعال شد. با تایید، حذف کامل و بازگشت وجه انجام میشود."
-        ) % (order_id, user_id, f"{amount:,}")
-        _tg_api("sendMessage", {"chat_id": ADMIN_ID, "text": text, "reply_markup": kb})
+        admin_ids = [int(ADMIN_ID)] + [x for x in admin_ids if int(x) != int(ADMIN_ID)]
+    for admin_id in admin_ids:
+        _tg_api("sendMessage", {"chat_id": admin_id, "text": text, "reply_markup": kb})
     _notify_user(
         user_id,
         "درخواست حذف سرویس #%s ثبت شد. پس از تایید ادمین، حذف و بازگشت وجه انجام میشود." % order_id,

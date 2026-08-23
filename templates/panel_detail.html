@@ -5,6 +5,9 @@
     {% include "_sidebar.html" %}
     <main class="main">
         <header class="topbar">
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <a href="{{ url_for('panel_edit', slug=panel.slug) }}" class="btn-primary inline">✏️ ویرایش نام</a>
+  </div>
             <h2>{{ panel.name }}</h2>
             <div class="topbar-actions">
                 <a href="{{ url_for('panel_users', slug=panel.slug) }}" class="btn-primary inline">کاربران VPN</a>

@@ -28,6 +28,7 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     rows = [[InlineKeyboardButton(p["name"], callback_data=f"buy_panel_{p['id']}")] for p in panels]
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
+    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = render_template("buy_select_panel", {}) or "🖥 پنل مورد نظر را انتخاب کنید:"
     if update.message:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
@@ -145,6 +146,11 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = provision_order(order_id)
             await send_service_to_user(context.bot, user.id, result)
             if result.get("ok"):
+                try:
+                    from db_growth import award_purchase_points
+                    award_purchase_points(user.id, hprice, order_id)
+                except Exception as e:
+                    print("hourly points:", e)
                 await context.bot.send_message(
                     user.id,
                     f"✅ سرویس ساعتی فعال شد.\nهر ساعت {hprice:,} تومان از کیف پول کسر می‌شود.\n"
@@ -238,6 +244,12 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("⏳ در حال ساخت سرویس...")
         result = provision_order(oid)
         await send_service_to_user(context.bot, user.id, result)
+        if result.get("ok"):
+            try:
+                from db_growth import award_purchase_points
+                award_purchase_points(user.id, price, oid)
+            except Exception as e:
+                print("purchase points:", e)
         try:
             from db_growth import pay_referral_commission
             pay_referral_commission(user.id, price)
@@ -308,6 +320,7 @@ async def _show_products(q, context, panel_id, cat_id, bu):
         callback_data=f"buy_prod_{p['id']}",
     )] for p in products]
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
+    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = render_template("buy_select_product", {}) or "📦 محصول را انتخاب کنید:"
     await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
 

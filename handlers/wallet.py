@@ -117,6 +117,7 @@ def wallet_keyboard():
         [InlineKeyboardButton("💳 شارژ حساب", callback_data="wallet_charge")],
         [InlineKeyboardButton("🎁 کد هدیه", callback_data="wallet_gift")],
         [InlineKeyboardButton("👥 زیرمجموعه", callback_data="wallet_refs")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
     ])
 
 def payment_methods_keyboard(charge_id: int):
@@ -125,6 +126,7 @@ def payment_methods_keyboard(charge_id: int):
     for m in methods:
         rows.append([InlineKeyboardButton(m["title"], callback_data=f"pay_{m['method_key']}_{charge_id}")])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")])
+    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     return InlineKeyboardMarkup(rows)
 
 async def _bot_username(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -162,12 +164,12 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "wallet_charge":
         vars_ = user_vars(bu, uname)
         text = render_template("wallet_charge", vars_)
-        await q.edit_message_text(text, parse_mode="HTML")
+        await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]), parse_mode="HTML")
         return WAITING_CHARGE_AMOUNT
 
     if data == "wallet_gift":
         text = render_template("wallet_gift", user_vars(bu, uname))
-        await q.edit_message_text(text, parse_mode="HTML")
+        await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]), parse_mode="HTML")
         return WAITING_GIFT_CODE
 
     if data == "wallet_refs":
@@ -209,6 +211,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
             [copy_btn],
             [InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ])
         await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
         # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
@@ -256,9 +259,15 @@ async def receive_gift_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg, amount = redeem_gift(user.id, code)
     if ok:
         bu = get_bot_user(user.id)
-        await update.message.reply_text(f"✅ {msg}\nمبلغ: {amount:,} تومان\nموجودی: {int(bu['balance']):,} تومان")
+        await update.message.reply_text(
+            f"✅ {msg}\nمبلغ: {amount:,} تومان\nموجودی: {int(bu['balance']):,} تومان",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
     else:
-        await update.message.reply_text(f"❌ {msg}")
+        await update.message.reply_text(
+            f"❌ {msg}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
     return ConversationHandler.END
 
 async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -280,7 +289,10 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vars_ = user_vars(bu, uname)
     vars_["invoice_id"] = charge_id
     vars_["amount"] = f"{int(get_charge(charge_id)['amount']):,}"
-    await update.message.reply_text(render_template("charge_waiting", vars_))
+    await update.message.reply_text(
+        render_template("charge_waiting", vars_),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+    )
     # اطلاع به ادمین
     try:
         await context.bot.send_message(
