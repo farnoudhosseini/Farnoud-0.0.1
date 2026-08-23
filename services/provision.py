@@ -80,61 +80,105 @@ def provision_order(order_id: int) -> dict:
         except (TypeError, ValueError):
             hwid = None
 
-    client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
+    from services.panel_client import get_panel_client, is_xui_panel
+
     username = _rand_username("fn")
     expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
 
-    # گروه‌های پنل
-    group_ids = []
-    try:
-        groups = client.get_groups()
-        if groups:
-            group_ids = [groups[0].get("id") or groups[0]["id"]]
-    except Exception:
+    if is_xui_panel(panel):
+        # ---- 3x-ui ----
+        xui = get_panel_client(panel)
+        inbound_id = order.get("inbound_id") or order.get("xui_inbound_id")
+        if not inbound_id:
+            # fallback: first enabled inbound
+            try:
+                choices = xui.list_inbound_choices()
+                if choices:
+                    inbound_id = choices[0]["id"]
+            except Exception as e:
+                return {"ok": False, "error": f"لیست اینباند: {e}"}
+        if not inbound_id:
+            return {"ok": False, "error": "اینباندی برای ساخت کلاینت انتخاب نشده"}
+        # limitIp از hwid_limit محصول استفاده می‌شود (معادل IP Limit در ثنایی)
+        limit_ip = int(hwid) if hwid else 0
+        try:
+            created = xui.add_client(
+                inbound_id=int(inbound_id),
+                email=username,
+                total_gb=volume_gb if volume_gb > 0 else 0,
+                days=days if days > 0 else 0,
+                limit_ip=limit_ip,
+                tg_id=int(order.get("telegram_id") or 0),
+            )
+        except Exception as e:
+            return {"ok": False, "error": f"ساخت کلاینت 3x-ui: {e}"}
+        sub_id = created.get("subId") or ""
+        sub_link = xui.subscription_url(sub_id)
+        full = {
+            "username": created.get("email") or username,
+            "email": created.get("email") or username,
+            "status": "active",
+            "limitIp": limit_ip,
+            "subId": sub_id,
+            "id": created.get("id"),
+            "inbound_id": inbound_id,
+            "subscription_url": sub_link,
+        }
+        status = "active"
+        hwid_s = limit_ip if limit_ip else "نامحدود"
+        service_id = full.get("id") or order_id
+        remain_gb = volume_gb
+    else:
+        # ---- PasarGuard ----
+        client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
         group_ids = []
+        try:
+            groups = client.get_groups()
+            if groups:
+                group_ids = [groups[0].get("id") or groups[0]["id"]]
+        except Exception:
+            group_ids = []
 
-    payload = client.build_user_payload(
-        username=username,
-        status="active",
-        data_limit_gb=volume_gb if volume_gb > 0 else 0,
-        expire=expire_dt.isoformat(),
-        group_ids=group_ids,
-        hwid_limit=hwid,
-        note=f"order#{order_id} tg:{order['telegram_id']}",
-        for_create=True,
-    )
-    try:
-        created = client.create_user(payload)
-    except Exception as e:
-        return {"ok": False, "error": f"ساخت اکانت: {e}"}
+        payload = client.build_user_payload(
+            username=username,
+            status="active",
+            data_limit_gb=volume_gb if volume_gb > 0 else 0,
+            expire=expire_dt.isoformat(),
+            group_ids=group_ids,
+            hwid_limit=hwid,
+            note=f"order#{order_id} tg:{order['telegram_id']}",
+            for_create=True,
+        )
+        try:
+            created = client.create_user(payload)
+        except Exception as e:
+            return {"ok": False, "error": f"ساخت اکانت: {e}"}
 
-    # اطلاعات کامل کاربر
-    try:
-        full = client.get_user(created.get("username") or username)
-    except Exception:
-        full = created or {}
+        try:
+            full = client.get_user(created.get("username") or username)
+        except Exception:
+            full = created or {}
 
-    raw_sub = (
-        full.get("subscription_url")
-        or full.get("subscription_link")
-        or created.get("subscription_url")
-        or full.get("link")
-        or ""
-    )
-    # گاهی فقط path مثل /sub/TOKEN برمی‌گردد
-    if not raw_sub and full.get("subscription_token"):
-        raw_sub = f"/sub/{full.get('subscription_token')}"
-    sub_link = fix_subscription_url(panel.get("base_url") or "", raw_sub)
-    status = full.get("status") or "active"
-    hwid_s = full.get("hwid_limit")
-    if hwid_s is None or hwid_s == 0:
-        hwid_s = "نامحدود"
-    service_id = full.get("id") or created.get("id") or order_id
-    used = full.get("used_traffic") or 0
-    limit = full.get("data_limit") or 0
-    remain_gb = volume_gb
-    if limit and limit > 0:
-        remain_gb = round(max(0, (limit - used) / (1024 ** 3)), 2)
+        raw_sub = (
+            full.get("subscription_url")
+            or full.get("subscription_link")
+            or created.get("subscription_url")
+            or full.get("link")
+            or ""
+        )
+        if not raw_sub and full.get("subscription_token"):
+            raw_sub = f"/sub/{full.get('subscription_token')}"
+        sub_link = fix_subscription_url(panel.get("base_url") or "", raw_sub)
+        status = full.get("status") or "active"
+        hwid_s = full.get("hwid_limit")
+        if hwid_s is None or hwid_s == 0:
+            hwid_s = "نامحدود"
+        service_id = full.get("id") or created.get("id") or order_id
+        used = full.get("used_traffic") or 0
+        limit = full.get("data_limit") or 0
+        remain_gb = volume_gb
+        if limit and limit > 0:
+            remain_gb = round(max(0, (limit - used) / (1024 ** 3)), 2)
 
     channel = get_setting_sync("channel_id", "") or get_setting_sync("support_channel", "") or "—"
 

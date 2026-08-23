@@ -217,7 +217,7 @@ def get_panel_by_slug(slug: str):
         if connection:
             connection.close()
 
-def create_panel(name: str, panel_type: str, base_url: str, username: str, password: str, slug: str = None):
+def create_panel(name: str, panel_type: str, base_url: str, username: str, password: str, slug: str = None, api_key: str = None):
     connection = None
     try:
         connection = get_sync_connection()
@@ -234,9 +234,9 @@ def create_panel(name: str, panel_type: str, base_url: str, username: str, passw
                 final_slug = f"{base_slug}-{n}"
 
             cursor.execute("""
-                INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, is_active, last_status)
-                VALUES (%s, %s, %s, %s, %s, %s, 1, 'connected')
-            """, (name, final_slug, panel_type, base_url, username, password))
+                INSERT INTO vpn_panels (name, slug, panel_type, base_url, username, password, api_key, is_active, last_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 'connected')
+            """, (name, final_slug, panel_type, base_url, username, password, api_key or None))
             connection.commit()
             return cursor.lastrowid, final_slug
     except Exception as e:
@@ -283,8 +283,8 @@ def ensure_panel_max_sales():
         with conn.cursor() as cur:
             for col, ddl in [
                 ("max_sales", "INT DEFAULT NULL"),
-                # renew_mode: reset_both | reset_time | reset_volume | additive
                 ("renew_mode", "VARCHAR(32) NOT NULL DEFAULT 'reset_both'"),
+                ("api_key", "VARCHAR(512) DEFAULT NULL"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE vpn_panels ADD COLUMN {col} {ddl}")

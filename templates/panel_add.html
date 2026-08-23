@@ -8,16 +8,12 @@
             <h2>افزودن پنل جدید</h2>
             <div class="topbar-actions">
                 <a href="{{ url_for('panels_list') }}" class="greeting">بازگشت</a>
-                <button type="button" class="theme-toggle" id="themeToggle" title="تغییر تم">
-                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                </button>
             </div>
         </header>
         <div class="content">
-            <div class="card" style="max-width:560px">
-                <div class="card-title">اتصال به پاسارگارد</div>
-                <div class="card-desc">آدرس پنل، نام کاربری و رمز عبور ادمین پاسارگارد را وارد کنید. اتصال قبل از ذخیره تست می‌شود.</div>
+            <div class="card" style="max-width:600px">
+                <div class="card-title">اتصال پنل VPN</div>
+                <div class="card-desc">پاسارگارد یا 3x-ui (ثنایی). برای 3x-ui می‌توانید API Token بگذارید یا یوزر/پسورد.</div>
                 <form method="POST" action="{{ url_for('panels_add') }}">
                     <div class="form-group">
                         <label for="name">نام نمایشی</label>
@@ -27,24 +23,29 @@
                         <label for="panel_type">نوع پنل</label>
                         <select id="panel_type" name="panel_type" class="form-select">
                             <option value="pasarguard" selected>PasarGuard (پاسارگارد)</option>
-                            <option value="3x-ui" disabled>3x-ui (به‌زودی)</option>
+                            <option value="3x-ui">3x-ui / ثنایی (Sanaei)</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label for="panel_url">آدرس پنل</label>
-                        <input type="text" id="panel_url" name="panel_url" placeholder="https://example.com:8000/dashboard" required>
+                        <input type="text" id="panel_url" name="panel_url" placeholder="https://example.com:2053/path" required>
                     </div>
                     <div class="form-group">
-                        <label for="username">نام کاربری ادمین پنل</label>
-                        <input type="text" id="username" name="username" placeholder="username" required autocomplete="off">
+                        <label for="username">نام کاربری ادمین</label>
+                        <input type="text" id="username" name="username" placeholder="admin" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">رمز عبور</label>
+                        <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password">
+                    </div>
+                    <div class="form-group" id="apiKeyGroup">
+                        <label for="api_key">API Token (اختیاری — مخصوص 3x-ui)</label>
+                        <input type="text" id="api_key" name="api_key" placeholder="Bearer token از Settings → Security">
+                        <p class="muted" style="font-size:.8rem;margin-top:.35rem">اگر Token بگذارید، یوزر/پسورد لازم نیست. برای پاسارگارد خالی بگذارید.</p>
                     </div>
                     <div class="form-group">
                         <label for="max_sales">حداکثر تعداد فروش (خالی = نامحدود)</label>
                         <input type="number" id="max_sales" name="max_sales" min="0" placeholder="نامحدود">
-                    </div>
-                    <div class="form-group">
-                        <label for="password">رمز عبور</label>
-                        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="new-password">
                     </div>
                     <div class="card-actions">
                         <button type="submit" class="btn-primary inline">تست و اتصال</button>
