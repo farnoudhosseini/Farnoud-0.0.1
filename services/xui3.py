@@ -301,7 +301,7 @@ class XUI3Client:
             "totalGB": int(total_bytes),
             "expiryTime": exp_ms,
             "enable": bool(enable),
-            "tgId": str(tg_id or ""),
+            "tgId": int(tg_id or 0),
             "subId": sub_id,
             "reset": 0,
         }
