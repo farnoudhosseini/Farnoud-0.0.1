@@ -355,3 +355,77 @@ async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 pass
+
+
+async def auto_approve_job(context):
+    """تایید خودکار رسیدهای کارت‌به‌کارت پس از گذشت زمان مشخص."""
+    try:
+        from database import get_setting_sync, get_sync_connection
+        minutes = int(get_setting_sync("card_auto_approve_minutes", "0") or 0)
+        if minutes <= 0:
+            return
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                # charges
+                cur.execute(
+                    """SELECT id, telegram_id, amount FROM charge_requests
+                       WHERE status='pending_review'
+                         AND created_at < (NOW() - INTERVAL %s MINUTE)
+                       LIMIT 30""",
+                    (minutes,),
+                )
+                charges = cur.fetchall() or []
+                # orders
+                cur.execute(
+                    """SELECT id, telegram_id, amount, wallet_used FROM service_orders
+                       WHERE status='pending_review'
+                         AND created_at < (NOW() - INTERVAL %s MINUTE)
+                       LIMIT 30""",
+                    (minutes,),
+                )
+                orders = cur.fetchall() or []
+        finally:
+            conn.close()
+        from db_users import add_balance, get_charge
+        from db_products import update_order, get_order
+        from services.provision import provision_order
+        bot = context.bot
+        for ch in charges:
+            try:
+                add_balance(int(ch["telegram_id"]), int(ch["amount"]), f"charge#{ch['id']}")
+                conn = get_sync_connection()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE charge_requests SET status='approved' WHERE id=%s", (ch["id"],))
+                        conn.commit()
+                finally:
+                    conn.close()
+                try:
+                    await bot.send_message(int(ch["telegram_id"]), f"شارژ #{ch['id']} به صورت خودکار تایید شد.")
+                except Exception:
+                    pass
+            except Exception as e:
+                print("auto charge", e)
+        for o in orders:
+            try:
+                oid = int(o["id"])
+                wu = int(o.get("wallet_used") or 0)
+                if wu > 0:
+                    try:
+                        add_balance(int(o["telegram_id"]), -wu, f"order#{oid}")
+                    except Exception:
+                        pass
+                update_order(oid, status="paid")
+                result = provision_order(oid)
+                try:
+                    msg = "سفارش #%s به صورت خودکار تایید شد." % oid
+                    if not result.get("ok"):
+                        msg += " (خطا در ساخت: %s)" % (result.get("error") or "")
+                    await bot.send_message(int(o["telegram_id"]), msg)
+                except Exception:
+                    pass
+            except Exception as e:
+                print("auto order", e)
+    except Exception as e:
+        print("auto_approve_job", e)

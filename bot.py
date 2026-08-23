@@ -52,12 +52,13 @@ async def post_init(application: Application):
     except Exception as e:
         print(f"user tables: {e}")
     try:
-        from handlers.group_reports import backup_job, hourly_job, get_backup_interval_seconds
+        from handlers.group_reports import backup_job, hourly_job, get_backup_interval_seconds, auto_approve_job
         jq = application.job_queue
         if jq:
             bsecs = get_backup_interval_seconds()
             jq.run_repeating(backup_job, interval=bsecs, first=60, name="db_backup")
             jq.run_repeating(hourly_job, interval=3600, first=120, name="hourly_charges")
+            jq.run_repeating(auto_approve_job, interval=120, first=90, name="card_auto_approve")
             print(f"backup job every {bsecs/3600:.1f}h")
     except Exception as e:
         print(f"jobs: {e}")

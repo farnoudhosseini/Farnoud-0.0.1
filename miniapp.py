@@ -663,8 +663,8 @@ def _referrals(user_id):
 
 def _dashboard(user_id):
     subs = _subscriptions(user_id)
-    active = [s for s in subs if s["status"] in ("active","provisioned")]
-    primary = active[0] if active else (subs[0] if subs else None)
+    # آخرین سرویس خریداری‌شده (لیست DESC بر اساس id)
+    primary = subs[0] if subs else None
     user = get_bot_user(user_id) or {}
     return {"subscription": primary, "subscriptions": subs, "has_subscription": bool(subs),
             "status": primary["status"] if primary else "no_subscription",
@@ -1083,6 +1083,7 @@ def catalog_products():
             "hwid_limit": p.get("hwid_limit"),
             "hourly_enabled": hourly_ok,
             "hourly_price": _jsonable(p.get("hourly_price") or 0) if hourly_ok else None,
+            "hwid_limit": p.get("hwid_limit"),
             "category_id": p.get("category_id"),
         })
     return jsonify({"ok": True, "products": out})
@@ -1396,8 +1397,10 @@ def upload_order_receipt(order_id):
         f"(موجودی کیف پول رزرو: {wallet_used:,})"
     )
     _notify_admin_order(order_id, admin_text, photo_b64=photo_b64)
-    _notify_user(user_id, f"⏳ رسید سفارش #{order_id} ثبت شد. پس از تایید ادمین سرویس برایتان ساخته می‌شود.")
-
+    if _try_auto_approve_order(order_id, user_id):
+        _notify_user(user_id, "سفارش #%s به صورت خودکار تایید و سرویس ساخته شد." % order_id)
+        return jsonify({"ok": True, "message": "رسید ثبت و به صورت خودکار تایید شد.", "order_id": order_id, "auto_approved": True})
+    _notify_user(user_id, "رسید سفارش #%s ثبت شد. پس از تایید ادمین سرویس برایتان ساخته میشود." % order_id)
     return jsonify({"ok": True, "message": "رسید ثبت شد و برای تایید ارسال شد.", "order_id": order_id})
 
 
@@ -1574,6 +1577,7 @@ def support_ticket_message(tid):
     return jsonify({"ok": True, "message": "پیام ارسال شد."})
 
 
+
 @miniapp_bp.post("/api/wallet/topup/receipt")
 @auth_required
 def wallet_topup_receipt():
@@ -1605,126 +1609,82 @@ def wallet_topup_receipt():
     finally:
         conn.close()
     amount = int(ch.get("amount") or 0)
+    # auto-approve check
+    auto_done = _try_auto_approve_charge(charge_id, user_id, amount)
+    if auto_done:
+        _notify_user(user_id, f"شارژ #{charge_id} به صورت خودکار تایید شد.")
+        return jsonify({"ok": True, "message": "رسید ثبت و به صورت خودکار تایید شد.", "auto_approved": True})
     if ADMIN_ID:
         kb = {"inline_keyboard": [[
-            {"text": "✅ تایید", "callback_data": f"adm_ch_ok_{charge_id}"},
-            {"text": "❌ رد", "callback_data": f"adm_ch_no_{charge_id}"},
+            {"text": "تایید", "callback_data": f"adm_ch_ok_{charge_id}"},
+            {"text": "رد", "callback_data": f"adm_ch_no_{charge_id}"},
         ]]}
         _tg_api("sendMessage", {
             "chat_id": ADMIN_ID,
-            "text": f"🧾 رسید شارژ #{charge_id} (مینی‌اپ)\nکاربر: {user_id}\nمبلغ: {amount:,} تومان",
+            "text": "رسید شارژ #%s (مینی اپ)\nکاربر: %s\nمبلغ: %s تومان" % (charge_id, user_id, f"{amount:,}"),
             "reply_markup": kb,
         })
         try:
             import io
             raw = base64.b64decode(photo_b64.split(",")[-1] if "," in photo_b64 else photo_b64)
-            _tg_api("sendPhoto", {"chat_id": str(ADMIN_ID), "caption": f"رسید شارژ #{charge_id}"},
+            _tg_api("sendPhoto", {"chat_id": str(ADMIN_ID), "caption": "رسید شارژ #%s" % charge_id},
                     files={"photo": ("receipt.jpg", io.BytesIO(raw), "image/jpeg")})
         except Exception as e:
             print("charge photo:", e)
-    _notify_user(user_id, f"⏳ رسید شارژ #{charge_id} ثبت شد و در انتظار تایید است.")
+    _notify_user(user_id, f"رسید شارژ #{charge_id} ثبت شد و در انتظار تایید است.")
     return jsonify({"ok": True, "message": "رسید شارژ ثبت شد."})
 
 
+def _auto_approve_user_ids():
+    from database import get_setting_sync
+    raw = (get_setting_sync("card_auto_approve_users", "") or "").strip()
+    ids = set()
+    for part in raw.replace(" ", "").split(","):
+        if part.isdigit():
+            ids.add(int(part))
+    return ids
 
-@miniapp_bp.post("/api/loyalty/redeem")
-@auth_required
-def loyalty_redeem():
-    """Redeem a club package: gift VPN (panel+volume+days) by spending points."""
-    user_id = int(request.tg_user["id"])
-    body = request.get_json(silent=True) or {}
-    pkg_id = str(body.get("package_id") or "")
-    cfg = get_loyalty_config()
-    packages = cfg.get("packages") or []
-    pkg = next((x for x in packages if str(x.get("id")) == pkg_id), None)
-    if not pkg:
-        return jsonify({"ok": False, "error": "بسته یافت نشد"}), 404
-    cost = int(pkg.get("points_cost") or 0)
-    if cost <= 0:
-        return jsonify({"ok": False, "error": "بسته نامعتبر"}), 400
-    min_level = (pkg.get("min_level") or "").strip()
-    loy = _loyalty(user_id)
-    if min_level:
-        levels = sorted(cfg.get("levels") or [], key=lambda x: int(x.get("min_points") or 0))
-        order = {lv.get("name"): i for i, lv in enumerate(levels)}
-        if order.get(loy.get("level"), -1) < order.get(min_level, 0):
-            return jsonify({"ok": False, "error": f"حداقل سطح لازم: {min_level}"}), 400
 
-    reward_type = (pkg.get("reward_type") or "vpn").strip()
-    panel_id = pkg.get("panel_id")
-    volume_gb = float(pkg.get("volume_gb") or 0)
-    duration_days = int(pkg.get("duration_days") or 0)
-
-    if reward_type in ("vpn", "vpn_gift", "gift"):
-        if not panel_id or duration_days <= 0:
-            return jsonify({"ok": False, "error": "تنظیمات بسته VPN ناقص است (پنل/مدت)."}), 400
-
-    conn = get_sync_connection()
+def _try_auto_approve_charge(charge_id, user_id, amount):
+    """Immediate auto-approve if user is in whitelist."""
+    if int(user_id) not in _auto_approve_user_ids():
+        return False
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT points FROM loyalty_accounts WHERE telegram_id=%s FOR UPDATE", (user_id,))
-            row = cur.fetchone()
-            pts = int((row or {}).get("points") or 0)
-            if pts < cost:
-                return jsonify({"ok": False, "error": "امتیاز کافی نیست", "points": pts, "required": cost}), 402
-            cur.execute("UPDATE loyalty_accounts SET points=points-%s WHERE telegram_id=%s", (cost, user_id))
-            cur.execute("""INSERT INTO loyalty_transactions
-                           (telegram_id,points,type,reference_id,description)
-                           VALUES (%s,%s,'redeem',%s,%s)""",
-                        (user_id, -cost, pkg_id, f"دریافت بسته: {pkg.get('title') or pkg_id}"))
-            conn.commit()
-    finally:
-        conn.close()
-
-    order_id = None
-    provision = None
-    if reward_type in ("vpn", "vpn_gift", "gift"):
+        from db_users import approve_charge
+        approve_charge(charge_id)
+        return True
+    except Exception:
         try:
-            from db_products import create_order, update_order, get_product
-            # use a dummy product_id 0 if needed — create_order requires product_id
-            # create free order then override volume/duration
-            product_id = int(pkg.get("product_id") or 0) or 1
-            order_id = create_order(user_id, product_id, int(panel_id), 0, 0, 0)
-            update_order(
-                order_id,
-                status="paid",
-                wallet_used=0,
-                pay_amount=0,
-                volume_gb_override=volume_gb if volume_gb > 0 else None,
-                duration_days_override=duration_days,
-                custom_name=(pkg.get("title") or "هدیه باشگاه")[:80],
-            )
-            provision = provision_order(order_id)
-            if not provision.get("ok"):
-                # refund points
-                conn = get_sync_connection()
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
-                        conn.commit()
-                finally:
-                    conn.close()
-                return jsonify({"ok": False, "error": provision.get("error") or "ساخت سرویس هدیه ناموفق"}), 502
-            _notify_user(user_id, f"هدیه باشگاه فعال شد: {pkg.get('title') or ''}")
-        except Exception as e:
-            print("loyalty vpn gift:", e)
+            from db_users import add_balance, get_charge
+            from database import get_sync_connection
+            ch = get_charge(charge_id)
+            if not ch:
+                return False
+            add_balance(int(ch["telegram_id"]), int(ch["amount"]), f"charge#{charge_id}")
             conn = get_sync_connection()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("UPDATE loyalty_accounts SET points=points+%s WHERE telegram_id=%s", (cost, user_id))
+                    cur.execute("UPDATE charge_requests SET status='approved' WHERE id=%s", (charge_id,))
                     conn.commit()
             finally:
                 conn.close()
-            return jsonify({"ok": False, "error": f"خطا در ساخت هدیه: {e}"}), 500
+            return True
+        except Exception as e:
+            print("auto approve charge:", e)
+            return False
 
-    return jsonify({
-        "ok": True,
-        "message": "بسته با موفقیت دریافت شد.",
-        "points_spent": cost,
-        "order_id": order_id,
-        "provision": _jsonable(provision or {}),
-    })
 
+def _try_auto_approve_order(order_id, user_id):
+    if int(user_id) not in _auto_approve_user_ids():
+        return False
+    try:
+        from db_products import update_order
+        update_order(order_id, status="paid")
+        result = provision_order(order_id)
+        return bool(result.get("ok"))
+    except Exception as e:
+        print("auto approve order:", e)
+        return False
 
 
 @miniapp_bp.get("/api/trial/status")
@@ -1745,15 +1705,14 @@ def trial_status():
 @miniapp_bp.post("/api/trial/claim")
 @auth_required
 def trial_claim():
-    """Claim free trial from miniapp (once)."""
-    from database import get_setting_sync, get_panel_by_id, list_panels
+    from database import get_setting_sync, list_panels
     from db_growth import has_used_trial, record_trial
     from db_products import create_order, update_order
     user_id = int(request.tg_user["id"])
     if get_setting_sync("trial_enabled", "0") != "1":
-        return jsonify({"ok": False, "error": "تست رایگان فعلاً غیرفعال است."}), 400
+        return jsonify({"ok": False, "error": "تست رایگان فعلا غیرفعال است."}), 400
     if has_used_trial(user_id):
-        return jsonify({"ok": False, "error": "شما قبلاً از تست رایگان استفاده کرده‌اید."}), 400
+        return jsonify({"ok": False, "error": "شما قبلا از تست رایگان استفاده کرده اید."}), 400
     body = request.get_json(silent=True) or {}
     panel_id = body.get("panel_id")
     raw = get_setting_sync("trial_panel_ids", "") or get_setting_sync("trial_panel_id", "")
@@ -1776,15 +1735,8 @@ def trial_claim():
     vol = float(get_setting_sync("trial_volume_gb", "1") or 1)
     days = int(get_setting_sync("trial_days", "1") or 1)
     order_id = create_order(user_id, 1, panel_id, 0, 0, 0)
-    update_order(
-        order_id,
-        status="paid",
-        wallet_used=0,
-        pay_amount=0,
-        volume_gb_override=vol,
-        duration_days_override=days,
-        custom_name="تست رایگان",
-    )
+    update_order(order_id, status="paid", wallet_used=0, pay_amount=0,
+                 volume_gb_override=vol, duration_days_override=days, custom_name="تست رایگان")
     result = provision_order(order_id)
     if not result.get("ok"):
         return jsonify({"ok": False, "error": result.get("error") or "ساخت تست ناموفق"}), 502
@@ -1799,34 +1751,55 @@ def trial_claim():
 @miniapp_bp.post("/api/subscriptions/<int:order_id>/delete")
 @auth_required
 def subscription_delete(order_id):
-    """User-requested remove service from list (+ optional panel delete)."""
-    from db_products import update_order, get_order
+    """Request delete+refund: disable service, notify admin for final delete/refund."""
+    from db_products import update_order
+    from config import ADMIN_ID
     user_id = int(request.tg_user["id"])
     o = get_user_order(order_id, user_id)
     if not o:
         return jsonify({"ok": False, "error": "سرویس پیدا نشد"}), 404
     body = request.get_json(silent=True) or {}
-    confirm = bool(body.get("confirm"))
-    if not confirm:
+    if not bool(body.get("confirm")):
         return jsonify({"ok": False, "error": "تایید حذف لازم است"}), 400
-    # try remove from panel
     try:
-        from services.optimize import _delete_from_panel
-        _delete_from_panel(o)
+        from database import get_panel_by_id
+        from services.panel_client import get_panel_client
+        panel = get_panel_by_id(o.get("panel_id")) if o.get("panel_id") else None
+        if panel and o.get("vpn_username"):
+            client = get_panel_client(panel)
+            if client and hasattr(client, "modify_user"):
+                client.modify_user(o["vpn_username"], {"status": "disabled"})
     except Exception as e:
-        print("user delete panel:", e)
+        print("disable on delete request:", e)
     try:
-        update_order(order_id, status="cancelled")
+        update_order(order_id, status="refund_requested")
     except Exception:
         conn = get_sync_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("UPDATE service_orders SET status='cancelled' WHERE id=%s AND telegram_id=%s",
-                            (order_id, user_id))
+                cur.execute(
+                    "UPDATE service_orders SET status=%s WHERE id=%s AND telegram_id=%s",
+                    ("refund_requested", order_id, user_id),
+                )
                 conn.commit()
         finally:
             conn.close()
-    return jsonify({"ok": True, "message": "سرویس حذف شد."})
+    amount = int(o.get("amount") or 0)
+    if ADMIN_ID:
+        kb = {"inline_keyboard": [[
+            {"text": "تایید حذف و بازگشت وجه", "callback_data": "adm_ref_ok_%s" % order_id},
+            {"text": "رد درخواست", "callback_data": "adm_ref_no_%s" % order_id},
+        ]]}
+        text = (
+            "درخواست حذف سرویس #%s\nکاربر: %s\nمبلغ قابل بازگشت: %s تومان\n"
+            "سرویس فعلا غیرفعال شد. با تایید، حذف کامل و بازگشت وجه انجام میشود."
+        ) % (order_id, user_id, f"{amount:,}")
+        _tg_api("sendMessage", {"chat_id": ADMIN_ID, "text": text, "reply_markup": kb})
+    _notify_user(
+        user_id,
+        "درخواست حذف سرویس #%s ثبت شد. پس از تایید ادمین، حذف و بازگشت وجه انجام میشود." % order_id,
+    )
+    return jsonify({"ok": True, "message": "درخواست حذف ثبت شد و برای تایید ادمین ارسال شد."})
 
 
 @miniapp_bp.errorhandler(Exception)

@@ -1184,6 +1184,8 @@ def miniapp_content():
                                miniapp_url=get_setting_sync("miniapp_url", "") or "",
                                miniapp_btn_enabled=get_setting_sync("miniapp_btn_enabled", "1") != "0",
                                miniapp_btn_label=get_setting_sync("miniapp_btn_label", "") or "ورود به اپلیکیشن",
+                               card_auto_approve_minutes=get_setting_sync("card_auto_approve_minutes", "0") or "0",
+                               card_auto_approve_users=get_setting_sync("card_auto_approve_users", "") or "",
                                loyalty=get_loyalty_config(),
                                theme=get_miniapp_theme())
     finally:
@@ -1231,6 +1233,14 @@ def miniapp_settings_save():
     set_setting_sync("miniapp_btn_enabled", enabled)
     label = (request.form.get("miniapp_btn_label") or "").strip() or "ورود به اپلیکیشن"
     set_setting_sync("miniapp_btn_label", label)
+    # auto approve card payments
+    try:
+        mins = int(request.form.get("card_auto_approve_minutes") or 0)
+    except Exception:
+        mins = 0
+    set_setting_sync("card_auto_approve_minutes", str(max(0, mins)))
+    users = (request.form.get("card_auto_approve_users") or "").strip()
+    set_setting_sync("card_auto_approve_users", users)
     flash("تنظیمات مینی‌اپ ذخیره شد", "success")
     return redirect(url_for("miniapp_content"))
 

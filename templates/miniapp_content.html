@@ -21,6 +21,15 @@
       <input type="checkbox" name="miniapp_btn_enabled" value="1" {% if miniapp_btn_enabled %}checked{% endif %}>
       نمایش دکمه ورود به اپلیکیشن در منوی ربات
     </label>
+    <hr style="margin:16px 0;opacity:.2">
+    <div class="card-title" style="margin-bottom:8px">تایید خودکار کارت‌به‌کارت</div>
+    <p class="muted" style="font-size:.85rem;margin-bottom:10px">اگر ادمین تا X دقیقه تایید نکرد، خودکار تایید شود. همچنین می‌توانید شناسه عددی کاربرانی که همیشه خودکار تایید می‌شوند را وارد کنید (با کاما).</p>
+    <div class="form-group"><label>دقیقه تا تایید خودکار (0 = خاموش)</label>
+      <input name="card_auto_approve_minutes" type="number" value="{{ card_auto_approve_minutes }}" style="width:100%">
+    </div>
+    <div class="form-group"><label>کاربران تایید خودکار (telegram id با کاما)</label>
+      <input name="card_auto_approve_users" value="{{ card_auto_approve_users }}" placeholder="123456789,987654321" style="width:100%">
+    </div>
     <button class="btn-primary inline" type="submit">ذخیره تنظیمات</button>
   </form>
   {% if miniapp_url %}

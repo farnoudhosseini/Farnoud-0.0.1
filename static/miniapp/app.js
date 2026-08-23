@@ -200,7 +200,7 @@ function renderBuyStep(){
 <span class="chev"></span>
 </button>`).join('')}
         ${b.has_uncategorized?`<button class="menu-item" onclick="buySelectCat(0)"><span class="menu-ico"></span><span class="grow"><strong>همه محصولات</strong></span><span class="chev"></span></button>`:''}
-<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=1;renderBuyStep()">🔙 بازگشت</button>
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=1;renderBuyStep()"><span class="nav-ico" style="display:inline-flex;vertical-align:middle;margin-left:6px">${icon("back")}</span>بازگشت</button>
 </div>`);
   } else if(b.step===3){
     showSheet(`<h2>خرید سرویس جدید</h2>
@@ -210,14 +210,15 @@ function renderBuyStep(){
 <h3>${esc(p.name)}</h3>
 <p class="desc">${esc(p.description||'')}</p>
 <div class="specs">
-<span class="spec">${num(p.volume_gb)} GB</span>
-<span class="spec">${num(p.duration_days)} روز</span>
-            ${p.hourly_enabled?`<span class="spec">ساعتی: ${money(p.hourly_price)}</span>`:''}
+<span class="spec spec-ico">${icon("vpn")} ${num(p.volume_gb)} GB</span>
+<span class="spec spec-ico">${icon("clock")} ${num(p.duration_days)} روز</span>
+${p.hwid_limit?`<span class="spec spec-ico">${icon("profile")} ${num(p.hwid_limit)} کاربر</span>`:`<span class="spec spec-ico">${icon("profile")} نامحدود</span>`}
+${p.hourly_enabled?`<span class="spec spec-ico">${icon("card")} ساعتی ${money(p.hourly_price)}</span>`:''}
 </div>
 <div class="price"><strong>${money(p.price).replace(' تومان','')}</strong><span>تومان</span></div>
 <button class="btn primary" style="width:100%" onclick="buySelectProduct(${p.id})">انتخاب</button>
 </article>`).join('')||'<div class="empty">محصولی نیست</div>'}
-<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=2;renderBuyStep()">🔙 بازگشت</button>
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=2;renderBuyStep()"><span class="nav-ico" style="display:inline-flex;vertical-align:middle;margin-left:6px">${icon("back")}</span>بازگشت</button>
 </div>`);
   } else if(b.step===4){
     renderBuyPayment();
@@ -273,7 +274,7 @@ async function buySelectProduct(pid){
 <button class="btn" onclick="buyChooseMode('hourly')">خرید ساعتی</button>
 </div>
 <div class="form-row"><label>کد تخفیف (اختیاری)</label><input id="buyCoupon" placeholder="مثلاً OFF20"></div>
-<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=3;renderBuyStep()">🔙 بازگشت</button>`);
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=3;renderBuyStep()"><span class="nav-ico" style="display:inline-flex;vertical-align:middle;margin-left:6px">${icon("back")}</span>بازگشت</button>`);
   } else {
     state.buy.mode = 'full';
     state.buy.step = 4;
@@ -335,7 +336,8 @@ function renderBuyPayment(){
       : `<p class="page-subtitle" style="margin-top:10px">مبلغ ${money(o.wallet_used||0)} از کیف پول رزرو می‌شود و باقی‌مانده ${money(o.pay_amount)} را کارت‌به‌کارت پرداخت کنید.</p>
 <button class="btn primary" style="width:100%" onclick="startCardPay()">پرداخت باقی‌مانده با کارت و ارسال رسید</button>`
     }
-<button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet()">انصراف</button>`);
+<button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet()">انصراف</button>
+    ${o.hourly_available?`<button class="btn" style="width:100%;margin-top:8px" onclick="buyChooseMode('hourly')">خرید ساعتی (${money(o.hourly_price)} / ساعت)</button>`:''}`);
 }
 
 async function applyBuyDiscount(){
@@ -353,7 +355,10 @@ async function applyBuyDiscount(){
 async function confirmWalletBuy(){
   if(!state.buy?.order) return;
   try{
+    showProgress('در حال پرداخت و ساخت سرویس');
+    setProgress(30);
     const d = await api('/orders/'+state.buy.order.order_id+'/confirm-wallet',{method:'POST',body:'{}'});
+    setProgress(100);
     closeSheet(); haptic('medium'); toast(d.message||'خرید موفق');
     state.buy=null; await refresh();
   }catch(e){ toast(e.message); }
@@ -665,10 +670,10 @@ function newsList(list){
   if(!list?.length)return `<div class="empty"><span class="big">▣</span><strong>خبری نیست</strong></div>`;
   return `<div class="news-list">${list.map(n=>`<article class="news-card" onclick="openNews(${n.id})">${n.image_url?`<img src="${esc(n.image_url)}" onerror="this.style.display='none'">`:''}<div class="copy"><h3>${esc(n.title)}</h3><p>${esc(n.summary||'')}</p></div></article>`).join('')}</div>`;
 }
-function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'+icon('back')+'</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
+function renderNews(){app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'${icon("back")}+'</button><div><h1 class="page-title">اخبار</h1><p class="page-subtitle">آخرین خبرها</p></div></div>${newsList(state.data.news)}`}
 function renderNotifications(){
   const n=state.data.notifications;
-  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'+icon('back')+'</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
+  app.innerHTML=`<div class="detail-head"><button class="back" onclick="render()" aria-label="back">'${icon("back")}+'</button><div><h1 class="page-title">اعلان‌ها</h1><p class="page-subtitle">${num(n.unread)} خوانده‌نشده</p></div></div>
 <div class="service-list">${n.items.length?n.items.map(x=>`<button class="menu-item" onclick="readNotif(${x.id})"><span>${x.is_read?'○':'●'}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.body)}</small></span></button>`).join(''):`<div class="empty"><strong>اعلان جدیدی ندارید</strong></div>`}</div>`;
 }
 function openNews(id){const n=state.data.news.find(x=>x.id===id);if(!n)return;showSheet(`<h2>${esc(n.title)}</h2>${n.image_url?`<img src="${esc(n.image_url)}" style="width:100%;border-radius:16px;margin-bottom:12px">`:''}<p style="color:var(--muted);font-size:13px;line-height:2">${esc(n.content||n.summary||'')}</p>`)}

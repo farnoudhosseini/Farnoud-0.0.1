@@ -932,6 +932,50 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ سفارش #{oid} رد شد.")
         return ConversationHandler.END
 
+    if data.startswith("adm_ref_ok_"):
+        from db_products import get_order, update_order
+        from db_users import add_balance
+        from services.optimize import _delete_from_panel
+        oid = int(data.replace("adm_ref_ok_", ""))
+        order = get_order(oid)
+        if not order:
+            await query.answer("یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        amount = int(order.get("amount") or 0)
+        try:
+            _delete_from_panel(order)
+        except Exception as e:
+            print("ref delete panel", e)
+        update_order(oid, status="cancelled")
+        if amount > 0:
+            try:
+                add_balance(order["telegram_id"], amount, f"refund_order#{oid}")
+            except Exception as e:
+                print("refund balance", e)
+        try:
+            await context.bot.send_message(
+                order["telegram_id"],
+                f"درخواست حذف سرویس #{oid} تایید شد. مبلغ {amount:,} تومان به کیف پول بازگشت."
+            )
+        except Exception:
+            pass
+        await query.edit_message_text(f"حذف و بازگشت وجه سفارش #{oid} انجام شد ({amount:,} ت).")
+        return ConversationHandler.END
+
+    if data.startswith("adm_ref_no_"):
+        from db_products import get_order, update_order
+        oid = int(data.replace("adm_ref_no_", ""))
+        order = get_order(oid)
+        if order:
+            # re-enable? leave disabled, mark paid/provisioned again if was
+            update_order(oid, status="provisioned")
+            try:
+                await context.bot.send_message(order["telegram_id"], f"درخواست حذف سرویس #{oid} رد شد.")
+            except Exception:
+                pass
+            await query.edit_message_text(f"درخواست حذف #{oid} رد شد.")
+        return ConversationHandler.END
+
     # ---- سرویس‌های فروخته‌شده ----
     if data == "admin_orders":
         from db_products import list_all_orders

@@ -427,9 +427,23 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ریست مصرف در حالت‌های ریست حجم/هر دو
             if renew_mode in ("reset_both", "reset_volume"):
                 try:
-                    client._request("POST", f"/api/user/{uname}/reset")
-                except Exception:
-                    pass
+                    if hasattr(client, "reset_client_traffic"):
+                        # 3x-ui
+                        ib_id = o.get("inbound_id")
+                        if not ib_id:
+                            try:
+                                found = client.find_client_in_inbounds(uname) if hasattr(client, "find_client_in_inbounds") else None
+                                ib_id = (found or {}).get("inbound_id")
+                            except Exception:
+                                ib_id = None
+                        if ib_id:
+                            client.reset_client_traffic(int(ib_id), uname)
+                    else:
+                        # پاسارگارد
+                        client._request("POST", f"/api/user/{uname}/reset")
+                except Exception as e:
+                    print("renew reset traffic:", e)
+            # برای 3x-ui کلید حجم data_limit است؛ modify_user خودش تبدیل می‌کند
             client.modify_user(uname, payload)
             mode_labels = {
                 "reset_both": "ریست زمان و حجم",
