@@ -56,8 +56,14 @@ function applyTheme(theme){
     const strong = brand.querySelector('strong');
     const small = brand.querySelector('small');
     if(theme.logo_url){
-      if(mark) mark.innerHTML = '<img src="'+esc(theme.logo_url)+'" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">';
-    } else if(mark && theme.brand_mark){ mark.textContent = theme.brand_mark; }
+      if(mark){
+        mark.classList.add('has-logo');
+        mark.innerHTML = '<img src="'+esc(theme.logo_url)+'" alt="" loading="eager">';
+      }
+    } else if(mark && theme.brand_mark){
+      mark.classList.remove('has-logo');
+      mark.textContent = theme.brand_mark;
+    }
     if(strong && theme.brand_name) strong.textContent = theme.brand_name;
     if(small && theme.brand_sub) small.textContent = theme.brand_sub;
   }
@@ -104,6 +110,26 @@ function num(n){return new Intl.NumberFormat('fa-IR').format(Number(n||0))}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function toast(s){const e=document.getElementById('toast');e.textContent=s;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2800)}
 function haptic(type='light'){try{tg?.HapticFeedback?.impactOccurred(type)}catch(e){}}
+let _busyTimer=null;
+function showBusy(title, sub){
+  const ov=document.getElementById('busyOverlay');
+  if(!ov) return;
+  document.getElementById('busyTitle').textContent=title||'در حال انجام...';
+  document.getElementById('busySub').textContent=sub||'لطفاً صبر کنید';
+  ov.hidden=false; ov.setAttribute('aria-hidden','false');
+  try{tg?.MainButton?.showProgress()}catch(e){}
+}
+function hideBusy(){
+  const ov=document.getElementById('busyOverlay');
+  if(ov){ ov.hidden=true; ov.setAttribute('aria-hidden','true'); }
+  try{tg?.MainButton?.hideProgress()}catch(e){}
+  if(_busyTimer){ clearTimeout(_busyTimer); _busyTimer=null; }
+}
+async function withBusy(title, sub, fn){
+  showBusy(title, sub);
+  try{ return await fn(); }
+  finally{ hideBusy(); }
+}
 function showSheet(html){
   const el=document.getElementById('sheet');
   document.getElementById('sheetContent').innerHTML=html;
@@ -355,10 +381,8 @@ async function applyBuyDiscount(){
 async function confirmWalletBuy(){
   if(!state.buy?.order) return;
   try{
-    showProgress('در حال پرداخت و ساخت سرویس');
-    setProgress(30);
-    const d = await api('/orders/'+state.buy.order.order_id+'/confirm-wallet',{method:'POST',body:'{}'});
-    setProgress(100);
+    const d = await withBusy('در حال پرداخت و ساخت سرویس','ممکن است چند ثانیه طول بکشد',
+      ()=>api('/orders/'+state.buy.order.order_id+'/confirm-wallet',{method:'POST',body:'{}'}));
     closeSheet(); haptic('medium'); toast(d.message||'خرید موفق');
     state.buy=null; await refresh();
   }catch(e){ toast(e.message); }
@@ -566,7 +590,7 @@ ${pkg.min_level?`<span class="spec">از سطح ${esc(pkg.min_level)}</span>`:''
 }
 async function redeemPackage(id){
   try{
-    const d=await api('/loyalty/redeem',{method:'POST',body:JSON.stringify({package_id:id})});
+    const d=await withBusy('در حال فعال‌سازی بسته','ساخت سرویس ممکن است چند ثانیه طول بکشد',()=>api('/loyalty/redeem',{method:'POST',body:JSON.stringify({package_id:id})}));
     toast(d.message||'انجام شد'); await refresh(); setTab('rewards');
   }catch(e){toast(e.message)}
 }
@@ -705,7 +729,7 @@ async function loadTrialBox(){
 }
 async function claimTrial(){
   try{
-    const d=await api('/trial/claim',{method:'POST',body:'{}'});
+    const d=await withBusy('در حال ساخت تست رایگان','ممکن است چند ثانیه طول بکشد',()=>api('/trial/claim',{method:'POST',body:'{}'}));
     toast(d.message||'تست فعال شد'); await refresh(); setTab('services');
   }catch(e){toast(e.message)}
 }

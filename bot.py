@@ -60,6 +60,26 @@ async def post_init(application: Application):
             jq.run_repeating(hourly_job, interval=3600, first=120, name="hourly_charges")
             jq.run_repeating(auto_approve_job, interval=120, first=90, name="card_auto_approve")
             print(f"backup job every {bsecs/3600:.1f}h")
+            # بهینه‌سازی خودکار
+            try:
+                from database import get_setting_sync
+                opt_h = float(get_setting_sync("optimize_interval_hours", "0") or 0)
+                if opt_h > 0:
+                    opt_secs = max(3600, int(opt_h * 3600))
+                    async def _auto_optimize_job(context):
+                        try:
+                            from services.optimize import optimize_bot_data, format_optimize_report
+                            from config import ADMIN_ID
+                            stats = optimize_bot_data()
+                            msg = format_optimize_report(stats)
+                            if ADMIN_ID:
+                                await context.bot.send_message(ADMIN_ID, msg, parse_mode="HTML")
+                        except Exception as e:
+                            print("auto optimize:", e)
+                    jq.run_repeating(_auto_optimize_job, interval=opt_secs, first=min(300, opt_secs), name="auto_optimize")
+                    print(f"auto optimize every {opt_h}h")
+            except Exception as e:
+                print("auto optimize setup:", e)
     except Exception as e:
         print(f"jobs: {e}")
 

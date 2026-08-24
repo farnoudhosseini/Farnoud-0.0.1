@@ -5,18 +5,21 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#0b0b12">
   <title>مینی‌اپ فرنود</title>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css">
-  <link rel="stylesheet" href="/miniapp/assets/app.css?v=9">
+  <style>
+    @font-face{font-family:Vazirmatn;src:url(/miniapp/assets/fonts/Vazirmatn-Regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+    @font-face{font-family:Vazirmatn;src:url(/miniapp/assets/fonts/Vazirmatn-Medium.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+    @font-face{font-family:Vazirmatn;src:url(/miniapp/assets/fonts/Vazirmatn-Bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
+  </style>
+  <link rel="stylesheet" href="/miniapp/assets/app.css?v=10">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">F</div>
+        <div class="brand-mark" id="brandMark">F</div>
         <div>
-          <strong>فرنود</strong>
-          <small>مدیریت سرویس VPN</small>
+          <strong id="brandName">فرنود</strong>
+          <small id="brandSub">مدیریت سرویس VPN</small>
         </div>
       </div>
       <button class="icon-btn" id="notifyBtn" type="button" aria-label="اعلان‌ها"><b id="notifyBadge" hidden>0</b></button>
@@ -48,7 +51,16 @@
     </div>
   </div>
 
+  <div id="busyOverlay" class="busy-overlay" hidden aria-hidden="true">
+    <div class="busy-card">
+      <div class="busy-spinner"></div>
+      <div class="busy-title" id="busyTitle">در حال انجام...</div>
+      <div class="busy-bar"><i id="busyBar"></i></div>
+      <div class="busy-sub" id="busySub">لطفاً صبر کنید</div>
+    </div>
+  </div>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/miniapp/assets/app.js?v=9"></script>
+  <script src="/miniapp/assets/app.js?v=10"></script>
 </body>
 </html>

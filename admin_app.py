@@ -1318,6 +1318,49 @@ def miniapp_theme_save():
         flash("شخصی‌سازی مینی‌اپ ذخیره شد", "success")
     return redirect(url_for("miniapp_content"))
 
+
+@app.route("/miniapp-content/logo", methods=["POST"])
+@login_required
+def miniapp_logo_upload():
+    """آپلود مستقیم لوگوی مینی‌اپ — ذخیره در static/miniapp/logo.* و ست کردن theme.logo_url"""
+    import os
+    from werkzeug.utils import secure_filename
+    from miniapp import get_miniapp_theme, save_miniapp_theme
+    f = request.files.get("logo")
+    if not f or not f.filename:
+        flash("فایلی انتخاب نشده", "error")
+        return redirect(url_for("miniapp_content"))
+    ext = (secure_filename(f.filename).rsplit(".", 1)[-1] or "").lower()
+    if ext not in ("png", "jpg", "jpeg", "webp", "gif"):
+        flash("فرمت مجاز: png / jpg / webp / gif", "error")
+        return redirect(url_for("miniapp_content"))
+    # محدودیت حجم ۲ مگ
+    f.seek(0, os.SEEK_END)
+    size = f.tell()
+    f.seek(0)
+    if size > 2 * 1024 * 1024:
+        flash("حجم فایل حداکثر ۲ مگابایت باشد", "error")
+        return redirect(url_for("miniapp_content"))
+    dest_dir = os.path.join(os.path.dirname(__file__), "static", "miniapp")
+    os.makedirs(dest_dir, exist_ok=True)
+    # حذف لوگوهای قبلی
+    for old in ("logo.png", "logo.jpg", "logo.jpeg", "logo.webp", "logo.gif"):
+        try:
+            os.remove(os.path.join(dest_dir, old))
+        except OSError:
+            pass
+    fname = "logo." + ("jpg" if ext == "jpeg" else ext)
+    path = os.path.join(dest_dir, fname)
+    f.save(path)
+    # مسیر سرویس‌شده توسط مینی‌اپ
+    public = "/miniapp/assets/" + fname
+    theme = get_miniapp_theme()
+    theme["logo_url"] = public
+    save_miniapp_theme(theme)
+    flash("لوگو با موفقیت آپلود شد", "success")
+    return redirect(url_for("miniapp_content"))
+
+
 @app.route("/miniapp-content/settings", methods=["POST"])
 @login_required
 def miniapp_settings_save():

@@ -780,8 +780,16 @@ def miniapp_index():
 @miniapp_bp.get("/assets/<path:filename>")
 def miniapp_asset(filename):
     """سرویس CSS/JS/فونت مینی‌اپ از مسیر ثابت /miniapp/assets/..."""
+    from flask import make_response
     root = os.path.join(os.path.dirname(__file__), "static", "miniapp")
-    return send_from_directory(root, filename)
+    resp = make_response(send_from_directory(root, filename))
+    # کش بلندمدت برای فونت/تصویر؛ CSS/JS با ?v= در کلاینت باطل می‌شود
+    lower = (filename or "").lower()
+    if lower.endswith((".woff2", ".woff", ".ttf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @miniapp_bp.get("/api/theme")
