@@ -52,6 +52,9 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    if data == "buy_go":
+        return await start_buy(update, context)
+
     if data.startswith("buy_panel_"):
         panel_id = int(data.replace("buy_panel_", ""))
         context.user_data["buy_panel_id"] = panel_id

@@ -100,6 +100,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
+    # اگر در حال ورود کد/ایموجی پریمیوم بود و دکمه دیگری زده شد، عملیات لغو شود
+    if context.user_data.get("premiji_step") and not (data or "").startswith("admin_premiji"):
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+
     if data == "admin_panel":
         await admin_panel(update, context)
         return ConversationHandler.END
