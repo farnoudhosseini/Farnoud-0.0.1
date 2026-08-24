@@ -288,10 +288,12 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card = cards[0]
         update_order(order_id, method_key="card", card_id=card["id"], status="waiting_receipt")
         card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
+        owner = (card.get("owner_name") or "").strip()
+        # استفاده از HTML به‌جای Markdown تا نام صاحب کارت یا اعداد باعث خطای parse نشود
         msg = (
-            f"💳 مبلغ {int(order['pay_amount']):,} تومان را واریز کنید:\n\n"
-            f"شماره کارت: `{card_num}`\n"
-            f"به نام: {card['owner_name']}\n\n"
+            f"💳 مبلغ <b>{int(order['pay_amount']):,}</b> تومان را واریز کنید:\n\n"
+            f"شماره کارت: <code>{card_num}</code>\n"
+            f"به نام: {owner}\n\n"
             f"سپس تصویر رسید را ارسال کنید."
         )
         try:
@@ -301,8 +303,23 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
             [copy_btn],
             [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ])
-        await q.edit_message_text(msg, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await q.edit_message_text(msg, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            # اگر ادیت پیام قبلی شکست خورد، پیام جدید بفرست
+            await context.bot.send_message(user.id, msg, parse_mode="HTML", reply_markup=kb)
+        # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
+        try:
+            await context.bot.send_message(
+                user.id,
+                f"<code>{card_num}</code>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[copy_btn]]),
+            )
+        except Exception:
+            pass
         context.user_data["waiting_buy_receipt"] = order_id
         return WAITING_BUY_RECEIPT
 

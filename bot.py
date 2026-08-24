@@ -244,17 +244,17 @@ def create_bot() -> Application:
         per_message=False,
     )
     buy_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(buy_callback, pattern="^(buy_)")],
+        entry_points=[CallbackQueryHandler(buy_callback, pattern="^buy_")],
         states={
             WAITING_BUY_RECEIPT: [
                 MessageHandler(filters.PHOTO | filters.Document.ALL, receive_buy_receipt),
                 # اجازه کلیک دکمه‌های buy_ در حین انتظار رسید (مثلاً انصراف)
-                CallbackQueryHandler(buy_callback, pattern="^(buy_)"),
+                CallbackQueryHandler(buy_callback, pattern="^buy_"),
             ],
         },
         fallbacks=[
             CommandHandler("start", start_command),
-            CallbackQueryHandler(buy_callback, pattern="^(buy_)"),
+            CallbackQueryHandler(buy_callback, pattern="^buy_"),
         ],
         allow_reentry=True,
         per_message=False,
@@ -262,6 +262,16 @@ def create_bot() -> Application:
     application.add_handler(buy_conv)
     # هندلر پشتیبان برای buy_ وقتی مکالمه فعال نیست (entry_points پوشش می‌دهد)
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy_"))
+
+    # ایمنی: اگر استیت Conversation ست نشد ولی user_data منتظر رسید خرید است، عکس را بگیر
+    async def _buy_receipt_fallback(update, context):
+        if context.user_data.get("waiting_buy_receipt"):
+            return await receive_buy_receipt(update, context)
+        return None
+    application.add_handler(
+        MessageHandler(filters.PHOTO | filters.Document.ALL, _buy_receipt_fallback),
+        group=1,
+    )
     
     support_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(support_callback, pattern="^sup_")],
