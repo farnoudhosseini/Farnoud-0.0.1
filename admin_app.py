@@ -956,23 +956,15 @@ def growth_settings():
                 elif val is None:
                     continue
                 set_setting_sync(key, val)
-            # چند پنل تست
+            # چند پنل تست + پروتکل‌ها (تیک‌باکس مثل محصولات)
+            import json
             ids = request.form.getlist("trial_panel_ids") or []
             ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
             set_setting_sync("trial_panel_ids", ",".join(ids))
-            # سازگاری با نسخه قبل
             set_setting_sync("trial_panel_id", ids[0] if ids else "")
-            # JSON پروتکل‌ها
-            raw_json = (request.form.get("trial_protocols_json") or "").strip()
-            if raw_json:
-                try:
-                    import json
-                    json.loads(raw_json)  # validate
-                    set_setting_sync("trial_protocols_json", raw_json)
-                except Exception:
-                    flash("JSON پروتکل تست نامعتبر است — بقیه تنظیمات ذخیره شد", "error")
-            else:
-                set_setting_sync("trial_protocols_json", "{}")
+            # همان منطق محصولات: panel_inbounds_{id} / panel_groups_{id}
+            pcfg = _parse_panel_config_from_form(ids)
+            set_setting_sync("trial_protocols_json", json.dumps(pcfg or {}, ensure_ascii=False))
             flash("تنظیمات ذخیره شد", "success")
         elif action == "discount":
             ok = create_discount(
@@ -990,6 +982,13 @@ def growth_settings():
             ok = delete_discount(did) if did else False
             flash("کد تخفیف حذف شد" if ok else "کد یافت نشد یا حذف نشد", "success" if ok else "error")
         return redirect(url_for("growth_settings"))
+    import json as _json
+    try:
+        _trial_protocols = _json.loads(get_setting_sync("trial_protocols_json", "{}") or "{}")
+        if not isinstance(_trial_protocols, dict):
+            _trial_protocols = {}
+    except Exception:
+        _trial_protocols = {}
     return render_template(
         "growth.html",
         username=session.get("admin_username"), active="growth",
@@ -1003,6 +1002,7 @@ def growth_settings():
             "trial_panel_id": get_setting_sync("trial_panel_id", ""),
             "trial_panel_ids": get_setting_sync("trial_panel_ids", "") or get_setting_sync("trial_panel_id", ""),
             "trial_protocols_json": get_setting_sync("trial_protocols_json", "") or "",
+            "trial_protocols": _trial_protocols,
             "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
             "trial_days": get_setting_sync("trial_days", "1"),
             "location_change_enabled": get_setting_sync("location_change_enabled", "1"),

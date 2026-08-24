@@ -16,24 +16,86 @@
 
 <div class="card-title" style="margin-top:16px">تست رایگان</div>
 <label class="check-item"><input type="checkbox" name="trial_enabled" value="1" {% if s.trial_enabled=='1' %}checked{% endif %}> فعال</label>
-<div class="form-group"><label>پنل‌های مجاز تست (چندتایی با Ctrl/Cmd)</label>
-<select name="trial_panel_ids" class="form-select" multiple size="{{ panels|length if panels|length < 8 else 8 }}">
-{% set selected = (s.trial_panel_ids or s.trial_panel_id or '')|string %}
-{% for p in panels %}
-<option value="{{ p.id }}" {% if p.id|string in selected.split(',') %}selected{% endif %}>{{ p.name }}</option>
-{% endfor %}
-</select>
-<div class="muted" style="font-size:.8rem;margin-top:.3rem">اگر خالی باشد همه پنل‌های فعال مجازند.</div>
-</div>
 <div class="form-group"><label>حجم (GB)</label><input name="trial_volume_gb" value="{{ s.trial_volume_gb }}"></div>
 <div class="form-group"><label>روز</label><input name="trial_days" value="{{ s.trial_days }}"></div>
-<div class="form-group"><label>پروتکل‌ها / اینباند یا گروه (پیشرفته)</label>
-<textarea name="trial_protocols_json" rows="4" class="form-control" placeholder='{"12":{"inbound_ids":[1,2]},"15":{"group_ids":[3]}}'>{{ s.trial_protocols_json or '' }}</textarea>
-<div class="muted" style="font-size:.8rem;margin-top:.3rem">
-برای هر پنل: در <b>3x-ui</b> کلید <code>inbound_ids</code> و در <b>پاسارگارد</b> کلید <code>group_ids</code>.
-مثال: <code>{"1":{"inbound_ids":[3,5]},"2":{"group_ids":[1]}}</code>
+
+<div class="form-group"><label>پنل‌ها و پروتکل‌های تست</label>
+<div class="muted" style="font-size:.85rem;margin-bottom:8px">پنل را تیک بزنید؛ سپس اینباند (۳x-ui) یا گروه (پاسارگارد) را انتخاب کنید. اگر هیچ پنلی انتخاب نشود، همه پنل‌های فعال مجازند.</div>
+<div class="checkbox-list" id="trialPanelList">
+{% set selected_ids = (s.trial_panel_ids or s.trial_panel_id or '')|string %}
+{% set trial_cfg = s.trial_protocols or {} %}
+{% for pan in panels %}
+  {% set ptype = (pan.panel_type or 'pasarguard')|lower %}
+  <div class="panel-block" style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+    <label class="check-item" style="font-weight:600">
+      <input type="checkbox" class="trial-panel-check" name="trial_panel_ids" value="{{ pan.id }}"
+             data-type="{{ ptype }}" data-id="{{ pan.id }}"
+             {% if pan.id|string in selected_ids.split(',') %}checked{% endif %}>
+      {{ pan.name }}
+      <span class="muted" style="font-weight:400;font-size:.8rem">({{ pan.panel_type or 'pasarguard' }})</span>
+    </label>
+    <div class="panel-sub" id="trial-sub-{{ pan.id }}" style="margin-top:8px;padding-right:8px;{% if pan.id|string not in selected_ids.split(',') %}display:none{% endif %}">
+      <div class="muted" style="font-size:.8rem;margin-bottom:4px">
+        {% if ptype in ['3x-ui','3xui','xui','sanaei'] %}اینباندهای مجاز برای تست:{% else %}گروه‌های مجاز برای تست:{% endif %}
+      </div>
+      <div class="trial-sub-options" data-panel="{{ pan.id }}" data-type="{{ ptype }}">
+        <span class="muted">در حال بارگذاری…</span>
+      </div>
+    </div>
+  </div>
+{% else %}<span class="muted">ابتدا پنل اضافه کنید</span>{% endfor %}
 </div>
 </div>
+
+<script>
+(function(){
+  const preselect = {{ (s.trial_protocols or {}) | tojson }};
+  async function loadSub(panelId, ptype, box){
+    box.innerHTML = '<span class="muted">بارگذاری…</span>';
+    try{
+      const url = (ptype === '3x-ui' || ptype === '3xui' || ptype === 'xui' || ptype === 'sanaei')
+        ? '/api/panels/' + panelId + '/inbounds'
+        : '/api/panels/' + panelId + '/groups';
+      const res = await fetch(url, {credentials:'same-origin'});
+      const data = await res.json();
+      if(!data.ok){ box.innerHTML = '<span style="color:var(--error)">'+(data.error||'خطا')+'</span>'; return; }
+      const items = data.items || [];
+      if(!items.length){ box.innerHTML = '<span class="muted">موردی یافت نشد</span>'; return; }
+      const cfg = preselect[panelId] || preselect[String(panelId)] || {};
+      const isXui = (ptype.indexOf('3x')>=0 || ptype==='xui' || ptype==='sanaei');
+      const selected = new Set(
+        isXui ? (cfg.inbound_ids||[]).map(String) : (cfg.group_ids||[]).map(String)
+      );
+      const name = isXui ? 'panel_inbounds_'+panelId : 'panel_groups_'+panelId;
+      box.innerHTML = items.map(it=>{
+        const id = String(it.id);
+        const label = it.label || it.name || it.remark || id;
+        const chk = selected.has(id) ? 'checked' : '';
+        return '<label class="check-item" style="display:block;margin:4px 0"><input type="checkbox" name="'+name+'" value="'+id+'" '+chk+'> '+label+'</label>';
+      }).join('');
+    }catch(e){
+      box.innerHTML = '<span style="color:var(--error)">خطا در دریافت</span>';
+    }
+  }
+  function onToggle(cb){
+    const id = cb.dataset.id;
+    const type = (cb.dataset.type||'').toLowerCase();
+    const sub = document.getElementById('trial-sub-'+id);
+    const box = sub.querySelector('.trial-sub-options');
+    if(cb.checked){
+      sub.style.display='block';
+      loadSub(id, type, box);
+    } else {
+      sub.style.display='none';
+      box.innerHTML='';
+    }
+  }
+  document.querySelectorAll('.trial-panel-check').forEach(cb=>{
+    cb.addEventListener('change', ()=>onToggle(cb));
+    if(cb.checked) onToggle(cb);
+  });
+})();
+</script>
 
 <div class="card-title" style="margin-top:16px">تغییر لوکیشن</div>
 <label class="check-item"><input type="checkbox" name="location_change_enabled" value="1" {% if s.location_change_enabled=='1' %}checked{% endif %}> فعال</label>
