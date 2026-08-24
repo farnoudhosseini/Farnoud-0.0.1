@@ -40,11 +40,35 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    data = q.data
+    try:
+        await q.answer()
+    except Exception:
+        pass
+    data = q.data or ""
     user = update.effective_user
-    bu = get_bot_user(user.id) or upsert_bot_user(user)
+    try:
+        bu = get_bot_user(user.id) or upsert_bot_user(user)
+    except Exception as e:
+        print("buy_callback get_bot_user:", e)
+        bu = {}
 
+    try:
+        return await _buy_callback_inner(update, context, q, data, user, bu)
+    except Exception as e:
+        print(f"buy_callback error [{data}]: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await q.edit_message_text(f"❌ خطا در پردازش خرید.\n{type(e).__name__}: {e}")
+        except Exception:
+            try:
+                await context.bot.send_message(user.id, f"❌ خطا در پردازش خرید.\n{e}")
+            except Exception:
+                pass
+        return ConversationHandler.END
+
+
+async def _buy_callback_inner(update, context, q, data, user, bu):
     if data == "buy_cancel":
         await q.edit_message_text(
             "❌ خرید لغو شد.",

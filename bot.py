@@ -18,7 +18,7 @@ from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message, receive_admin_text,
     receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
 )
-from handlers.buy import start_buy, buy_callback, receive_buy_receipt, WAITING_BUY_RECEIPT
+from handlers.buy import start_buy, buy_callback, receive_buy_receipt
 from handlers.services_user import (
     show_my_services, services_callback, show_support, support_callback,
     receive_ticket_subject, receive_ticket_msg, receive_ticket_reply, show_education,
@@ -243,33 +243,17 @@ def create_bot() -> Application:
         allow_reentry=True,
         per_message=False,
     )
-    buy_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(buy_callback, pattern="^buy_")],
-        states={
-            WAITING_BUY_RECEIPT: [
-                MessageHandler(filters.PHOTO | filters.Document.ALL, receive_buy_receipt),
-                # اجازه کلیک دکمه‌های buy_ در حین انتظار رسید (مثلاً انصراف)
-                CallbackQueryHandler(buy_callback, pattern="^buy_"),
-            ],
-        },
-        fallbacks=[
-            CommandHandler("start", start_command),
-            CallbackQueryHandler(buy_callback, pattern="^buy_"),
-        ],
-        allow_reentry=True,
-        per_message=False,
-    )
-    application.add_handler(buy_conv)
-    # هندلر پشتیبان برای buy_ وقتی مکالمه فعال نیست (entry_points پوشش می‌دهد)
+    # خرید سرویس — بدون ConversationHandler برای جلوگیری از گیر کردن دکمه‌ها
+    # همه callbackهای buy_ با هندلر ساده پردازش می‌شوند
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy_"))
 
-    # ایمنی: اگر استیت Conversation ست نشد ولی user_data منتظر رسید خرید است، عکس را بگیر
-    async def _buy_receipt_fallback(update, context):
+    # دریافت رسید خرید (بر اساس user_data، نه state مکالمه)
+    async def _buy_receipt_handler(update, context):
         if context.user_data.get("waiting_buy_receipt"):
             return await receive_buy_receipt(update, context)
         return None
     application.add_handler(
-        MessageHandler(filters.PHOTO | filters.Document.ALL, _buy_receipt_fallback),
+        MessageHandler(filters.PHOTO | filters.Document.ALL, _buy_receipt_handler),
         group=1,
     )
     
