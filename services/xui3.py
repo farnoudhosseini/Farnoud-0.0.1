@@ -283,6 +283,12 @@ class XUI3Client:
         client_uuid: str = None,
         sub_id: str = None,
         flow: str = "",
+        # 3x-ui 3.7.0+ client lifecycle / HWID (optional — older panels ignore unknown keys)
+        limit_hwid: int = 0,
+        reset_day: int = 0,
+        reset_max: int = 0,
+        traffic_reset: str = "never",
+        traffic_reset_day: int = 1,
     ) -> dict:
         email = email or _rand_email()
         sub_id = sub_id or _rand_sub_id()
@@ -305,6 +311,33 @@ class XUI3Client:
             "subId": sub_id,
             "reset": 0,
         }
+        # 3.7.0 fields — safe defaults match previous behaviour
+        try:
+            lh = int(limit_hwid or 0)
+            if lh > 0:
+                client_obj["limitHwid"] = lh
+        except (TypeError, ValueError):
+            pass
+        try:
+            rd = int(reset_day or 0)
+            if 1 <= rd <= 31:
+                client_obj["resetDay"] = rd
+        except (TypeError, ValueError):
+            pass
+        try:
+            rm = int(reset_max or 0)
+            if rm > 0:
+                client_obj["resetMax"] = rm
+        except (TypeError, ValueError):
+            pass
+        tr = (traffic_reset or "never").strip().lower()
+        if tr in ("hourly", "daily", "weekly", "monthly"):
+            client_obj["trafficReset"] = tr
+            try:
+                client_obj["trafficResetDay"] = max(1, min(31, int(traffic_reset_day or 1)))
+            except (TypeError, ValueError):
+                client_obj["trafficResetDay"] = 1
+
         settings = json.dumps({"clients": [client_obj]}, ensure_ascii=False)
         payload = {"id": int(inbound_id), "settings": settings}
         try:
@@ -319,6 +352,7 @@ class XUI3Client:
             "id": client_uuid,
             "uuid": client_uuid,
             "limitIp": limit_ip,
+            "limitHwid": client_obj.get("limitHwid", 0),
             "totalGB": total_bytes,
             "expiryTime": exp_ms,
             "inbound_id": inbound_id,
@@ -674,10 +708,39 @@ class XUI3Client:
             st = str(payload["status"]).lower()
             c["enable"] = st in ("active", "enabled", "on", "1", "true")
 
-        # IP / HWID limit
+        # IP limit (limitIp) — legacy hwid_limit maps here
         if "hwid_limit" in payload or "limitIp" in payload:
             lim = payload.get("limitIp", payload.get("hwid_limit"))
             c["limitIp"] = int(lim or 0)
+
+        # 3.7.0 subscription HWID limit (limitHwid) — independent of IP limit
+        if "limit_hwid" in payload or "limitHwid" in payload:
+            try:
+                c["limitHwid"] = int(payload.get("limitHwid", payload.get("limit_hwid")) or 0)
+            except (TypeError, ValueError):
+                pass
+
+        # Calendar renew / auto-renew cap / traffic reset (3.7.0)
+        if "reset_day" in payload or "resetDay" in payload:
+            try:
+                rd = int(payload.get("resetDay", payload.get("reset_day")) or 0)
+                c["resetDay"] = rd if 0 <= rd <= 31 else 0
+            except (TypeError, ValueError):
+                pass
+        if "reset_max" in payload or "resetMax" in payload:
+            try:
+                c["resetMax"] = max(0, int(payload.get("resetMax", payload.get("reset_max")) or 0))
+            except (TypeError, ValueError):
+                pass
+        if "traffic_reset" in payload or "trafficReset" in payload:
+            tr = str(payload.get("trafficReset", payload.get("traffic_reset")) or "never").strip().lower()
+            if tr in ("never", "hourly", "daily", "weekly", "monthly"):
+                c["trafficReset"] = tr
+        if "traffic_reset_day" in payload or "trafficResetDay" in payload:
+            try:
+                c["trafficResetDay"] = max(1, min(31, int(payload.get("trafficResetDay", payload.get("traffic_reset_day")) or 1)))
+            except (TypeError, ValueError):
+                pass
 
         # volume — 3x-ui totalGB is in bytes on most builds
         if payload.get("data_limit") is not None:

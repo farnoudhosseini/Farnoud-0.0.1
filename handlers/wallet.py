@@ -9,7 +9,7 @@ from db_users import (
     create_charge, get_charge, set_charge_receipt, list_cards, list_payment_methods,
     redeem_gift, count_referrals,
 )
-from database import get_setting_sync
+from database import get_setting_sync, payment_method_button
 
 WAITING_CHARGE_AMOUNT = 10
 WAITING_GIFT_CODE = 11
@@ -131,7 +131,7 @@ def payment_methods_keyboard(charge_id: int):
                     continue
             except Exception:
                 continue
-        rows.append([InlineKeyboardButton((m.get("title") or "روش پرداخت")[:64], callback_data=f"pay_{m['method_key']}_{charge_id}")])
+        rows.append([payment_method_button(m, f"pay_{m['method_key']}_{charge_id}")])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     return InlineKeyboardMarkup(rows)

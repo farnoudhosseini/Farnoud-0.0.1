@@ -867,6 +867,37 @@ def _parse_hwid_limit(raw):
         return None
 
 
+def _parse_optional_int(raw, min_v=None, max_v=None):
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s == "":
+        return None
+    try:
+        v = int(s)
+        if min_v is not None and v < min_v:
+            return None
+        if max_v is not None and v > max_v:
+            return None
+        return v
+    except (TypeError, ValueError):
+        return None
+
+
+def _product_lifecycle_from_form():
+    """Fields for 3x-ui 3.7.0 — all optional."""
+    tr = (request.form.get("traffic_reset") or "never").strip().lower()
+    if tr not in ("never", "hourly", "daily", "weekly", "monthly"):
+        tr = "never"
+    return {
+        "limit_hwid": _parse_hwid_limit(request.form.get("limit_hwid")),
+        "reset_day": _parse_optional_int(request.form.get("reset_day"), 0, 31),
+        "reset_max": _parse_optional_int(request.form.get("reset_max"), 0, None),
+        "traffic_reset": tr if tr != "never" else None,
+        "traffic_reset_day": _parse_optional_int(request.form.get("traffic_reset_day"), 1, 31),
+    }
+
+
 @app.route("/products/add", methods=["GET", "POST"])
 @login_required
 def products_add():
@@ -877,6 +908,7 @@ def products_add():
         panel_ids = request.form.getlist("panel_ids")
         pcfg = _parse_panel_config_from_form(panel_ids)
         cat = request.form.get("category_id") or None
+        life = _product_lifecycle_from_form()
         pid = create_product(
             name=request.form.get("name", "").strip(),
             price=int(request.form.get("price") or 0),
@@ -888,6 +920,11 @@ def products_add():
             description=request.form.get("description") or None,
             panel_ids=panel_ids,
             panel_config=pcfg,
+            limit_hwid=life["limit_hwid"],
+            reset_day=life["reset_day"],
+            reset_max=life["reset_max"],
+            traffic_reset=life["traffic_reset"],
+            traffic_reset_day=life["traffic_reset_day"],
         )
         update_product(
             pid,
@@ -916,6 +953,7 @@ def products_edit(pid):
         cat = request.form.get("category_id") or None
         pids = request.form.getlist("panel_ids")
         pcfg = _parse_panel_config_from_form(pids)
+        life = _product_lifecycle_from_form()
         update_product(
             pid,
             panel_ids=pids,
@@ -931,6 +969,11 @@ def products_edit(pid):
             is_active=1 if request.form.get("is_active") == "1" else 0,
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
+            limit_hwid=life["limit_hwid"],
+            reset_day=life["reset_day"],
+            reset_max=life["reset_max"],
+            traffic_reset=life["traffic_reset"],
+            traffic_reset_day=life["traffic_reset_day"],
         )
         flash("ذخیره شد", "success")
         return redirect(url_for("products_list"))

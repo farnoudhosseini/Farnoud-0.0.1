@@ -153,6 +153,20 @@ def provision_order(order_id: int) -> dict:
         if not inbound_ids:
             return {"ok": False, "error": "برای این محصول اینباندی در پنل تنظیم نشده"}
         limit_ip = int(hwid) if hwid else 0
+        # 3x-ui 3.7.0 optional lifecycle fields from product (safe defaults = previous behaviour)
+        def _pint(key, default=0):
+            try:
+                v = product.get(key)
+                if v is None or str(v).strip() == "":
+                    return default
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+        limit_hwid = _pint("limit_hwid", 0)
+        reset_day = _pint("reset_day", 0)
+        reset_max = _pint("reset_max", 0)
+        traffic_reset = (product.get("traffic_reset") or "never") or "never"
+        traffic_reset_day = _pint("traffic_reset_day", 1)
         created = None
         last_err = None
         # روی همه اینباندهای انتخاب‌شده کلاینت بساز (همان email/subId)
@@ -170,6 +184,11 @@ def provision_order(order_id: int) -> dict:
                     tg_id=int(order.get("telegram_id") or 0),
                     client_uuid=shared_uuid,
                     sub_id=shared_sub,
+                    limit_hwid=limit_hwid,
+                    reset_day=reset_day,
+                    reset_max=reset_max,
+                    traffic_reset=str(traffic_reset).strip().lower() if traffic_reset else "never",
+                    traffic_reset_day=traffic_reset_day,
                 )
                 shared_sub = created.get("subId") or shared_sub
                 shared_uuid = created.get("uuid") or created.get("id") or shared_uuid

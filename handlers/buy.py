@@ -2,7 +2,7 @@
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from database import list_panels, get_panel_by_id
+from database import list_panels, get_panel_by_id, payment_method_button
 from db_users import (
     get_bot_user, upsert_bot_user, render_template, log_activity,
     add_balance, list_cards, list_payment_methods,
@@ -243,7 +243,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             )
             return ConversationHandler.END
 
-        # کمبود موجودی → روش‌های پرداخت فعال
+        # کمبود موجودی → روش‌های پرداخت فعال (با پشتیبانی ایموجی پریمیوم در عنوان)
         rows = []
         for pm in list_payment_methods(active_only=True):
             key = pm.get("method_key")
@@ -256,7 +256,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
                     continue
             if key == "card" and not list_cards(active_only=True):
                 continue
-            rows.append([InlineKeyboardButton((pm.get("title") or "پرداخت")[:64], callback_data=f"buy_pay_{key}_{order_id}")])
+            rows.append([payment_method_button(pm, f"buy_pay_{key}_{order_id}")])
         rows.extend([
             [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
             [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],

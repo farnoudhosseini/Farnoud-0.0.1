@@ -19,9 +19,11 @@
 <input type="hidden" name="action" value="payment_settings">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
 <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="card_enabled" value="1" {% if card_enabled %}checked{% endif %}> فعال بودن کارت‌به‌کارت</label>
-<div class="form-group"><label>نام دکمه کارت‌به‌کارت</label><input name="card_title" value="{{ card_title }}"></div>
+<div class="form-group"><label>نام دکمه کارت‌به‌کارت</label><input name="card_title" value="{{ card_title }}" placeholder="مثلاً p_xxxxxxxx کارت به کارت">
+<p class="muted" style="font-size:.78rem;margin-top:4px">می‌توانید کد ایموجی پریمیوم (مثل <code>p_xxxxxxxx</code>) داخل نام بگذارید؛ در ربات به‌صورت آیکون دکمه نمایش داده می‌شود.</p></div>
 <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="variza_enabled" value="1" {% if variza_enabled %}checked{% endif %}> فعال بودن واریزا</label>
-<div class="form-group"><label>نام دکمه واریزا</label><input name="variza_title" value="{{ variza_title }}"></div>
+<div class="form-group"><label>نام دکمه واریزا</label><input name="variza_title" value="{{ variza_title }}" placeholder="مثلاً p_xxxxxxxx پرداخت واریزا">
+<p class="muted" style="font-size:.78rem;margin-top:4px">کد ایموجی پریمیوم در نام دکمه پشتیبانی می‌شود.</p></div>
 <div class="form-group"><label>API Key واریزا {% if variza_api_configured %}<span class="badge">تنظیم شده</span>{% endif %}</label><input type="password" name="variza_api_key" autocomplete="new-password" placeholder="فقط برای تغییر وارد کنید"></div>
 <div class="form-group"><label>Webhook Secret {% if variza_api_configured %}<span class="badge">تنظیم شده</span>{% endif %}</label><input type="password" name="variza_webhook_secret" autocomplete="new-password" placeholder="فقط برای تغییر وارد کنید"></div>
 <div class="form-group"><label>آدرس عمومی HTTPS سرور</label><input name="public_base_url" value="{{ public_base_url }}" placeholder="https://example.com"></div>

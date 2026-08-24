@@ -24,7 +24,29 @@
 <input type="number" name="duration_days" value="{{ product.duration_days if product else 30 }}"></div>
 <div class="form-group"><label>محدودیت دستگاه / IP Limit (خالی = نامحدود)</label>
 <input type="number" name="hwid_limit" min="0" placeholder="نامحدود" value="{{ product.hwid_limit if product and product.hwid_limit is not none else '' }}">
-<p class="muted" style="font-size:.8rem">پاسارگارد: HWID · ثنایی: limitIp</p></div>
+<p class="muted" style="font-size:.8rem">پاسارگارد: HWID · ثنایی ۳.x: limitIp (محدودیت IP)</p></div>
+<div class="form-group"><label>محدودیت HWID سابسکریپشن (۳.۷.۰+ ثنایی — خالی = نامحدود)</label>
+<input type="number" name="limit_hwid" min="0" placeholder="نامحدود" value="{{ product.limit_hwid if product and product.limit_hwid is not none else '' }}">
+<p class="muted" style="font-size:.8rem">تعداد دستگاه‌هایی که می‌توانند لینک ساب را بگیرند (limitHwid)</p></div>
+<details class="form-group" style="border:1px solid var(--border);border-radius:10px;padding:10px">
+<summary style="cursor:pointer;font-weight:600">چرخه عمر کلاینت (۳x-ui ۳.۷.۰ — اختیاری)</summary>
+<p class="muted" style="font-size:.8rem;margin-top:6px">فقط روی پنل‌های ثنایی ۳.۷.۰+ اثر دارد. خالی = رفتار قبلی (بدون تقویم تمدید / بدون ریست ترافیک جدا).</p>
+<div class="form-group"><label>روز تمدید تقویمی (۱–۳۱، ۰ = فاصله‌ای قدیمی)</label>
+<input type="number" name="reset_day" min="0" max="31" placeholder="0" value="{{ product.reset_day if product and product.reset_day is not none else '' }}"></div>
+<div class="form-group"><label>سقف تعداد تمدید خودکار (۰ = نامحدود)</label>
+<input type="number" name="reset_max" min="0" placeholder="0" value="{{ product.reset_max if product and product.reset_max is not none else '' }}"></div>
+<div class="form-group"><label>ریست ترافیک کلاینت</label>
+<select name="traffic_reset" class="form-select">
+{% set tr = (product.traffic_reset if product and product.traffic_reset else 'never') %}
+<option value="never" {% if tr=='never' %}selected{% endif %}>هرگز (پیش‌فرض)</option>
+<option value="hourly" {% if tr=='hourly' %}selected{% endif %}>ساعتی</option>
+<option value="daily" {% if tr=='daily' %}selected{% endif %}>روزانه</option>
+<option value="weekly" {% if tr=='weekly' %}selected{% endif %}>هفتگی</option>
+<option value="monthly" {% if tr=='monthly' %}selected{% endif %}>ماهانه</option>
+</select></div>
+<div class="form-group"><label>روز ریست ترافیک ماهانه (۱–۳۱)</label>
+<input type="number" name="traffic_reset_day" min="1" max="31" placeholder="1" value="{{ product.traffic_reset_day if product and product.traffic_reset_day is not none else '' }}"></div>
+</details>
 <div class="form-group"><label><input type="checkbox" name="hourly_enabled" value="1" {% if product and product.hourly_enabled %}checked{% endif %}> قابل خرید ساعتی</label></div>
 <div class="form-group"><label>قیمت هر ساعت (تومان)</label>
 <input type="number" step="0.01" name="hourly_price" value="{{ product.hourly_price if product and product.hourly_price else '' }}" placeholder="اختیاری"></div>

@@ -26,9 +26,12 @@ from services.provision import provision_order
 
 
 def _active_payment_methods():
-    """Payment methods exposed to Mini App, filtered by global settings and Variza readiness."""
+    """Payment methods exposed to Mini App, filtered by global settings and Variza readiness.
+    Premium emoji codes are stripped for display (Mini App has no custom emoji icons).
+    """
     try:
         from db_users import list_payment_methods
+        from db_extras import strip_premium_codes
         methods = []
         for m in list_payment_methods(active_only=True):
             key = m.get("method_key")
@@ -42,7 +45,8 @@ def _active_payment_methods():
                         continue
                 except Exception:
                     continue
-            methods.append({"key": key, "title": m.get("title") or key})
+            raw_title = m.get("title") or key
+            methods.append({"key": key, "title": strip_premium_codes(raw_title) or key})
         return methods
     except Exception as e:
         print("payment methods:", e)

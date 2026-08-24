@@ -57,6 +57,18 @@ def ensure_product_tables():
                 cur.execute("ALTER TABLE products ADD COLUMN hwid_limit INT DEFAULT NULL AFTER duration_days")
             except Exception:
                 pass  # ستون از قبل وجود دارد
+            # 3x-ui 3.7.0 lifecycle fields (optional, NULL = default behaviour)
+            for col, ddl in (
+                ("limit_hwid", "INT DEFAULT NULL"),
+                ("reset_day", "INT DEFAULT NULL"),
+                ("reset_max", "INT DEFAULT NULL"),
+                ("traffic_reset", "VARCHAR(20) DEFAULT NULL"),
+                ("traffic_reset_day", "INT DEFAULT NULL"),
+            ):
+                try:
+                    cur.execute(f"ALTER TABLE products ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
             cur.execute("""
             CREATE TABLE IF NOT EXISTS product_panels (
                 product_id INT NOT NULL,
@@ -238,7 +250,8 @@ def get_product(pid: int) -> Optional[dict]:
 
 def create_product(name, price, volume_gb, duration_days, target_role="all",
                    category_id=None, description=None, panel_ids=None, hwid_limit=None,
-                   panel_config=None) -> int:
+                   panel_config=None, limit_hwid=None, reset_day=None, reset_max=None,
+                   traffic_reset=None, traffic_reset_day=None) -> int:
     """panel_config: {panel_id: {"group_ids": [...]} or {"inbound_ids": [...]}}"""
     ensure_product_panel_extra()
     import json as _json
@@ -248,9 +261,11 @@ def create_product(name, price, volume_gb, duration_days, target_role="all",
             cur.execute("SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM products")
             n = (cur.fetchone() or {}).get("n") or 1
             cur.execute(
-                """INSERT INTO products (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, sort_order)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, n),
+                """INSERT INTO products (name, category_id, price, volume_gb, duration_days, hwid_limit,
+                   target_role, description, sort_order, limit_hwid, reset_day, reset_max, traffic_reset, traffic_reset_day)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (name, category_id, price, volume_gb, duration_days, hwid_limit, target_role, description, n,
+                 limit_hwid, reset_day, reset_max, traffic_reset, traffic_reset_day),
             )
             pid = cur.lastrowid
             panel_config = panel_config or {}
@@ -274,7 +289,8 @@ def create_product(name, price, volume_gb, duration_days, target_role="all",
 
 def update_product(pid: int, panel_ids=None, panel_config=None, **fields):
     allowed = {"name", "category_id", "price", "volume_gb", "duration_days", "hwid_limit",
-               "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price"}
+               "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price",
+               "limit_hwid", "reset_day", "reset_max", "traffic_reset", "traffic_reset_day"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:

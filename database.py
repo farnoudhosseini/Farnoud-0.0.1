@@ -449,3 +449,24 @@ def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 6
     except TypeError:
         return InlineKeyboardButton(text, callback_data=callback_data)
 
+
+def payment_method_button(method: dict, callback_data: str, max_len: int = 64):
+    """InlineKeyboardButton for card/variza (or any payment method) with optional premium emoji code in title."""
+    from telegram import InlineKeyboardButton
+    label = (method.get("title") or method.get("method_key") or "روش پرداخت")
+    text = label
+    eid = None
+    try:
+        from db_extras import extract_premium_from_label
+        text, eid = extract_premium_from_label(label)
+    except Exception:
+        text = label
+    text = (text or "روش پرداخت")[:max_len]
+    kwargs = {"text": text, "callback_data": callback_data}
+    if eid:
+        kwargs["icon_custom_emoji_id"] = str(eid)
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except TypeError:
+        return InlineKeyboardButton(text, callback_data=callback_data)
+
