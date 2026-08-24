@@ -147,7 +147,19 @@ def set_admin_password(password: str, admin_id: int = None) -> bool:
         if connection:
             connection.close()
 
+# کش سبک تنظیمات sync — جلوگیری از باز/بسته کردن اتصال برای هر خواندن
+_settings_sync_cache: dict = {}
+_settings_sync_cache_ts: float = 0.0
+_SETTINGS_CACHE_TTL = 15.0  # ثانیه
+
+
 def get_setting_sync(key: str, default: str = "") -> str:
+    import time
+    global _settings_sync_cache, _settings_sync_cache_ts
+    now = time.monotonic()
+    if now - _settings_sync_cache_ts < _SETTINGS_CACHE_TTL and key in _settings_sync_cache:
+        val = _settings_sync_cache[key]
+        return val if val is not None else default
     connection = None
     try:
         connection = get_sync_connection()
@@ -155,14 +167,22 @@ def get_setting_sync(key: str, default: str = "") -> str:
             cursor.execute("SELECT `value` FROM settings WHERE `key` = %s LIMIT 1", (key,))
             row = cursor.fetchone()
             if row and row.get("value") is not None:
-                return row["value"]
-            return default
+                val = row["value"]
+            else:
+                val = None
+            # به‌روزرسانی کش
+            if now - _settings_sync_cache_ts >= _SETTINGS_CACHE_TTL:
+                _settings_sync_cache = {}
+                _settings_sync_cache_ts = now
+            _settings_sync_cache[key] = val
+            return val if val is not None else default
     except Exception as e:
         print(f"❌ خطا در خواندن تنظیم: {e}")
         return default
     finally:
         if connection:
             connection.close()
+
 
 def set_setting_sync(key: str, value: str) -> bool:
     connection = None
@@ -174,6 +194,11 @@ def set_setting_sync(key: str, value: str) -> bool:
                 ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)
             """, (key, value))
             connection.commit()
+            # باطل کردن کش برای این کلید
+            try:
+                _settings_sync_cache[key] = value
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"❌ خطا در ذخیره تنظیم: {e}")

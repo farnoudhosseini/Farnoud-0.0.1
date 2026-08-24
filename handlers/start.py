@@ -27,20 +27,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("premiji_code", None)
     except Exception:
         pass
+    # ثبت کاربر و لاگ — خطا نباید پاسخ استارت را دیر کند
     referrer_id = None
-    if context.args:
-        code = context.args[0].strip()
-        ref = get_bot_user_by_invite(code)
-        if ref:
-            referrer_id = ref["telegram_id"]
-    upsert_bot_user(user, referrer_id=referrer_id)
-    log_activity(user.id, "start")
+    try:
+        if context.args:
+            code = context.args[0].strip()
+            ref = get_bot_user_by_invite(code)
+            if ref:
+                referrer_id = ref["telegram_id"]
+        upsert_bot_user(user, referrer_id=referrer_id)
+        log_activity(user.id, "start")
+    except Exception as e:
+        print("start upsert/log:", e)
 
-    # force join
+    # force join — تنظیمات همگی sync تا منتظر async نمانیم
     if get_setting_sync("force_join_enabled", "0") == "1":
         ch = get_setting_sync("force_join_channel", "")
         if ch and not await check_channel_member(context.bot, user.id, ch):
-            msg = await get_setting("force_join_msg") or f"ابتدا در کانال عضو شوید:\n{ch}"
+            msg = get_setting_sync("force_join_msg", "") or f"ابتدا در کانال عضو شوید:\n{ch}"
             msg = msg.replace("[channel]", ch)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📢 عضویت در کانال", url=f"https://t.me/{ch.lstrip('@')}" if not ch.lstrip('-').isdigit() else f"https://t.me/c/{str(ch).lstrip('-')}")],
@@ -53,7 +57,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if get_setting_sync("force_phone_enabled", "0") == "1":
         bu = get_bot_user(user.id)
         if not bu or not bu.get("phone"):
-            msg = await get_setting("force_phone_msg") or "شماره موبایل را ارسال کنید:"
+            msg = get_setting_sync("force_phone_msg", "") or "شماره موبایل را ارسال کنید:"
             kb = ReplyKeyboardMarkup(
                 [[KeyboardButton("📱 ارسال شماره", request_contact=True)]],
                 resize_keyboard=True, one_time_keyboard=True,
@@ -64,7 +68,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_welcome(update, context, user)
 
 async def _send_welcome(update, context, user):
-    welcome = await get_setting("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋")
+    # sync برای سرعت بیشتر — استارت باید فوری بیاید
+    welcome = get_setting_sync("welcome_message", "سلام! به ربات فرنود خوش آمدید 👋") or "سلام! به ربات فرنود خوش آمدید 👋"
     try:
         from db_users import user_vars
         from db_extras import apply_premium_emojis

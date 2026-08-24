@@ -494,6 +494,31 @@ do_finish(){
   print_done
 }
 
+do_restart(){
+  banner
+  log "Restarting FarnoudBot services (when stuck / hung)..."
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl restart ${SERVICE_BOT} 2>/dev/null || systemctl start ${SERVICE_BOT} 2>/dev/null || true
+  systemctl restart ${SERVICE_PANEL} 2>/dev/null || systemctl start ${SERVICE_PANEL} 2>/dev/null || true
+  sleep 2
+  if systemctl is-active --quiet ${SERVICE_BOT} 2>/dev/null; then
+    ok "farnoud-bot is ACTIVE"
+  else
+    warn "farnoud-bot not active — check: systemctl status ${SERVICE_BOT}"
+    systemctl status ${SERVICE_BOT} --no-pager -l 2>/dev/null | head -25 || true
+  fi
+  if systemctl is-active --quiet ${SERVICE_PANEL} 2>/dev/null; then
+    ok "farnoud-panel is ACTIVE"
+  else
+    warn "farnoud-panel not active — check: systemctl status ${SERVICE_PANEL}"
+  fi
+  echo ""
+  log "Recent bot logs (last 15 lines):"
+  journalctl -u ${SERVICE_BOT} -n 15 --no-pager 2>/dev/null || true
+  echo ""
+  ok "Restart done. If still stuck: sudo journalctl -u ${SERVICE_BOT} -f"
+}
+
 menu(){
   while true; do
     banner
@@ -501,14 +526,16 @@ menu(){
     echo "  2) Update"
     echo "  3) Uninstall"
     echo "  4) Finish / Resume / Fix packages"
+    echo "  5) Restart Bot (when stuck)"
     echo "  0) Exit"
     echo ""
-    ask "Choose [0-4]: " ch
+    ask "Choose [0-5]: " ch
     case "${ch:-}" in
       1) do_install; break ;;
       2) do_update; break ;;
       3) do_uninstall; break ;;
       4) do_finish; break ;;
+      5) do_restart; break ;;
       0) exit 0 ;;
       *) err "Invalid"; sleep 1 ;;
     esac
@@ -520,6 +547,7 @@ case "${1:-}" in
   update|--update|-u) do_update ;;
   uninstall|--uninstall|-x) do_uninstall ;;
   finish|--finish|resume|fix) do_finish ;;
+  restart|--restart|-r) do_restart ;;
   ""|menu) menu ;;
-  *) echo "Usage: sudo bash install.sh [install|update|uninstall|finish]"; exit 1 ;;
+  *) echo "Usage: sudo bash install.sh [install|update|uninstall|finish|restart]"; exit 1 ;;
 esac

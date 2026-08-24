@@ -93,9 +93,23 @@ def _register_hit(user_id: int, cfg: dict) -> bool:
     return len(q) > cfg["max_hits"]
 
 
+def _is_start_command(update: Update) -> bool:
+    """ /start و /restart نباید کول‌داون داشته باشند — باید فوری پاسخ بدهند. """
+    msg = update.effective_message
+    if not msg or not msg.text:
+        return False
+    text = (msg.text or "").strip().split()[0].lower() if msg.text else ""
+    # /start@BotName or /start or /restart or فارسی استارت
+    cmd = text.split("@")[0]
+    return cmd in ("/start", "/restart", "/استارت")
+
+
 async def antispam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user:
+        return
+    # استارت باید بلافاصله بیاید — از آنتی‌اسپم معاف
+    if _is_start_command(update):
         return
     cfg = _load_settings()
     if not cfg.get("enabled"):

@@ -223,6 +223,7 @@ def create_bot() -> Application:
         .token(BOT_TOKEN)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
+        .concurrent_updates(True)  # پاسخ سریع‌تر به چند کاربر هم‌زمان
         .build()
     )
     install_antispam(application)
