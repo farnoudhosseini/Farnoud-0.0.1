@@ -205,8 +205,9 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = render_template("charge_card_info", vars_)
         card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
         try:
-            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
-        except TypeError:
+            from telegram import CopyTextButton
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num))
+        except Exception:
             copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
         kb = InlineKeyboardMarkup([
             [copy_btn],

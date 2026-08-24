@@ -321,8 +321,9 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             f"سپس تصویر رسید را ارسال کنید."
         )
         try:
-            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
-        except TypeError:
+            from telegram import CopyTextButton
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num))
+        except Exception:
             copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
         kb = InlineKeyboardMarkup([
             [copy_btn],
