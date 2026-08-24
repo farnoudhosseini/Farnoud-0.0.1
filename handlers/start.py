@@ -82,7 +82,6 @@ async def _send_welcome(update, context, user):
         pass
     is_adm = user and is_admin_user(user.id)
     from handlers.wallet import main_user_keyboard
-    from database import get_setting_sync
     from telegram import ReplyKeyboardRemove
 
     use_glass = get_setting_sync("inline_main_menu", "0") == "1"
