@@ -19,7 +19,7 @@
 
 ## نصب یک‌خطی (One-Line Install)
 
-روی سرور اوبونتو ۲۲.۰۴ / ۲۴.۰۴ با دسترسی root:
+روی سرور لینوکس با دسترسی root:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh | sudo bash
