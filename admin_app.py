@@ -72,6 +72,77 @@ def get_client_for_panel(panel):
     return get_panel_client(panel)
 
 
+@app.post("/webhooks/variza")
+def variza_webhook():
+    """Public Variza callback. Authentication is the HMAC signature on the raw body."""
+    from services.variza import verify_webhook, handle_webhook
+    raw = request.get_data(cache=False, as_text=False)
+    signature = request.headers.get("X-Webhook-Signature", "")
+    if not verify_webhook(raw, signature):
+        return jsonify({"ok": False, "error": "invalid signature"}), 400
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        result = handle_webhook(payload, request.headers.get("X-Delivery-Id", ""))
+        if result.get("type") == "charge" and result.get("id"):
+            try:
+                from db_users import get_charge, get_bot_user, user_vars, render_template as render_msg_template
+                ch = get_charge(int(result["id"])) or {}
+                u = get_bot_user(int(ch.get("telegram_id") or 0)) or {}
+                vars_ = user_vars(u)
+                vars_["amount"] = f"{int(ch.get('amount') or 0):,}"
+                vars_["balance"] = f"{int(u.get('balance') or 0):,}"
+                _telegram_notify(int(ch.get("telegram_id")), render_msg_template("charge_approved", vars_))
+            except Exception as e:
+                print("variza charge notify:", e)
+        elif result.get("type") == "order" and result.get("id"):
+            try:
+                from db_products import get_order
+                from services.provision import send_service_to_user
+                import asyncio
+                order = get_order(int(result["id"])) or {}
+                if order.get("telegram_id") and result.get("provision"):
+                    asyncio.run(_send_service_sync(int(order["telegram_id"]), result["provision"]))
+            except Exception as e:
+                print("variza order notify:", e)
+        return jsonify({"ok": True})
+    except Exception as e:
+        print("variza webhook error:", e)
+        return jsonify({"ok": False, "error": str(e)[:300]}), 500
+
+
+def _telegram_notify(chat_id: int, text: str):
+    import requests as _requests
+    from config import BOT_TOKEN
+    if not BOT_TOKEN or not chat_id:
+        return
+    _requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=10)
+
+
+def _send_service_sync(chat_id: int, result: dict):
+    import asyncio
+    from telegram import Bot, InputFile
+    from config import BOT_TOKEN
+    async def _go():
+        async with Bot(BOT_TOKEN) as bot:
+            if not result.get("ok"):
+                await bot.send_message(chat_id, f"❌ خطا در ساخت سرویس: {result.get('error')}")
+                return
+            text = result.get("text") or "✅ سرویس شما آماده شد."
+            qr = result.get("qr_bytes")
+            if qr:
+                await bot.send_photo(chat_id, photo=InputFile(__import__('io').BytesIO(qr), filename="service-qr.png"), caption=text[:1024])
+                if len(text) > 1024:
+                    await bot.send_message(chat_id, text)
+            else:
+                await bot.send_message(chat_id, text)
+    asyncio.run(_go())
+
+
+@app.get("/payments/variza/return")
+def variza_return():
+    return """<!doctype html><html lang='fa' dir='rtl'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>پرداخت واریزا</title><body style='font-family:Tahoma,sans-serif;background:#0b0b12;color:#fff;display:grid;place-items:center;min-height:100vh'><div style='max-width:520px;padding:32px;text-align:center'><h2>پرداخت شما ثبت شد</h2><p>اگر پرداخت با موفقیت انجام شده باشد، تایید و تکمیل سفارش به‌صورت خودکار انجام می‌شود. می‌توانید به تلگرام برگردید.</p></div></body></html>"""
+
+
 @app.route("/")
 def index():
     if "admin_id" in session:
@@ -615,6 +686,28 @@ def messages_manage():
 def cards_manage():
     if request.method == "POST":
         action = request.form.get("action")
+        if action == "payment_settings":
+            from db_users import set_payment_method_state, set_payment_method_title
+            card_enabled = bool(request.form.get("card_enabled"))
+            variza_enabled = bool(request.form.get("variza_enabled"))
+            set_setting_sync("payment_method_card_enabled", "1" if card_enabled else "0")
+            set_payment_method_state("card", card_enabled)
+            set_payment_method_title("card", (request.form.get("card_title") or "کارت به کارت").strip()[:100])
+            set_setting_sync("variza_enabled", "1" if variza_enabled else "0")
+            set_payment_method_state("variza", variza_enabled)
+            set_payment_method_title("variza", (request.form.get("variza_title") or "پرداخت واریزا").strip()[:100])
+            set_setting_sync("variza_title", (request.form.get("variza_title") or "پرداخت واریزا").strip()[:100])
+            if (request.form.get("variza_api_key") or "").strip():
+                set_setting_sync("variza_api_key", request.form.get("variza_api_key").strip())
+            if (request.form.get("variza_webhook_secret") or "").strip():
+                set_setting_sync("variza_webhook_secret", request.form.get("variza_webhook_secret").strip())
+            base = (request.form.get("public_base_url") or "").strip().rstrip("/")
+            if base and not base.startswith("https://"):
+                flash("آدرس عمومی باید HTTPS باشد", "error")
+            else:
+                set_setting_sync("public_base_url", base)
+                flash("تنظیمات پرداخت ذخیره شد", "success")
+            return redirect(url_for("cards_manage"))
         if action == "add":
             add_card(
                 request.form.get("card_number", "").strip(),
@@ -628,10 +721,19 @@ def cards_manage():
         elif action == "toggle":
             toggle_card(int(request.form.get("card_id")), request.form.get("active") == "1")
         return redirect(url_for("cards_manage"))
+    from db_users import list_payment_methods
+    methods = {m.get("method_key"): m for m in list_payment_methods(active_only=False)}
     return render_template(
         "cards.html",
         username=session.get("admin_username"), active="cards",
         cards=list_cards(),
+        card_enabled=get_setting_sync("payment_method_card_enabled", "1") != "0" and methods.get("card", {}).get("is_active", 1),
+        card_title=get_setting_sync("card_payment_title", methods.get("card", {}).get("title", "کارت به کارت")) or "کارت به کارت",
+        variza_enabled=get_setting_sync("variza_enabled", "0") == "1" and methods.get("variza", {}).get("is_active", 0),
+        variza_title=get_setting_sync("variza_title", methods.get("variza", {}).get("title", "پرداخت واریزا")) or "پرداخت واریزا",
+        variza_api_configured=bool(get_setting_sync("variza_api_key", "") and get_setting_sync("variza_webhook_secret", "")),
+        public_base_url=get_setting_sync("public_base_url", "") or "",
+        variza_webhook_url=(get_setting_sync("public_base_url", "") or "").rstrip("/") + "/webhooks/variza",
     )
 
 @app.route("/charges")

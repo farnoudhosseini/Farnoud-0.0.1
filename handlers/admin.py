@@ -677,9 +677,18 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database import get_setting_sync as _gs
         mins = _gs("card_auto_approve_minutes", "0") or "0"
         ausers = _gs("card_auto_approve_users", "") or "—"
+        from database import get_setting_sync
+        card_enabled = get_setting_sync("payment_method_card_enabled", "1") != "0"
+        variza_enabled = get_setting_sync("variza_enabled", "0") == "1"
+        variza_title = get_setting_sync("variza_title", "پرداخت واریزا") or "پرداخت واریزا"
         lines.append("")
-        lines.append(f"⏱ تایید خودکار: {mins} دقیقه")
+        lines.append(f"💳 کارت‌به‌کارت: {'🟢 فعال' if card_enabled else '🔴 خاموش'}")
+        lines.append(f"🟣 {variza_title}: {'🟢 فعال' if variza_enabled else '🔴 خاموش'}")
+        lines.append(f"⏱ تایید خودکار رسید: {mins} دقیقه")
         lines.append(f"👤 کاربران سفید: <code>{ausers}</code>")
+        rows.append([InlineKeyboardButton("💳 روشن/خاموش کارت‌به‌کارت", callback_data="admin_card_system_toggle")])
+        rows.append([InlineKeyboardButton("🟣 تنظیم واریزا", callback_data="admin_variza")])
+        rows.append([InlineKeyboardButton("✏️ نام دکمه کارت‌به‌کارت", callback_data="admin_card_title")])
         rows.append([InlineKeyboardButton("⏱ دقیقه تایید خودکار", callback_data="admin_auto_mins")])
         rows.append([InlineKeyboardButton("👤 کاربران تایید خودکار", callback_data="admin_auto_users")])
         rows.append([InlineKeyboardButton("🔙 بازگشت",callback_data="admin_panel")])
@@ -738,6 +747,58 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_as_msg":
         context.user_data["admin_input_mode"] = "as_msg"
         await query.edit_message_text("متن پیام هنگام محدودیت را بفرستید:")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_card_system_toggle":
+        from database import get_setting_sync, set_setting_sync
+        enabled = get_setting_sync("payment_method_card_enabled", "1") != "0"
+        set_setting_sync("payment_method_card_enabled", "0" if enabled else "1")
+        try:
+            from db_users import set_payment_method_state
+            set_payment_method_state("card", not enabled)
+        except Exception:
+            pass
+        query.data = "admin_cards"
+        return await admin_callback(update, context)
+
+    if data == "admin_card_title":
+        context.user_data["admin_input_mode"] = "card_title"
+        await query.edit_message_text("نام جدید دکمه کارت‌به‌کارت را بفرستید:")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_variza":
+        from database import get_setting_sync
+        enabled = get_setting_sync("variza_enabled", "0") == "1"
+        title = get_setting_sync("variza_title", "پرداخت واریزا") or "پرداخت واریزا"
+        configured = bool(get_setting_sync("variza_api_key", "") and get_setting_sync("variza_webhook_secret", "") and get_setting_sync("public_base_url", ""))
+        text_v = (f"🟣 <b>واریزا</b>\n\nوضعیت: {'🟢 فعال' if enabled else '🔴 خاموش'}\nنام دکمه: {title}\nاتصال API: {'✅ تنظیم شده' if configured else '❌ ناقص'}\nآدرس وب‌هوک: <code>{(get_setting_sync('public_base_url','') or '') + '/webhooks/variza'}</code>")
+        rows = [[InlineKeyboardButton("روشن/خاموش", callback_data="admin_variza_toggle")],
+                [InlineKeyboardButton("🔑 تنظیم API Key", callback_data="admin_variza_api")],
+                [InlineKeyboardButton("🔐 تنظیم Webhook Secret", callback_data="admin_variza_secret")],
+                [InlineKeyboardButton("🌐 تنظیم آدرس عمومی", callback_data="admin_public_url")],
+                [InlineKeyboardButton("✏️ تغییر نام دکمه", callback_data="admin_variza_title")],
+                [InlineKeyboardButton("🔙 کارت‌ها / پرداخت", callback_data="admin_cards")]]
+        await query.edit_message_text(text_v, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_variza_toggle":
+        from database import get_setting_sync, set_setting_sync
+        enabled = get_setting_sync("variza_enabled", "0") == "1"
+        new = not enabled
+        set_setting_sync("variza_enabled", "1" if new else "0")
+        try:
+            from db_users import set_payment_method_state
+            set_payment_method_state("variza", new)
+        except Exception:
+            pass
+        query.data = "admin_variza"
+        return await admin_callback(update, context)
+
+    if data in ("admin_variza_api", "admin_variza_secret", "admin_public_url", "admin_variza_title"):
+        mode_map = {"admin_variza_api":"variza_api", "admin_variza_secret":"variza_secret", "admin_public_url":"public_url", "admin_variza_title":"variza_title"}
+        context.user_data["admin_input_mode"] = mode_map[data]
+        prompts = {"variza_api":"API Key واریزا را بفرستید:", "variza_secret":"Webhook Secret واریزا را بفرستید:", "public_url":"آدرس عمومی HTTPS سرور را بفرستید (مثال: https://example.com):", "variza_title":"نام جدید دکمه واریزا را بفرستید:"}
+        await query.edit_message_text(prompts[mode_map[data]])
         return WAITING_ADMIN_TEXT
 
     if data == "admin_auto_mins":
@@ -1670,6 +1731,36 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from database import set_setting_sync
         set_setting_sync("antispam_message", text.strip()[:500])
         await update.message.reply_text("پیام محدودیت ذخیره شد.")
+        return ConversationHandler.END
+
+    if mode == "card_title":
+        from database import set_setting_sync
+        title = text.strip()[:100] or "کارت به کارت"
+        set_setting_sync("card_payment_title", title)
+        try:
+            from db_users import set_payment_method_title
+            set_payment_method_title("card", title)
+        except Exception: pass
+        await update.message.reply_text("✅ نام دکمه کارت‌به‌کارت ذخیره شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها", callback_data="admin_cards")]]))
+        return ConversationHandler.END
+
+    if mode in ("variza_api", "variza_secret", "public_url", "variza_title"):
+        from database import set_setting_sync
+        key = {"variza_api":"variza_api_key", "variza_secret":"variza_webhook_secret", "public_url":"public_base_url", "variza_title":"variza_title"}[mode]
+        val = text.strip()
+        if mode == "public_url":
+            val = val.rstrip("/")
+            if val and not val.startswith("https://"):
+                await update.message.reply_text("❌ آدرس باید با https:// شروع شود.")
+                return WAITING_ADMIN_TEXT
+        if mode == "variza_title": val = val[:100] or "پرداخت واریزا"
+        set_setting_sync(key, val)
+        if mode == "variza_title":
+            try:
+                from db_users import set_payment_method_title
+                set_payment_method_title("variza", val)
+            except Exception: pass
+        await update.message.reply_text("✅ ذخیره شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🟣 تنظیمات واریزا", callback_data="admin_variza")]]))
         return ConversationHandler.END
 
     if mode == "auto_approve_mins":

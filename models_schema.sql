@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO payment_methods (method_key, title, is_active) VALUES
-('card', 'کارت به کارت', 1);
+('card', 'کارت به کارت', 1),
+('variza', 'پرداخت واریزا', 0);
 
 CREATE TABLE IF NOT EXISTS charge_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -77,6 +78,11 @@ CREATE TABLE IF NOT EXISTS charge_requests (
     status ENUM('pending_payment','waiting_receipt','pending_review','approved','rejected','cancelled') NOT NULL DEFAULT 'pending_payment',
     receipt_file_id VARCHAR(255) DEFAULT NULL,
     admin_note TEXT,
+    variza_slug VARCHAR(120) DEFAULT NULL,
+    variza_amount DECIMAL(18,0) DEFAULT NULL,
+    variza_attempt_code VARCHAR(120) DEFAULT NULL,
+    variza_delivery_id VARCHAR(120) DEFAULT NULL,
+    paid_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_tg (telegram_id),
@@ -105,4 +111,9 @@ CREATE TABLE IF NOT EXISTS gift_code_uses (
 
 INSERT IGNORE INTO settings (`key`, `value`) VALUES
 ('min_charge', '10000'),
-('max_charge', '50000000');
+('max_charge', '50000000'),
+('variza_enabled', '0'),
+('variza_api_key', ''),
+('variza_webhook_secret', ''),
+('variza_title', 'پرداخت واریزا'),
+('public_base_url', '');

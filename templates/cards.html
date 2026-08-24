@@ -13,6 +13,27 @@
 <button class="btn-primary inline" type="submit">افزودن</button>
 </form>
 </div>
+<div class="card" style="margin-bottom:16px">
+<h3 style="margin-top:0">⚙️ تنظیمات سیستم پرداخت</h3>
+<form method="post">
+<input type="hidden" name="action" value="payment_settings">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="card_enabled" value="1" {% if card_enabled %}checked{% endif %}> فعال بودن کارت‌به‌کارت</label>
+<div class="form-group"><label>نام دکمه کارت‌به‌کارت</label><input name="card_title" value="{{ card_title }}"></div>
+<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="variza_enabled" value="1" {% if variza_enabled %}checked{% endif %}> فعال بودن واریزا</label>
+<div class="form-group"><label>نام دکمه واریزا</label><input name="variza_title" value="{{ variza_title }}"></div>
+<div class="form-group"><label>API Key واریزا {% if variza_api_configured %}<span class="badge">تنظیم شده</span>{% endif %}</label><input type="password" name="variza_api_key" autocomplete="new-password" placeholder="فقط برای تغییر وارد کنید"></div>
+<div class="form-group"><label>Webhook Secret {% if variza_api_configured %}<span class="badge">تنظیم شده</span>{% endif %}</label><input type="password" name="variza_webhook_secret" autocomplete="new-password" placeholder="فقط برای تغییر وارد کنید"></div>
+<div class="form-group"><label>آدرس عمومی HTTPS سرور</label><input name="public_base_url" value="{{ public_base_url }}" placeholder="https://example.com"></div>
+</div>
+<div class="card" style="margin-top:12px;background:rgba(255,255,255,.03)">
+<strong>Webhook واریزا</strong><div style="margin-top:6px"><code>{{ variza_webhook_url }}</code></div>
+<p class="muted" style="font-size:.84rem;margin:8px 0 0">این آدرس را یک‌بار در پروفایل واریزا به‌عنوان callback ثبت کنید. Webhook با HMAC-SHA256 اعتبارسنجی می‌شود.</p>
+</div>
+<button class="btn-primary inline" type="submit" style="margin-top:12px">ذخیره تنظیمات پرداخت</button>
+</form>
+</div>
+
 {% for c in cards %}
 <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
 <div>

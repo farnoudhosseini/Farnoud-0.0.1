@@ -124,7 +124,14 @@ def payment_methods_keyboard(charge_id: int):
     methods = list_payment_methods(active_only=True)
     rows = []
     for m in methods:
-        rows.append([InlineKeyboardButton(m["title"], callback_data=f"pay_{m['method_key']}_{charge_id}")])
+        if m.get("method_key") == "variza":
+            try:
+                from services.variza import configured, is_enabled
+                if not (is_enabled() and configured()):
+                    continue
+            except Exception:
+                continue
+        rows.append([InlineKeyboardButton((m.get("title") or "روش پرداخت")[:64], callback_data=f"pay_{m['method_key']}_{charge_id}")])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     return InlineKeyboardMarkup(rows)
@@ -177,7 +184,33 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
         return ConversationHandler.END
 
+    if data.startswith("pay_variza_"):
+        charge_id = int(data.split("_")[-1])
+        ch = get_charge(charge_id)
+        if not ch or int(ch["telegram_id"]) != user.id:
+            await q.edit_message_text("فاکتور نامعتبر است.")
+            return ConversationHandler.END
+        try:
+            from services.variza import create_payment_link, save_charge_link
+            data_v = create_payment_link(int(ch["amount"]), "charge", charge_id, f"شارژ کیف پول #{charge_id}")
+            save_charge_link(charge_id, data_v)
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("💳 پرداخت با واریزا", url=data_v["pay_url"])],
+                                       [InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")],
+                                       [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
+            await q.edit_message_text(
+                f"🧾 فاکتور شارژ #{charge_id}\n\n"
+                f"مبلغ درخواستی: <b>{int(ch['amount']):,}</b> تومان\n\n"
+                "با زدن دکمه زیر وارد صفحه واریزا شوید. پس از پرداخت، تایید به‌صورت خودکار انجام می‌شود و نیازی به ارسال رسید نیست.\n\n"
+                "⚠️ مبلغ نهایی ممکن است برای تطبیق بانکی کمی متفاوت نمایش داده شود؛ پرداخت با شناسه همین فاکتور تطبیق می‌شود.",
+                reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            await q.edit_message_text(f"❌ ساخت لینک واریزا ناموفق بود.\n{str(e)[:250]}", reply_markup=payment_methods_keyboard(charge_id))
+        return ConversationHandler.END
+
     if data.startswith("pay_card_"):
+        if get_setting_sync("payment_method_card_enabled", "1") == "0":
+            await q.edit_message_text("❌ پرداخت کارت‌به‌کارت در حال حاضر خاموش است.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]))
+            return ConversationHandler.END
         charge_id = int(data.split("_")[-1])
         ch = get_charge(charge_id)
         if not ch or ch["telegram_id"] != user.id:
@@ -193,7 +226,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_sync_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("UPDATE charge_requests SET card_id=%s WHERE id=%s", (card["id"], charge_id))
+                cur.execute("UPDATE charge_requests SET card_id=%s, method_key='card', status='waiting_receipt' WHERE id=%s", (card["id"], charge_id))
                 conn.commit()
         finally:
             conn.close()

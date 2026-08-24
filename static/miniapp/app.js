@@ -359,8 +359,8 @@ function renderBuyPayment(){
     ${walletOk
       ? `<p class="page-subtitle" style="margin-top:10px">با تایید، مبلغ از کیف پول کسر و سرویس ساخته می‌شود.</p>
 <button class="btn primary" style="width:100%" onclick="confirmWalletBuy()">تایید و پرداخت از کیف پول</button>`
-      : `<p class="page-subtitle" style="margin-top:10px">مبلغ ${money(o.wallet_used||0)} از کیف پول رزرو می‌شود و باقی‌مانده ${money(o.pay_amount)} را کارت‌به‌کارت پرداخت کنید.</p>
-<button class="btn primary" style="width:100%" onclick="startCardPay()">پرداخت باقی‌مانده با کارت و ارسال رسید</button>`
+      : `<p class="page-subtitle" style="margin-top:10px">مبلغ ${money(o.wallet_used||0)} از کیف پول رزرو می‌شود و باقی‌مانده ${money(o.pay_amount)} را با یکی از روش‌های پرداخت زیر پرداخت کنید.</p>
+${(o.payment_methods||[]).map(pm=>pm.key==='variza'?`<button class="btn primary" style="width:100%;margin-top:8px" onclick="startVarizaPay()">${esc(pm.title)}</button>`:pm.key==='card'?`<button class="btn" style="width:100%;margin-top:8px" onclick="startCardPay()">${esc(pm.title)}</button>`:'').join('')}`
     }
 <button class="btn" style="width:100%;margin-top:8px" onclick="closeSheet()">انصراف</button>
     ${o.hourly_available?`<button class="btn" style="width:100%;margin-top:8px" onclick="buyChooseMode('hourly')">خرید ساعتی (${money(o.hourly_price)} / ساعت)</button>`:''}`);
@@ -386,6 +386,15 @@ async function confirmWalletBuy(){
     closeSheet(); haptic('medium'); toast(d.message||'خرید موفق');
     state.buy=null; await refresh();
   }catch(e){ toast(e.message); }
+}
+
+async function startVarizaPay(){
+  if(!state.buy?.order) return;
+  try{
+    const d=await api('/orders/'+state.buy.order.order_id+'/pay-variza',{method:'POST',body:'{}'});
+    window.open(d.pay_url,'_blank','noopener');
+    showSheet(`<h2>پرداخت واریزا</h2><p class="page-subtitle">صفحه پرداخت باز شد. پس از پرداخت، تایید و ساخت سرویس به‌صورت خودکار انجام می‌شود و نیازی به ارسال رسید نیست.</p><button class="btn primary" style="width:100%" onclick="closeSheet();refresh()">بررسی وضعیت</button>`);
+  }catch(e){toast(e.message)}
 }
 
 async function startCardPay(){
@@ -538,13 +547,17 @@ async function confirmTopup(){
     const amount=Number(document.getElementById('topupAmount').value);
     const d=await api('/wallet/topup',{method:'POST',body:JSON.stringify({amount})});
     state.pendingChargeId = d.charge_id;
-    showSheet(`<h2>واریز ${money(amount)}</h2>
-<p class="page-subtitle">مبلغ را به کارت زیر واریز کنید، سپس تصویر رسید را همین‌جا آپلود کنید. پیام همزمان در ربات هم ارسال می‌شود.</p>
-<div class="detail-card"><strong>${esc(d.card.card_number)}</strong>
-<p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p></div>
-<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card.card_number)}')">کپی شماره کارت</button>
-<div class="form-row" style="margin-top:12px"><label>تصویر رسید</label><input type="file" id="chargeReceipt" accept="image/*"></div>
-<button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید</button>`);
+    const methods=(d.payment_methods||[]);
+    const cards=d.card?`<div class="detail-card"><strong>${esc(d.card.card_number)}</strong><p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p></div>`:'';
+    const buttons=methods.map(pm=>pm.key==='variza'?`<button class="btn primary" style="width:100%;margin-top:8px" onclick="startTopupVariza(${d.charge_id},${amount})">${esc(pm.title)}</button>`:pm.key==='card'?`${cards}<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card?.card_number||'')}')">کپی شماره کارت</button><div class="form-row" style="margin-top:12px"><label>تصویر رسید</label><input type="file" id="chargeReceipt" accept="image/*"></div><button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید</button>`:'').join('');
+    showSheet(`<h2>واریز ${money(amount)}</h2><p class="page-subtitle">روش پرداخت را انتخاب کنید.</p>${buttons}`);
+  }catch(e){toast(e.message)}
+}
+async function startTopupVariza(chargeId,amount){
+  try{
+    const d=await api('/wallet/topup/variza',{method:'POST',body:JSON.stringify({amount,charge_id:chargeId})});
+    window.open(d.pay_url,'_blank','noopener');
+    showSheet(`<h2>پرداخت واریزا</h2><p class="page-subtitle">صفحه پرداخت باز شد. پس از پرداخت، شارژ کیف پول به‌صورت خودکار تایید می‌شود.</p><button class="btn primary" style="width:100%" onclick="closeSheet();refresh()">بررسی وضعیت</button>`);
   }catch(e){toast(e.message)}
 }
 async function uploadChargeReceipt(){

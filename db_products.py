@@ -86,6 +86,13 @@ def ensure_product_tables():
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            # Safe Variza migration for existing service orders.
+            for col, ddl in [("variza_slug", "VARCHAR(120) DEFAULT NULL"),("variza_amount", "DECIMAL(18,0) DEFAULT NULL"),("variza_attempt_code", "VARCHAR(120) DEFAULT NULL"),("variza_delivery_id", "VARCHAR(120) DEFAULT NULL"),("paid_at", "TIMESTAMP NULL")]:
+                try: cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
+                except Exception: pass
+            try: cur.execute("CREATE UNIQUE INDEX uniq_order_variza_slug ON service_orders (variza_slug)")
+            except Exception: pass
+
             # پیام‌های خرید
             msgs = [
                 ("btn_buy", "دکمه خرید", "🛒 خرید سرویس جدید"),
@@ -367,6 +374,7 @@ def update_order(oid: int, **fields):
     allowed = {"status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
                "wallet_used", "pay_amount", "custom_name", "is_hourly", "hourly_rate", "hourly_active",
                "volume_gb_override", "duration_days_override", "expire_at", "panel_id", "product_id",
+               "variza_slug", "variza_amount", "variza_attempt_code", "variza_delivery_id", "paid_at",
                "protocol_override", "inbound_id"}
     sets, vals = [], []
     for k, v in fields.items():

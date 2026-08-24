@@ -16,13 +16,37 @@ from urllib.parse import parse_qsl, quote as url_quote
 from flask import Blueprint, jsonify, request, send_from_directory
 
 from config import BOT_TOKEN
-from database import get_sync_connection
+from database import get_sync_connection, get_setting_sync
 from db_users import upsert_bot_user, get_bot_user, count_referrals
 from db_products import list_products, get_product
 from db_support import list_user_orders, get_user_order
 from services.provision import provision_order
 
 
+
+
+def _active_payment_methods():
+    """Payment methods exposed to Mini App, filtered by global settings and Variza readiness."""
+    try:
+        from db_users import list_payment_methods
+        methods = []
+        for m in list_payment_methods(active_only=True):
+            key = m.get("method_key")
+            if key == "card":
+                if get_setting_sync("payment_method_card_enabled", "1") == "0":
+                    continue
+            elif key == "variza":
+                try:
+                    from services.variza import is_enabled, configured
+                    if not (is_enabled() and configured()):
+                        continue
+                except Exception:
+                    continue
+            methods.append({"key": key, "title": m.get("title") or key})
+        return methods
+    except Exception as e:
+        print("payment methods:", e)
+        return []
 
 
 DEFAULT_MINIAPP_THEME = {
@@ -1084,22 +1108,23 @@ def wallet_topup():
         return jsonify({"ok": False, "error": "مبلغ نامعتبر است"}), 400
     if amount < int(os.getenv("MIN_CHARGE", "10000")) or amount > int(os.getenv("MAX_CHARGE", "50000000")):
         return jsonify({"ok": False, "error": "مبلغ خارج از محدوده مجاز است"}), 400
+    methods = _active_payment_methods()
+    if not methods:
+        return jsonify({"ok": False, "error": "در حال حاضر روش پرداخت فعالی وجود ندارد"}), 503
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM payment_cards WHERE is_active=1 ORDER BY sort_order,id LIMIT 1")
             card = cur.fetchone()
-            if not card:
-                return jsonify({"ok": False, "error": "در حال حاضر روش پرداخت فعالی وجود ندارد"}), 503
-            cur.execute("""INSERT INTO charge_requests
-                           (telegram_id,amount,method_key,card_id,status)
-                           VALUES (%s,%s,'card',%s,'waiting_receipt')""",
-                        (int(request.tg_user["id"]), amount, card["id"]))
+            # Keep the charge pending until the user explicitly chooses a method.
+            cur.execute("""INSERT INTO charge_requests (telegram_id,amount,method_key,card_id,status)
+                           VALUES (%s,%s,'card',%s,'pending_payment')""",
+                        (int(request.tg_user["id"]), amount, card["id"] if card else None))
             charge_id = cur.lastrowid
             conn.commit()
-            return jsonify({"ok": True, "charge_id": charge_id,
-                            "card": _jsonable(card),
-                            "message": "واریز را انجام دهید و رسید را همین‌جا یا در ربات ارسال کنید."})
+            return jsonify({"ok": True, "charge_id": charge_id, "card": _jsonable(card) if card else None,
+                            "payment_methods": methods,
+                            "message": "روش پرداخت را انتخاب کنید."})
     finally:
         conn.close()
 
@@ -1402,6 +1427,7 @@ def prepare_order():
         "wallet_used": wallet_used,
         "pay_amount": pay_amount,
         "can_pay_wallet": pay_amount <= 0,
+        "payment_methods": _active_payment_methods(),
         "hourly_available": hourly_ok,
         "hourly_price": _jsonable(product.get("hourly_price") or 0) if hourly_ok else None,
         "message": "فاکتور آماده است.",
@@ -1473,6 +1499,8 @@ def pay_card_order(order_id):
     order = get_order(order_id)
     if not order or int(order["telegram_id"]) != user_id:
         return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    if get_setting_sync("payment_method_card_enabled", "1") == "0":
+        return jsonify({"ok": False, "error": "پرداخت کارت‌به‌کارت خاموش است"}), 503
     cards = list_cards(active_only=True) or []
     if not cards:
         return jsonify({"ok": False, "error": "کارتی تعریف نشده. با پشتیبانی تماس بگیرید."}), 503
@@ -1500,6 +1528,65 @@ def pay_card_order(order_id):
         },
         "message": "واریز را انجام دهید و رسید را آپلود کنید.",
     })
+
+
+@miniapp_bp.post("/api/orders/<int:order_id>/pay-variza")
+@auth_required
+def pay_variza_order(order_id):
+    from db_products import get_order
+    user_id = int(request.tg_user["id"])
+    order = get_order(order_id)
+    if not order or int(order["telegram_id"]) != user_id:
+        return jsonify({"ok": False, "error": "سفارش نامعتبر"}), 404
+    if int(order.get("pay_amount") or 0) <= 0:
+        return jsonify({"ok": False, "error": "مبلغ قابل پرداختی وجود ندارد"}), 400
+    try:
+        from services.variza import create_payment_link, save_order_link
+        amount = int(order.get("pay_amount") or 0)
+        data_v = create_payment_link(amount, "order", order_id, f"خرید سرویس #{order_id}")
+        save_order_link(order_id, data_v)
+        _notify_user(user_id, f"🟣 لینک پرداخت واریزا برای سفارش #{order_id} آماده شد. بعد از پرداخت، تایید و ساخت سرویس خودکار انجام می‌شود.")
+        return jsonify({"ok": True, "pay_url": data_v["pay_url"], "pay_amount": amount})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 400
+
+
+@miniapp_bp.post("/api/wallet/topup/variza")
+@auth_required
+def wallet_topup_variza():
+    body = request.get_json(silent=True) or {}
+    try: amount = int(body.get("amount"))
+    except Exception: return jsonify({"ok": False, "error": "مبلغ نامعتبر است"}), 400
+    if amount < int(os.getenv("MIN_CHARGE", "10000")) or amount > int(os.getenv("MAX_CHARGE", "50000000")):
+        return jsonify({"ok": False, "error": "مبلغ خارج از محدوده مجاز است"}), 400
+    user_id = int(request.tg_user["id"])
+    try:
+        charge_id = int(body.get("charge_id") or 0)
+    except Exception:
+        charge_id = 0
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            if charge_id:
+                cur.execute("SELECT * FROM charge_requests WHERE id=%s AND telegram_id=%s", (charge_id, user_id))
+                ch = cur.fetchone()
+                if not ch:
+                    return jsonify({"ok": False, "error": "درخواست شارژ یافت نشد"}), 404
+                if ch.get("status") not in ("pending_payment", "waiting_receipt"):
+                    return jsonify({"ok": False, "error": "این درخواست قابل پرداخت نیست"}), 400
+                cur.execute("UPDATE charge_requests SET amount=%s, method_key='variza', status='pending_payment' WHERE id=%s", (amount, charge_id))
+            else:
+                cur.execute("INSERT INTO charge_requests (telegram_id,amount,method_key,status) VALUES (%s,%s,'variza','pending_payment')", (user_id, amount))
+                charge_id = cur.lastrowid
+            conn.commit()
+        from services.variza import create_payment_link, save_charge_link
+        data_v = create_payment_link(amount, "charge", charge_id, f"شارژ کیف پول #{charge_id}")
+        save_charge_link(charge_id, data_v)
+        return jsonify({"ok": True, "charge_id": charge_id, "pay_url": data_v["pay_url"], "pay_amount": amount})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 400
+    finally:
+        conn.close()
 
 
 @miniapp_bp.post("/api/orders/<int:order_id>/receipt")
@@ -1789,7 +1876,7 @@ def _try_auto_approve_charge(charge_id, user_id, amount):
     except Exception:
         try:
             from db_users import add_balance, get_charge
-            from database import get_sync_connection
+            from database import get_sync_connection, get_setting_sync
             ch = get_charge(charge_id)
             if not ch:
                 return False

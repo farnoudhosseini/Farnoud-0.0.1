@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from database import list_panels, get_panel_by_id
 from db_users import (
     get_bot_user, upsert_bot_user, render_template, log_activity,
-    add_balance, list_cards,
+    add_balance, list_cards, list_payment_methods,
 )
 from db_products import (
     list_categories, list_products, get_product, create_order, get_order, update_order,
@@ -243,12 +243,24 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             )
             return ConversationHandler.END
 
-        # کمبود موجودی → کارت به کارت + رسید + تایید ادمین
-        rows = [
-            [InlineKeyboardButton("💳 کارت به کارت", callback_data=f"buy_pay_card_{order_id}")],
+        # کمبود موجودی → روش‌های پرداخت فعال
+        rows = []
+        for pm in list_payment_methods(active_only=True):
+            key = pm.get("method_key")
+            if key == "variza":
+                try:
+                    from services.variza import is_enabled, configured
+                    if not (is_enabled() and configured()):
+                        continue
+                except Exception:
+                    continue
+            if key == "card" and not list_cards(active_only=True):
+                continue
+            rows.append([InlineKeyboardButton((pm.get("title") or "پرداخت")[:64], callback_data=f"buy_pay_{key}_{order_id}")])
+        rows.extend([
             [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
             [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
-        ]
+        ])
         context.user_data["buy_order_id"] = order_id
         context.user_data["buy_price"] = price
         await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
@@ -299,6 +311,29 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         context.user_data["buy_order_id"] = oid
         context.user_data["waiting_discount"] = True
         await q.edit_message_text("کد تخفیف را ارسال کنید:\n(یا /start انصراف)")
+        return ConversationHandler.END
+
+    if data.startswith("buy_pay_variza_"):
+        order_id = int(data.replace("buy_pay_variza_", ""))
+        order = get_order(order_id)
+        if not order or order["telegram_id"] != user.id:
+            await q.edit_message_text("سفارش نامعتبر.")
+            return ConversationHandler.END
+        try:
+            from services.variza import create_payment_link, save_order_link
+            pay_amount = int(order.get("pay_amount") or 0)
+            data_v = create_payment_link(pay_amount, "order", order_id, f"خرید سرویس #{order_id}")
+            save_order_link(order_id, data_v)
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("💳 پرداخت با واریزا", url=data_v["pay_url"])],
+                                       [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+                                       [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
+            await q.edit_message_text(
+                f"🧾 سفارش #{order_id}\n\nمبلغ قابل پرداخت: <b>{pay_amount:,}</b> تومان\n\n"
+                "با دکمه زیر وارد واریزا شوید. بعد از پرداخت، سفارش به‌صورت خودکار تایید و سرویس ساخته می‌شود؛ رسید لازم نیست.\n\n"
+                "⚠️ مبلغ نهایی ممکن است برای تطبیق بانکی کمی متفاوت باشد و بر اساس شناسه پرداخت تطبیق می‌شود.",
+                reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            await q.edit_message_text(f"❌ ساخت لینک واریزا ناموفق بود.\n{str(e)[:250]}")
         return ConversationHandler.END
 
     if data.startswith("buy_pay_card_"):

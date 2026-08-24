@@ -35,6 +35,23 @@ def ensure_user_tables():
                 except Exception as e:
                     if "Duplicate" not in str(e):
                         print(f"schema warn: {e}")
+            # Safe migrations for existing production payment data.
+            for ddl in (
+                "ALTER TABLE charge_requests ADD COLUMN variza_slug VARCHAR(120) NULL",
+                "ALTER TABLE charge_requests ADD COLUMN variza_amount DECIMAL(18,0) NULL",
+                "ALTER TABLE charge_requests ADD COLUMN variza_attempt_code VARCHAR(120) NULL",
+                "ALTER TABLE charge_requests ADD COLUMN variza_delivery_id VARCHAR(120) NULL",
+                "ALTER TABLE charge_requests ADD COLUMN paid_at TIMESTAMP NULL",
+            ):
+                try: cur.execute(ddl)
+                except Exception: pass
+            for key, value in (("variza_enabled", "0"), ("variza_api_key", ""), ("variza_webhook_secret", ""), ("variza_title", "پرداخت واریزا"), ("public_base_url", ""), ("payment_method_card_enabled", "1"), ("card_payment_title", "کارت به کارت")):
+                try: cur.execute("INSERT IGNORE INTO settings (`key`,`value`) VALUES (%s,%s)", (key, value))
+                except Exception: pass
+            try: cur.execute("INSERT IGNORE INTO payment_methods (method_key,title,is_active) VALUES ('variza','پرداخت واریزا',0)")
+            except Exception: pass
+            try: cur.execute("CREATE UNIQUE INDEX uniq_charge_variza_slug ON charge_requests (variza_slug)")
+            except Exception: pass
             connection.commit()
     finally:
         connection.close()
@@ -462,6 +479,26 @@ def toggle_card(card_id: int, active: bool) -> bool:
     finally:
         conn.close()
 
+def set_payment_method_state(method_key: str, active: bool) -> bool:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE payment_methods SET is_active=%s WHERE method_key=%s", (1 if active else 0, method_key))
+            conn.commit()
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+def set_payment_method_title(method_key: str, title: str) -> bool:
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE payment_methods SET title=%s WHERE method_key=%s", (title[:100], method_key))
+            conn.commit()
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
 def list_payment_methods(active_only=True) -> list:
     conn = get_sync_connection()
     try:
@@ -480,7 +517,7 @@ def create_charge(telegram_id: int, amount: int, method_key="card", card_id=None
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO charge_requests (telegram_id, amount, method_key, card_id, status)
-                   VALUES (%s,%s,%s,%s,'waiting_receipt')""",
+                   VALUES (%s,%s,%s,%s,'pending_payment')""",
                 (telegram_id, amount, method_key, card_id),
             )
             conn.commit()
