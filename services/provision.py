@@ -67,8 +67,22 @@ def provision_order(order_id: int) -> dict:
     if not product or not panel:
         return {"ok": False, "error": "محصول یا پنل نامعتبر"}
 
+    # اول از محصول، بعد اگر روی سفارش override باشد جایگزین می‌شود
+    # (برای تست رایگان و هدیه باشگاه ضروری است)
     volume_gb = float(product.get("volume_gb") or 0)
     days = int(product.get("duration_days") or 30)
+    try:
+        ov_vol = order.get("volume_gb_override")
+        if ov_vol is not None and str(ov_vol).strip() != "":
+            volume_gb = float(ov_vol)
+    except (TypeError, ValueError):
+        pass
+    try:
+        ov_days = order.get("duration_days_override")
+        if ov_days is not None and str(ov_days).strip() != "":
+            days = int(ov_days)
+    except (TypeError, ValueError):
+        pass
     # HWID از محصول — خالی/None = نامحدود
     hwid_raw = product.get("hwid_limit")
     hwid = None

@@ -335,16 +335,6 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         except Exception:
             # اگر ادیت پیام قبلی شکست خورد، پیام جدید بفرست
             await context.bot.send_message(user.id, msg, parse_mode="HTML", reply_markup=kb)
-        # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
-        try:
-            await context.bot.send_message(
-                user.id,
-                f"<code>{card_num}</code>",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[copy_btn]]),
-            )
-        except Exception:
-            pass
         context.user_data["waiting_buy_receipt"] = order_id
         return WAITING_BUY_RECEIPT
 
