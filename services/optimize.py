@@ -113,11 +113,15 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                 stats["errors"].append(f"orders_expired_live: {e}")
 
             try:
+                # سفارش‌های پرداخت‌نشده / منتظر رسید — حذف از لیست (بازه کوتاه‌تر)
                 cur.execute(
                     """DELETE FROM service_orders
-                       WHERE status IN ('pending','pending_payment','waiting_receipt','pending_review')
+                       WHERE status IN (
+                         'pending','pending_payment','waiting_receipt','pending_review',
+                         'waiting_pay','unpaid','draft'
+                       )
                          AND created_at < (NOW() - INTERVAL %s DAY)""",
-                    (max(int(days_cancelled), 14),),
+                    (max(int(days_cancelled), 1),),
                 )
                 stats["orders_pending"] = cur.rowcount or 0
             except Exception as e:

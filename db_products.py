@@ -25,6 +25,14 @@ def ensure_product_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            for col, ddl in [
+                ("emoji", "VARCHAR(32) DEFAULT NULL"),
+                ("premium_emoji", "VARCHAR(64) DEFAULT NULL"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE product_categories ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
             cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -123,7 +131,7 @@ def add_category(name: str) -> int:
         conn.close()
 
 def update_category(cid: int, **fields):
-    allowed = {"name", "sort_order", "is_active"}
+    allowed = {"name", "sort_order", "is_active", "emoji", "premium_emoji"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -358,7 +366,8 @@ def get_order(oid: int):
 def update_order(oid: int, **fields):
     allowed = {"status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
                "wallet_used", "pay_amount", "custom_name", "is_hourly", "hourly_rate", "hourly_active",
-               "volume_gb_override", "duration_days_override", "expire_at", "panel_id", "product_id"}
+               "volume_gb_override", "duration_days_override", "expire_at", "panel_id", "product_id",
+               "protocol_override", "inbound_id"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -394,6 +403,7 @@ def ensure_service_mgmt_columns():
                 ("custom_name", "VARCHAR(100) DEFAULT NULL"),
                 ("hourly_notify_mute", "TINYINT(1) NOT NULL DEFAULT 0"),
                 ("inbound_id", "INT DEFAULT NULL"),
+                ("protocol_override", "TEXT DEFAULT NULL"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")

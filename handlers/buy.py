@@ -18,7 +18,7 @@ WAITING_BUY_RECEIPT = 20
 async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_bot_user(user)
-    panels = list_panels()
+    panels = [p for p in (list_panels() or []) if p.get("is_active", 1)]
     if not panels:
         msg = "فعلاً پنلی برای خرید فعال نیست."
         if update.message:
@@ -26,7 +26,8 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.callback_query.edit_message_text(msg)
         return ConversationHandler.END
-    rows = [[InlineKeyboardButton(p["name"], callback_data=f"buy_panel_{p['id']}")] for p in panels]
+    from database import inline_button_from_entity
+    rows = [[inline_button_from_entity(p, f"buy_panel_{p['id']}")] for p in panels]
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = render_template("buy_select_panel", {}) or "🖥 پنل مورد نظر را انتخاب کنید:"
@@ -90,7 +91,8 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
         cats = [c for c in cats if c["id"] in cat_ids]
         if cats:
-            rows = [[InlineKeyboardButton(c["name"], callback_data=f"buy_cat_{c['id']}")] for c in cats]
+            from database import inline_button_from_entity
+            rows = [[inline_button_from_entity(c, f"buy_cat_{c['id']}")] for c in cats]
             rows.append([InlineKeyboardButton("همه محصولات", callback_data="buy_cat_0")])
             rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
             text = render_template("buy_select_category", {}) or "📁 دسته را انتخاب کنید:"

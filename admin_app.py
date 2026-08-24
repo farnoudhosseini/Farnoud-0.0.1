@@ -273,11 +273,15 @@ def panel_edit(slug):
             flash("روش تمدید نامعتبر است", "error")
         else:
             from database import set_panel_field
+            emoji = (request.form.get("emoji") or "").strip()[:32] or None
+            premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
             ok = (
                 set_panel_field(panel["id"], "name", name[:150])
                 and set_panel_field(panel["id"], "max_sales", max_sales)
                 and set_panel_field(panel["id"], "renew_mode", renew_mode)
                 and set_panel_field(panel["id"], "is_active", active)
+                and set_panel_field(panel["id"], "emoji", emoji)
+                and set_panel_field(panel["id"], "premium_emoji", premium_emoji)
             )
             if ok:
                 flash("تنظیمات پنل با موفقیت ذخیره شد", "success")
@@ -861,6 +865,16 @@ def categories_list():
         elif action == "delete":
             delete_category(int(request.form.get("cid")))
             flash("حذف شد", "success")
+        elif action == "edit":
+            cid = int(request.form.get("cid") or 0)
+            name = (request.form.get("name") or "").strip()
+            emoji = (request.form.get("emoji") or "").strip()[:32] or None
+            premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
+            if cid and name:
+                update_category(cid, name=name[:120], emoji=emoji, premium_emoji=premium_emoji)
+                flash("دسته به‌روز شد", "success")
+            else:
+                flash("نام دسته الزامی است", "error")
         return redirect(url_for("categories_list"))
     return render_template(
         "categories.html",
@@ -929,7 +943,7 @@ def growth_settings():
         if action == "settings":
             for key in [
                 "force_join_enabled", "force_join_channel", "force_phone_enabled",
-                "trial_enabled", "trial_panel_id", "trial_volume_gb", "trial_days",
+                "trial_enabled", "trial_volume_gb", "trial_days",
                 "location_change_enabled", "location_change_price", "location_change_limit",
             ]:
                 val = request.form.get(key)
@@ -938,6 +952,23 @@ def growth_settings():
                 elif val is None:
                     continue
                 set_setting_sync(key, val)
+            # چند پنل تست
+            ids = request.form.getlist("trial_panel_ids") or []
+            ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+            set_setting_sync("trial_panel_ids", ",".join(ids))
+            # سازگاری با نسخه قبل
+            set_setting_sync("trial_panel_id", ids[0] if ids else "")
+            # JSON پروتکل‌ها
+            raw_json = (request.form.get("trial_protocols_json") or "").strip()
+            if raw_json:
+                try:
+                    import json
+                    json.loads(raw_json)  # validate
+                    set_setting_sync("trial_protocols_json", raw_json)
+                except Exception:
+                    flash("JSON پروتکل تست نامعتبر است — بقیه تنظیمات ذخیره شد", "error")
+            else:
+                set_setting_sync("trial_protocols_json", "{}")
             flash("تنظیمات ذخیره شد", "success")
         elif action == "discount":
             ok = create_discount(
@@ -966,6 +997,8 @@ def growth_settings():
             "force_phone_enabled": get_setting_sync("force_phone_enabled", "0"),
             "trial_enabled": get_setting_sync("trial_enabled", "0"),
             "trial_panel_id": get_setting_sync("trial_panel_id", ""),
+            "trial_panel_ids": get_setting_sync("trial_panel_ids", "") or get_setting_sync("trial_panel_id", ""),
+            "trial_protocols_json": get_setting_sync("trial_protocols_json", "") or "",
             "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
             "trial_days": get_setting_sync("trial_days", "1"),
             "location_change_enabled": get_setting_sync("location_change_enabled", "1"),

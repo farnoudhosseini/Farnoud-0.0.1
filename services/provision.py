@@ -121,6 +121,23 @@ def provision_order(order_id: int) -> dict:
         panel_cfg = (product.get("panel_config") or {}).get(int(panel["id"])) or {}
     except Exception:
         panel_cfg = {}
+    # override پروتکل از سفارش (تست رایگان / هدیه و ...)
+    try:
+        import json
+        raw_po = order.get("protocol_override")
+        if raw_po:
+            if isinstance(raw_po, str):
+                po = json.loads(raw_po)
+            else:
+                po = raw_po
+            if isinstance(po, dict) and po:
+                panel_cfg = dict(panel_cfg or {})
+                if po.get("inbound_ids"):
+                    panel_cfg["inbound_ids"] = list(po["inbound_ids"])
+                if po.get("group_ids"):
+                    panel_cfg["group_ids"] = list(po["group_ids"])
+    except Exception as e:
+        print("protocol_override:", e)
 
     if is_xui_panel(panel):
         # ---- 3x-ui ----

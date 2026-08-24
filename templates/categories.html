@@ -12,9 +12,16 @@
 </form>
 </div>
 {% for c in categories %}
-<div class="card" style="display:flex;justify-content:space-between;align-items:center">
-<strong>{{ c.name }}</strong>
-<form method="post" onsubmit="return confirm('حذف؟')">
+<div class="card">
+<form method="post" style="display:grid;grid-template-columns:1.2fr .7fr .9fr auto auto;gap:10px;align-items:end">
+<input type="hidden" name="action" value="edit">
+<input type="hidden" name="cid" value="{{ c.id }}">
+<div class="form-group" style="margin:0"><label>نام</label><input name="name" value="{{ c.name }}" required></div>
+<div class="form-group" style="margin:0"><label>ایموجی عادی</label><input name="emoji" value="{{ c.emoji or '' }}" maxlength="16" placeholder="📁"></div>
+<div class="form-group" style="margin:0"><label>ایموجی پریمیوم</label><input name="premium_emoji" value="{{ c.premium_emoji or '' }}" maxlength="64" placeholder="p_xxx"></div>
+<button class="btn-primary inline" type="submit">ذخیره</button>
+</form>
+<form method="post" onsubmit="return confirm('حذف؟')" style="margin-top:8px">
 <input type="hidden" name="action" value="delete"><input type="hidden" name="cid" value="{{ c.id }}">
 <button class="btn-danger" type="submit">حذف</button>
 </form>

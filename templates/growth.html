@@ -16,15 +16,24 @@
 
 <div class="card-title" style="margin-top:16px">تست رایگان</div>
 <label class="check-item"><input type="checkbox" name="trial_enabled" value="1" {% if s.trial_enabled=='1' %}checked{% endif %}> فعال</label>
-<div class="form-group"><label>پنل تست</label>
-<select name="trial_panel_id" class="form-select">
-<option value="">—</option>
+<div class="form-group"><label>پنل‌های مجاز تست (چندتایی با Ctrl/Cmd)</label>
+<select name="trial_panel_ids" class="form-select" multiple size="{{ panels|length if panels|length < 8 else 8 }}">
+{% set selected = (s.trial_panel_ids or s.trial_panel_id or '')|string %}
 {% for p in panels %}
-<option value="{{ p.id }}" {% if s.trial_panel_id==p.id|string %}selected{% endif %}>{{ p.name }}</option>
+<option value="{{ p.id }}" {% if p.id|string in selected.split(',') %}selected{% endif %}>{{ p.name }}</option>
 {% endfor %}
-</select></div>
+</select>
+<div class="muted" style="font-size:.8rem;margin-top:.3rem">اگر خالی باشد همه پنل‌های فعال مجازند.</div>
+</div>
 <div class="form-group"><label>حجم (GB)</label><input name="trial_volume_gb" value="{{ s.trial_volume_gb }}"></div>
 <div class="form-group"><label>روز</label><input name="trial_days" value="{{ s.trial_days }}"></div>
+<div class="form-group"><label>پروتکل‌ها / اینباند یا گروه (پیشرفته)</label>
+<textarea name="trial_protocols_json" rows="4" class="form-control" placeholder='{"12":{"inbound_ids":[1,2]},"15":{"group_ids":[3]}}'>{{ s.trial_protocols_json or '' }}</textarea>
+<div class="muted" style="font-size:.8rem;margin-top:.3rem">
+برای هر پنل: در <b>3x-ui</b> کلید <code>inbound_ids</code> و در <b>پاسارگارد</b> کلید <code>group_ids</code>.
+مثال: <code>{"1":{"inbound_ids":[3,5]},"2":{"group_ids":[1]}}</code>
+</div>
+</div>
 
 <div class="card-title" style="margin-top:16px">تغییر لوکیشن</div>
 <label class="check-item"><input type="checkbox" name="location_change_enabled" value="1" {% if s.location_change_enabled=='1' %}checked{% endif %}> فعال</label>
