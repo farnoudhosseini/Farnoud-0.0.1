@@ -378,9 +378,10 @@ def set_panel_field(panel_id: int, field: str, value) -> bool:
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE vpn_panels SET {field}=%s WHERE id=%s", (value, panel_id))
+            cur.execute(f"UPDATE vpn_panels SET `{field}`=%s WHERE id=%s", (value, panel_id))
             conn.commit()
-            return cur.rowcount > 0
+            # حتی اگر مقدار عوض نشده باشد (rowcount=0) موفقیت است
+            return True
     except Exception as e:
         print(f"set_panel_field: {e}")
         return False

@@ -272,21 +272,25 @@ def panel_edit(slug):
         elif renew_mode not in ("reset_both", "reset_time", "reset_volume", "additive"):
             flash("روش تمدید نامعتبر است", "error")
         else:
-            from database import set_panel_field
+            from database import set_panel_field, ensure_panel_max_sales
+            try:
+                ensure_panel_max_sales()  # اطمینان از وجود ستون‌های emoji/premium_emoji
+            except Exception:
+                pass
             emoji = (request.form.get("emoji") or "").strip()[:32] or None
             premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
-            ok = (
-                set_panel_field(panel["id"], "name", name[:150])
-                and set_panel_field(panel["id"], "max_sales", max_sales)
-                and set_panel_field(panel["id"], "renew_mode", renew_mode)
-                and set_panel_field(panel["id"], "is_active", active)
-                and set_panel_field(panel["id"], "emoji", emoji)
-                and set_panel_field(panel["id"], "premium_emoji", premium_emoji)
-            )
-            if ok:
+            results = [
+                set_panel_field(panel["id"], "name", name[:150]),
+                set_panel_field(panel["id"], "max_sales", max_sales),
+                set_panel_field(panel["id"], "renew_mode", renew_mode),
+                set_panel_field(panel["id"], "is_active", active),
+                set_panel_field(panel["id"], "emoji", emoji),
+                set_panel_field(panel["id"], "premium_emoji", premium_emoji),
+            ]
+            if all(results):
                 flash("تنظیمات پنل با موفقیت ذخیره شد", "success")
                 return redirect(url_for("panel_detail", slug=panel["slug"]))
-            flash("ذخیره ناموفق بود", "error")
+            flash("ذخیره ناموفق بود — ستون‌های جدید ممکن است هنوز ساخته نشده باشند. ربات را یک‌بار ری‌استارت کنید.", "error")
     return render_template(
         "panel_edit.html",
         username=session.get("admin_username"), active="panels", panel=panel,
