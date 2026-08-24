@@ -6,9 +6,6 @@
 #  - DB: farnoudbot / user: farnoud
 #  - Works with: curl ... | sudo bash
 # ============================================================
-set +e
-set -u
-
 REPO_URL="https://github.com/FarnoudHosseini/FarnoudBot.git"
 INSTALL_DIR="/opt/farnoudbot"
 SERVICE_BOT="farnoud-bot"
@@ -18,21 +15,54 @@ DB_USER="farnoud"
 DB_HOST="localhost"
 DB_PORT="3306"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
 log(){ echo -e "${CYAN}[INFO]${NC}  $*"; }
-ok(){  echo -e "${GREEN}[OK]${NC}    $*"; }
+ok(){ echo -e "${GREEN}[OK]${NC}    $*"; }
 warn(){ echo -e "${YELLOW}[WARN]${NC}  $*"; }
 err(){ echo -e "${RED}[ERROR]${NC} $*"; }
 
-require_root(){ [ "$(id -u)" -eq 0 ] || { err "Run: sudo bash install.sh"; exit 1; }; }
+require_root(){
+  [ "$(id -u)" -eq 0 ] || { err "Run: sudo bash install.sh"; exit 1; }
+}
+
+check_port_5000(){
+  if command -v ss >/dev/null 2>&1; then
+    local out=$(ss -lntp sport = :5000 2>/dev/null | grep -i listen | head -n 1)
+    if [ -n "$out" ]; then
+      local pid=$(echo "$out" | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -n 1)
+      local pname=$(echo "$out" | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | head -n 1)
+      err "Port 5000 is occupied by process ${pname:-Unknown} (PID: ${pid:-Unknown})."
+      exit 1
+    fi
+  elif command -v netstat >/dev/null 2>&1; then
+    local out=$(netstat -lntp 2>/dev/null | awk '$4 ~ /:5000$/ && $6 ~ /LISTEN/ {print}' | head -n 1)
+    if [ -n "$out" ]; then
+      local proc=$(echo "$out" | awk '{print $7}')
+      err "Port 5000 is occupied by process ${proc:-Unknown}."
+      exit 1
+    fi
+  fi
+}
 
 ask(){
   local p="$1" v="$2" x=""
-  if [ -r /dev/tty ]; then printf "%s" "$p" >/dev/tty; IFS= read -r x </dev/tty || true
-  else read -r -p "$p" x || true; fi
+  if [ -r /dev/tty ]; then
+    printf "%s" "$p" >/dev/tty
+    IFS= read -r x </dev/tty || true
+  else
+    read -r -p "$p" x || true
+  fi
   printf -v "$v" '%s' "$x"
 }
-rand(){ tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c "${1:-20}" || echo "x$(date +%s)$RANDOM"; }
+
+rand(){
+  tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c "${1:-20}" || echo "x$(date +%s)$RANDOM"
+}
 
 banner(){
   clear 2>/dev/null || true
@@ -51,22 +81,34 @@ banner(){
 mysql_root(){
   if command -v mysql >/dev/null 2>&1; then
     if mysql --protocol=socket -uroot --connect-timeout=3 -e "SELECT 1" >/dev/null 2>&1; then
-      mysql --protocol=socket -uroot --connect-timeout=5 "$@"; return $?; fi
+      mysql --protocol=socket -uroot --connect-timeout=5 "$@"
+      return $?
+    fi
   fi
   if command -v mariadb >/dev/null 2>&1; then
     if mariadb --protocol=socket -uroot --connect-timeout=3 -e "SELECT 1" >/dev/null 2>&1; then
-      mariadb --protocol=socket -uroot --connect-timeout=5 "$@"; return $?; fi
+      mariadb --protocol=socket -uroot --connect-timeout=5 "$@"
+      return $?
+    fi
   fi
   if sudo mysql --protocol=socket -uroot --connect-timeout=3 -e "SELECT 1" >/dev/null 2>&1; then
-    sudo mysql --protocol=socket -uroot --connect-timeout=5 "$@"; return $?; fi
+    sudo mysql --protocol=socket -uroot --connect-timeout=5 "$@"
+    return $?
+  fi
   return 1
 }
 
 start_mysql(){
   log "Starting MySQL/MariaDB..."
-  systemctl start mysql 2>/dev/null || systemctl start mariadb 2>/dev/null \
-    || service mysql start 2>/dev/null || service mariadb start 2>/dev/null || true
-  systemctl enable mysql 2>/dev/null || systemctl enable mariadb 2>/dev/null || true
+  if [ ! -d /var/lib/mysql/mysql ]; then
+    if command -v mariadb-install-db >/dev/null 2>&1; then
+      mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+    elif command -v mysql_install_db >/dev/null 2>&1; then
+      mysql_install_db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+    fi
+  fi
+  systemctl start mysql 2>/dev/null || systemctl start mariadb 2>/dev/null || systemctl start mysqld 2>/dev/null || service mysql start 2>/dev/null || service mariadb start 2>/dev/null || service mysqld start 2>/dev/null || true
+  systemctl enable mysql 2>/dev/null || systemctl enable mariadb 2>/dev/null || systemctl enable mysqld 2>/dev/null || true
   local i
   for i in $(seq 1 15); do
     mysql_root -e "SELECT 1" >/dev/null 2>&1 && { ok "MySQL ready"; return 0; }
@@ -77,25 +119,40 @@ start_mysql(){
 }
 
 install_os_packages(){
-  log "apt update + packages..."
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y >/tmp/farnoud_apt_update.log 2>&1 || true
-  apt-get install -y \
-    python3 python3-pip python3-dev python3-setuptools python3-wheel \
-    python3-flask python3-pymysql python3-dotenv python3-requests \
-    python3-pil python3-cryptography python3-werkzeug \
-    nginx curl git ufw \
-    build-essential libssl-dev libffi-dev pkg-config default-libmysqlclient-dev \
-    certbot python3-certbot-nginx \
-    >/tmp/farnoud_apt_install.log 2>&1 || true
-
-  if ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
-    log "Installing MySQL server..."
-    apt-get install -y mysql-server mysql-client >/tmp/farnoud_mysql_pkg.log 2>&1 \
-      || apt-get install -y default-mysql-server default-mysql-client >/tmp/farnoud_mysql_pkg.log 2>&1 \
-      || apt-get install -y mariadb-server mariadb-client >/tmp/farnoud_mysql_pkg.log 2>&1 || true
+  log "Installing OS packages..."
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y >/tmp/farnoud_apt_update.log 2>&1 || true
+    apt-get install -y python3 python3-pip python3-dev python3-setuptools python3-wheel nginx curl git ufw build-essential libssl-dev libffi-dev pkg-config default-libmysqlclient-dev certbot python3-certbot-nginx >/tmp/farnoud_apt_install.log 2>&1 || true
+    if ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
+      apt-get install -y mysql-server mysql-client >/tmp/farnoud_mysql_pkg.log 2>&1 || apt-get install -y default-mysql-server default-mysql-client >/tmp/farnoud_mysql_pkg.log 2>&1 || apt-get install -y mariadb-server mariadb-client >/tmp/farnoud_mysql_pkg.log 2>&1 || true
+    fi
+  elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+    PM="yum"
+    command -v dnf >/dev/null 2>&1 && PM="dnf"
+    $PM install -y epel-release >/tmp/farnoud_pkg.log 2>&1 || true
+    $PM install -y python3 python3-pip python3-devel python3-setuptools python3-wheel nginx curl git firewalld gcc gcc-c++ make openssl-devel libffi-devel pkgconf mariadb-devel certbot python3-certbot-nginx >>/tmp/farnoud_pkg.log 2>&1 || true
+    if ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
+      $PM install -y mariadb-server mariadb >>/tmp/farnoud_pkg.log 2>&1 || true
+    fi
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm python python-pip python-setuptools python-wheel nginx curl git ufw base-devel openssl libffi pkgconf mariadb mariadb-libs certbot certbot-nginx >/tmp/farnoud_pkg.log 2>&1 || true
+  elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive install python3 python3-pip python3-devel python3-setuptools python3-wheel nginx curl git ufw gcc gcc-c++ make libopenssl-devel libffi-devel pkgconf mariadb mariadb-client certbot python3-certbot-nginx >/tmp/farnoud_pkg.log 2>&1 || true
+  elif command -v apk >/dev/null 2>&1; then
+    apk update >/tmp/farnoud_apk.log 2>&1 || true
+    apk add python3 py3-pip python3-dev nginx curl git ufw build-base openssl-dev libffi-dev pkgconf mariadb mariadb-client certbot certbot-nginx >/tmp/farnoud_apk.log 2>&1 || true
+  else
+    warn "Unsupported package manager. Please install dependencies manually."
   fi
-  systemctl enable nginx >/dev/null 2>&1; systemctl start nginx >/dev/null 2>&1 || true
+
+  mkdir -p /etc/nginx/conf.d /etc/nginx/sites-available /etc/nginx/sites-enabled
+  if ! grep -q "conf.d" /etc/nginx/nginx.conf 2>/dev/null; then
+    sed -i -e '/http {/a \    include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true
+  fi
+
+  systemctl enable nginx >/dev/null 2>&1 || true
+  systemctl start nginx >/dev/null 2>&1 || true
   start_mysql || warn "MySQL not up yet"
   ok "OS packages done"
 }
@@ -123,9 +180,8 @@ clone_code(){
 }
 
 pip_try(){
-  # $*: packages
-  python3 -m pip install "$@" --break-system-packages 2>>/tmp/farnoud_pip3.log && return 0
   python3 -m pip install "$@" 2>>/tmp/farnoud_pip3.log && return 0
+  python3 -m pip install "$@" --break-system-packages 2>>/tmp/farnoud_pip3.log && return 0
   return 1
 }
 
@@ -135,12 +191,10 @@ install_pip(){
 
   if ! python3 -m pip --version >/dev/null 2>&1; then
     log "Bootstrapping pip..."
-    apt-get install -y python3-pip >/dev/null 2>&1 || true
     python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
   fi
 
-  python3 -m pip install --upgrade pip setuptools wheel --break-system-packages >>/tmp/farnoud_pip3.log 2>&1 \
-    || python3 -m pip install --upgrade pip setuptools wheel >>/tmp/farnoud_pip3.log 2>&1 || true
+  python3 -m pip install --upgrade pip setuptools wheel >>/tmp/farnoud_pip3.log 2>&1 || python3 -m pip install --upgrade pip setuptools wheel --break-system-packages >>/tmp/farnoud_pip3.log 2>&1 || true
 
   if [ -f "$INSTALL_DIR/requirements.txt" ]; then
     log "pip install -r requirements.txt"
@@ -148,16 +202,14 @@ install_pip(){
   fi
 
   log "pip install core: telegram flask aiomysql ..."
-  pip_try "python-telegram-bot[job-queue]" aiomysql python-dotenv flask pymysql werkzeug requests "qrcode[pil]" cryptography Pillow \
-    || warn "core pip batch had errors"
+  pip_try "python-telegram-bot[job-queue]" aiomysql python-dotenv flask pymysql werkzeug requests "qrcode[pil]" cryptography Pillow || warn "core pip batch had errors"
 
-  # Force critical ones individually
   python3 -c "import telegram" 2>/dev/null || pip_try --force-reinstall "python-telegram-bot[job-queue]" || true
-  python3 -c "import flask" 2>/dev/null || { pip_try --force-reinstall flask || apt-get install -y python3-flask >/dev/null 2>&1 || true; }
-  python3 -c "import pymysql" 2>/dev/null || { pip_try pymysql || apt-get install -y python3-pymysql >/dev/null 2>&1 || true; }
-  python3 -c "import dotenv" 2>/dev/null || { pip_try python-dotenv || apt-get install -y python3-dotenv >/dev/null 2>&1 || true; }
+  python3 -c "import flask" 2>/dev/null || pip_try --force-reinstall flask || true
+  python3 -c "import pymysql" 2>/dev/null || pip_try pymysql || true
+  python3 -c "import dotenv" 2>/dev/null || pip_try python-dotenv || true
   python3 -c "import aiomysql" 2>/dev/null || pip_try aiomysql || true
-  python3 -c "import werkzeug" 2>/dev/null || { pip_try werkzeug || apt-get install -y python3-werkzeug >/dev/null 2>&1 || true; }
+  python3 -c "import werkzeug" 2>/dev/null || pip_try werkzeug || true
 
   MISSING=""
   python3 -c "import flask" 2>/dev/null || MISSING="$MISSING flask"
@@ -202,8 +254,9 @@ ask_domain(){
 
 setup_nginx(){
   log "Nginx for $DOMAIN"
-  mkdir -p /var/www/html
-  cat >/etc/nginx/sites-available/farnoudbot <<EOF
+  mkdir -p /var/www/html /etc/nginx/conf.d
+  rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf 2>/dev/null || true
+  cat >/etc/nginx/conf.d/farnoudbot.conf <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -219,13 +272,10 @@ server {
     }
 }
 EOF
-  ln -sfn /etc/nginx/sites-available/farnoudbot /etc/nginx/sites-enabled/farnoudbot
-  rm -f /etc/nginx/sites-enabled/default
-  nginx -t >/tmp/farnoud_nginx.log 2>&1 && systemctl reload nginx
+  nginx -t >/tmp/farnoud_nginx.log 2>&1 && systemctl reload nginx 2>/dev/null || true
 
   log "Let's Encrypt..."
-  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos \
-      --register-unsafely-without-email --redirect >/tmp/farnoud_certbot.log 2>&1; then
+  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect >/tmp/farnoud_certbot.log 2>&1; then
     ok "SSL OK"
     PANEL_URL="https://${DOMAIN}"
     MINIAPP_URL="https://${DOMAIN}/miniapp/"
@@ -323,8 +373,7 @@ EOF
   echo "$WEB_PASS" >/root/.farnoud_web_pass
   chmod 600 /root/.farnoud_web_pass
 
-  mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" "$DB_NAME" --connect-timeout=5 -e "SELECT 1" >/dev/null 2>&1 \
-    && ok "DB login test OK" || warn "DB login test failed"
+  mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" "$DB_NAME" --connect-timeout=5 -e "SELECT 1" >/dev/null 2>&1 && ok "DB login test OK" || warn "DB login test failed"
   ok "Database step done"
 }
 
@@ -334,7 +383,7 @@ setup_services(){
   cat >/etc/systemd/system/${SERVICE_BOT}.service <<EOF
 [Unit]
 Description=FarnoudBot Telegram Bot
-After=network-online.target mysql.service mariadb.service
+After=network-online.target mysql.service mariadb.service mysqld.service
 Wants=network-online.target
 
 [Service]
@@ -353,7 +402,7 @@ EOF
   cat >/etc/systemd/system/${SERVICE_PANEL}.service <<EOF
 [Unit]
 Description=FarnoudBot Admin Panel + MiniApp
-After=network-online.target mysql.service mariadb.service
+After=network-online.target mysql.service mariadb.service mysqld.service
 Wants=network-online.target
 
 [Service]
@@ -381,7 +430,6 @@ EOF
   if systemctl is-active --quiet ${SERVICE_PANEL}; then ok "farnoud-panel ACTIVE"
   else err "farnoud-panel FAILED"; journalctl -u ${SERVICE_PANEL} -n 25 --no-pager; fi
 
-  # Port 5000 check
   sleep 1
   if ss -lntp 2>/dev/null | grep -q ':5000'; then
     ok "Port 5000 is LISTENING"
@@ -399,6 +447,12 @@ firewall_bits(){
     ufw allow 443/tcp >/dev/null 2>&1 || true
     ufw deny 5000/tcp >/dev/null 2>&1 || true
     ufw --force enable >/dev/null 2>&1 || true
+  elif command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-service=ssh >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true
+    firewall-cmd --permanent --remove-port=5000/tcp >/dev/null 2>&1 || true
+    firewall-cmd --reload >/dev/null 2>&1 || true
   fi
   chmod 600 "$INSTALL_DIR/.env" 2>/dev/null || true
 }
@@ -420,7 +474,9 @@ print_done(){
 }
 
 do_install(){
-  require_root; banner
+  require_root
+  banner
+  check_port_5000
   install_os_packages
   clone_code
   if ! install_pip; then
@@ -437,7 +493,8 @@ do_install(){
 }
 
 do_update(){
-  require_root; banner
+  require_root
+  banner
   [ -d "$INSTALL_DIR" ] || { err "Not installed"; exit 1; }
   systemctl stop ${SERVICE_BOT} ${SERVICE_PANEL} 2>/dev/null || true
   clone_code
@@ -447,7 +504,8 @@ do_update(){
 }
 
 do_uninstall(){
-  require_root; banner
+  require_root
+  banner
   echo -e "${RED}Deletes services, nginx, DB ${DB_NAME}, ${INSTALL_DIR}${NC}"
   ask "Type YES: " conf
   [ "${conf:-}" = "YES" ] || { echo "Cancelled"; exit 0; }
@@ -455,7 +513,7 @@ do_uninstall(){
   systemctl disable ${SERVICE_BOT} ${SERVICE_PANEL} 2>/dev/null || true
   rm -f /etc/systemd/system/${SERVICE_BOT}.service /etc/systemd/system/${SERVICE_PANEL}.service
   systemctl daemon-reload
-  rm -f /etc/nginx/sites-enabled/farnoudbot /etc/nginx/sites-available/farnoudbot
+  rm -f /etc/nginx/sites-enabled/farnoudbot /etc/nginx/sites-available/farnoudbot /etc/nginx/conf.d/farnoudbot.conf
   systemctl reload nginx 2>/dev/null || true
   mysql_root -e "DROP DATABASE IF EXISTS \`${DB_NAME}\`; DROP USER IF EXISTS '${DB_USER}'@'localhost'; FLUSH PRIVILEGES;" 2>/dev/null || true
   rm -rf "$INSTALL_DIR" /root/.farnoud_web_pass
@@ -463,7 +521,8 @@ do_uninstall(){
 }
 
 do_finish(){
-  require_root; banner
+  require_root
+  banner
   log "Resume / fix deps + restart services"
   [ -d "$INSTALL_DIR" ] || { err "No $INSTALL_DIR"; exit 1; }
   install_os_packages
@@ -471,7 +530,7 @@ do_finish(){
     err "Python still broken"
     exit 1
   fi
-  DOMAIN=$(grep -oP 'server_name \K[^; ]+' /etc/nginx/sites-available/farnoudbot 2>/dev/null | head -1 || true)
+  DOMAIN=$(grep -oP 'server_name \K[^; ]+' /etc/nginx/conf.d/farnoudbot.conf /etc/nginx/sites-available/farnoudbot 2>/dev/null | head -1 || true)
   if [ -z "${DOMAIN:-}" ]; then ask_domain; setup_nginx
   else
     log "Domain: $DOMAIN"
@@ -483,7 +542,6 @@ do_finish(){
   fi
   if [ -f "$INSTALL_DIR/.env" ]; then set -a; . "$INSTALL_DIR/.env"; set +a; fi
   if [ -z "${BOT_TOKEN:-}" ] || [ -z "${ADMIN_ID:-}" ]; then ask_bot; fi
-  # Only recreate DB if .env missing DB_PASSWORD
   if [ ! -f "$INSTALL_DIR/.env" ] || [ -z "${DB_PASSWORD:-}" ]; then
     setup_db || warn "DB errors"
   else
