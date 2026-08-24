@@ -11,7 +11,7 @@ pool = None
 
 async def init_db():
     global pool
-    pool = await aiomysql.create_pool(**DB_CONFIG)
+    pool = await aiomysql.create_pool(**DB_CONFIG, minsize=2, maxsize=15)
     await ensure_tables_async()
     print("✅ اتصال به دیتابیس با موفقیت برقرار شد")
 
@@ -152,6 +152,48 @@ _settings_sync_cache: dict = {}
 _settings_sync_cache_ts: float = 0.0
 _SETTINGS_CACHE_TTL = 15.0  # ثانیه
 
+def _invalidate_runtime_caches(key: str = ""):
+    """کش‌های سبک هندلرها را بعد از تغییر تنظیمات تازه می‌کند."""
+    if key in {
+        "menu_buttons_json", "menu_buttons_per_row", "inline_main_menu",
+        "miniapp_url", "miniapp_btn_enabled", "miniapp_btn_label"
+    }:
+        try:
+            from handlers import wallet as _wallet
+            _wallet._MAIN_KEYBOARD_CACHE.clear()
+        except Exception:
+            pass
+
+
+
+def get_settings_sync(keys, defaults=None) -> dict:
+    """خواندن چند تنظیم با یک اتصال دیتابیس؛ برای مسیرهای پرتکرار ربات."""
+    keys = list(keys or [])
+    defaults = defaults or {}
+    if not keys:
+        return {}
+    connection = None
+    try:
+        connection = get_sync_connection()
+        with connection.cursor() as cursor:
+            placeholders = ",".join(["%s"] * len(keys))
+            cursor.execute(
+                f"SELECT `key`, `value` FROM settings WHERE `key` IN ({placeholders})",
+                tuple(keys),
+            )
+            rows = cursor.fetchall() or []
+        result = {k: defaults.get(k, "") for k in keys}
+        for row in rows:
+            if row.get("value") is not None:
+                result[row["key"]] = row["value"]
+        return result
+    except Exception as e:
+        print(f"❌ خطا در خواندن تنظیمات: {e}")
+        return {k: defaults.get(k, "") for k in keys}
+    finally:
+        if connection:
+            connection.close()
+
 
 def get_setting_sync(key: str, default: str = "") -> str:
     import time
@@ -199,6 +241,7 @@ def set_setting_sync(key: str, value: str) -> bool:
                 _settings_sync_cache[key] = value
             except Exception:
                 pass
+            _invalidate_runtime_caches(key)
             return True
     except Exception as e:
         print(f"❌ خطا در ذخیره تنظیم: {e}")

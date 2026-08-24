@@ -1,6 +1,7 @@
 # کیف پول، شارژ، کد هدیه، زیرمجموعه
 
 import os
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, BOT_TOKEN
@@ -15,6 +16,10 @@ WAITING_CHARGE_AMOUNT = 10
 WAITING_GIFT_CODE = 11
 WAITING_RECEIPT = 12
 
+# کش کوتاه منوی اصلی؛ تغییرات پنل حداکثر چند ثانیه بعد اعمال می‌شوند.
+_MAIN_KEYBOARD_CACHE = {}
+_MAIN_KEYBOARD_CACHE_TTL = 3.0
+
 def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
     """
     منوی اصلی.
@@ -28,11 +33,19 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
         get_menu_buttons, build_menu_rows, COLOR_TO_STYLE,
         extract_premium_from_label, strip_premium_codes,
     )
+
     if force_inline is None:
         use_inline = get_setting_sync("inline_main_menu", "0") == "1"
     else:
         use_inline = bool(force_inline)
 
+    cache_key = (bool(is_admin), bool(use_inline))
+    now = time.monotonic()
+    cached = _MAIN_KEYBOARD_CACHE.get(cache_key)
+    if cached and now - cached[0] < _MAIN_KEYBOARD_CACHE_TTL:
+        return cached[1]
+
+    # از اینجا به بعد فقط یک‌بار در هر چند ثانیه تنظیمات سنگین منو خوانده می‌شوند.
     menu_rows = build_menu_rows(get_menu_buttons())
     miniapp_url = (get_setting_sync('miniapp_url', '') or os.getenv('MINIAPP_URL', '') or '').strip()
     if miniapp_url and not miniapp_url.endswith('/'):
@@ -64,7 +77,9 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
                 rows.append(row)
         if is_admin:
             rows.append([InlineKeyboardButton("⚙️ مدیریت", callback_data="menu_admin")])
-        return InlineKeyboardMarkup(rows)
+        markup = InlineKeyboardMarkup(rows)
+        _MAIN_KEYBOARD_CACHE[cache_key] = (now, markup)
+        return markup
 
     # Reply keyboard — رنگ واقعی با style (Bot API 9.4+ / PTB 22.7+)
     # primary=آبی · success=سبز · danger=قرمز
@@ -97,7 +112,9 @@ def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
             rows.append([KeyboardButton("⚙️ مدیریت", style="primary")])
         except TypeError:
             rows.append([KeyboardButton("⚙️ مدیریت")])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    markup = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    _MAIN_KEYBOARD_CACHE[cache_key] = (now, markup)
+    return markup
 
 
 def main_user_keyboards(is_admin: bool = False):
