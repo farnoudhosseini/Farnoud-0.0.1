@@ -18,7 +18,7 @@ WAITING_BUY_RECEIPT = 20
 async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_bot_user(user)
-    panels = list_panels()
+    panels = [p for p in (list_panels() or []) if p.get("is_active", 1)]
     if not panels:
         msg = "فعلاً پنلی برای خرید فعال نیست."
         if update.message:
@@ -26,7 +26,8 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.callback_query.edit_message_text(msg)
         return ConversationHandler.END
-    rows = [[InlineKeyboardButton(p["name"], callback_data=f"buy_panel_{p['id']}")] for p in panels]
+    from database import inline_button_from_entity
+    rows = [[inline_button_from_entity(p, f"buy_panel_{p['id']}")] for p in panels]
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = render_template("buy_select_panel", {}) or "🖥 پنل مورد نظر را انتخاب کنید:"
@@ -40,17 +41,44 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    data = q.data
+    try:
+        await q.answer()
+    except Exception:
+        pass
+    data = q.data or ""
     user = update.effective_user
-    bu = get_bot_user(user.id) or upsert_bot_user(user)
+    try:
+        bu = get_bot_user(user.id) or upsert_bot_user(user)
+    except Exception as e:
+        print("buy_callback get_bot_user:", e)
+        bu = {}
 
+    try:
+        return await _buy_callback_inner(update, context, q, data, user, bu)
+    except Exception as e:
+        print(f"buy_callback error [{data}]: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await q.edit_message_text(f"❌ خطا در پردازش خرید.\n{type(e).__name__}: {e}")
+        except Exception:
+            try:
+                await context.bot.send_message(user.id, f"❌ خطا در پردازش خرید.\n{e}")
+            except Exception:
+                pass
+        return ConversationHandler.END
+
+
+async def _buy_callback_inner(update, context, q, data, user, bu):
     if data == "buy_cancel":
         await q.edit_message_text(
             "❌ خرید لغو شد.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
         )
         return ConversationHandler.END
+
+    if data == "buy_go":
+        return await start_buy(update, context)
 
     if data.startswith("buy_panel_"):
         panel_id = int(data.replace("buy_panel_", ""))
@@ -63,7 +91,8 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
         cats = [c for c in cats if c["id"] in cat_ids]
         if cats:
-            rows = [[InlineKeyboardButton(c["name"], callback_data=f"buy_cat_{c['id']}")] for c in cats]
+            from database import inline_button_from_entity
+            rows = [[inline_button_from_entity(c, f"buy_cat_{c['id']}")] for c in cats]
             rows.append([InlineKeyboardButton("همه محصولات", callback_data="buy_cat_0")])
             rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
             text = render_template("buy_select_category", {}) or "📁 دسته را انتخاب کنید:"
@@ -285,21 +314,29 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card = cards[0]
         update_order(order_id, method_key="card", card_id=card["id"], status="waiting_receipt")
         card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
+        owner = (card.get("owner_name") or "").strip()
+        # استفاده از HTML به‌جای Markdown تا نام صاحب کارت یا اعداد باعث خطای parse نشود
         msg = (
-            f"💳 مبلغ {int(order['pay_amount']):,} تومان را واریز کنید:\n\n"
-            f"شماره کارت: `{card_num}`\n"
-            f"به نام: {card['owner_name']}\n\n"
+            f"💳 مبلغ <b>{int(order['pay_amount']):,}</b> تومان را واریز کنید:\n\n"
+            f"شماره کارت: <code>{card_num}</code>\n"
+            f"به نام: {owner}\n\n"
             f"سپس تصویر رسید را ارسال کنید."
         )
         try:
-            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
-        except TypeError:
+            from telegram import CopyTextButton
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num))
+        except Exception:
             copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
         kb = InlineKeyboardMarkup([
             [copy_btn],
             [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ])
-        await q.edit_message_text(msg, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await q.edit_message_text(msg, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            # اگر ادیت پیام قبلی شکست خورد، پیام جدید بفرست
+            await context.bot.send_message(user.id, msg, parse_mode="HTML", reply_markup=kb)
         context.user_data["waiting_buy_receipt"] = order_id
         return WAITING_BUY_RECEIPT
 

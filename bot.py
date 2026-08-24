@@ -18,7 +18,7 @@ from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message, receive_admin_text,
     receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
 )
-from handlers.buy import start_buy, buy_callback, receive_buy_receipt, WAITING_BUY_RECEIPT
+from handlers.buy import start_buy, buy_callback, receive_buy_receipt
 from handlers.services_user import (
     show_my_services, services_callback, show_support, support_callback,
     receive_ticket_subject, receive_ticket_msg, receive_ticket_reply, show_education,
@@ -60,6 +60,26 @@ async def post_init(application: Application):
             jq.run_repeating(hourly_job, interval=3600, first=120, name="hourly_charges")
             jq.run_repeating(auto_approve_job, interval=120, first=90, name="card_auto_approve")
             print(f"backup job every {bsecs/3600:.1f}h")
+            # بهینه‌سازی خودکار
+            try:
+                from database import get_setting_sync
+                opt_h = float(get_setting_sync("optimize_interval_hours", "0") or 0)
+                if opt_h > 0:
+                    opt_secs = max(3600, int(opt_h * 3600))
+                    async def _auto_optimize_job(context):
+                        try:
+                            from services.optimize import optimize_bot_data, format_optimize_report
+                            from config import ADMIN_ID
+                            stats = optimize_bot_data()
+                            msg = format_optimize_report(stats)
+                            if ADMIN_ID:
+                                await context.bot.send_message(ADMIN_ID, msg, parse_mode="HTML")
+                        except Exception as e:
+                            print("auto optimize:", e)
+                    jq.run_repeating(_auto_optimize_job, interval=opt_secs, first=min(300, opt_secs), name="auto_optimize")
+                    print(f"auto optimize every {opt_h}h")
+            except Exception as e:
+                print("auto optimize setup:", e)
     except Exception as e:
         print(f"jobs: {e}")
 
@@ -70,6 +90,12 @@ async def text_router(update, context):
     """مسیریابی دکمه‌های کیبورد اصلی"""
     text = (update.message.text or "").strip()
     uid = update.effective_user.id if update.effective_user else 0
+    # لغو عملیات در انتظار اگر کاربر دکمه منوی دیگری را زد
+    try:
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+    except Exception:
+        pass
     # حذف نشانگر رنگ از متن کیبورد
     for pfx in ("🔵 ", "🟢 ", "🔴 ", "⚪ "):
         if text.startswith(pfx):
@@ -133,6 +159,12 @@ async def menu_callback(update, context):
     await q.answer()
     data = q.data or ""
     uid = update.effective_user.id if update.effective_user else 0
+    # لغو عملیات در انتظار (ایموجی پریمیوم و ...) اگر کاربر به منوی دیگری رفت
+    try:
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+    except Exception:
+        pass
     if data == "menu_wallet":
         return await show_wallet(update, context)
     if data == "menu_buy":
@@ -164,29 +196,22 @@ async def menu_callback(update, context):
             pass
         return result
     if data == "menu_home":
-        from handlers.wallet import main_user_keyboard
-        from database import get_setting_sync
-        from handlers.admin import is_admin as _is_admin
-        is_adm = _is_admin(uid)
-        use_glass = get_setting_sync("inline_main_menu", "0") == "1"
-        if use_glass:
-            glass = main_user_keyboard(is_admin=is_adm, force_inline=True)
+        # مستقیم مثل /start به منوی اصلی برود؛ متن «منوی اصلی» ارسال نشود
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass
+        try:
+            # پیام قبلی را در صورت امکان حذف/پاک کنیم تا شلوغ نشود
+            await update.callback_query.delete_message()
+        except Exception:
             try:
-                await update.callback_query.edit_message_text("🏠 منوی اصلی", reply_markup=glass)
-            except Exception:
-                await context.bot.send_message(uid, "🏠 منوی اصلی", reply_markup=glass)
-        else:
-            try:
-                await update.callback_query.edit_message_text("🏠 منوی اصلی")
+                await update.callback_query.edit_message_text("‎")
             except Exception:
                 pass
-            try:
-                await context.bot.send_message(
-                    uid, "🏠 منوی اصلی",
-                    reply_markup=main_user_keyboard(is_admin=is_adm, force_inline=False),
-                )
-            except Exception:
-                pass
+        from handlers.start import _send_welcome
+        user = update.effective_user
+        await _send_welcome(update, context, user)
         return None
     return None
 
@@ -238,19 +263,19 @@ def create_bot() -> Application:
         allow_reentry=True,
         per_message=False,
     )
-    buy_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(buy_callback, pattern="^(buy_)")],
-        states={
-            WAITING_BUY_RECEIPT: [
-                MessageHandler(filters.PHOTO | filters.Document.ALL, receive_buy_receipt),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start_command)],
-        allow_reentry=True,
-        per_message=False,
-    )
-    application.add_handler(buy_conv)
+    # خرید سرویس — بدون ConversationHandler برای جلوگیری از گیر کردن دکمه‌ها
+    # همه callbackهای buy_ با هندلر ساده پردازش می‌شوند
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy_"))
+
+    # دریافت رسید خرید (بر اساس user_data، نه state مکالمه)
+    async def _buy_receipt_handler(update, context):
+        if context.user_data.get("waiting_buy_receipt"):
+            return await receive_buy_receipt(update, context)
+        return None
+    application.add_handler(
+        MessageHandler(filters.PHOTO | filters.Document.ALL, _buy_receipt_handler),
+        group=1,
+    )
     
     support_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(support_callback, pattern="^sup_")],

@@ -780,8 +780,16 @@ def miniapp_index():
 @miniapp_bp.get("/assets/<path:filename>")
 def miniapp_asset(filename):
     """سرویس CSS/JS/فونت مینی‌اپ از مسیر ثابت /miniapp/assets/..."""
+    from flask import make_response
     root = os.path.join(os.path.dirname(__file__), "static", "miniapp")
-    return send_from_directory(root, filename)
+    resp = make_response(send_from_directory(root, filename))
+    # کش بلندمدت برای فونت/تصویر؛ CSS/JS با ?v= در کلاینت باطل می‌شود
+    lower = (filename or "").lower()
+    if lower.endswith((".woff2", ".woff", ".ttf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @miniapp_bp.get("/api/theme")
@@ -1112,11 +1120,16 @@ def referral_copy():
 def catalog_panels():
     from database import list_panels
     panels = list_panels() or []
+    from database import format_entity_label
     out = []
     for p in panels:
+        if not p.get("is_active", 1):
+            continue
         out.append({
             "id": p["id"],
-            "name": p.get("name") or f"پنل {p['id']}",
+            "name": format_entity_label(p, for_miniapp=True) or f"پنل {p['id']}",
+            "raw_name": p.get("name") or f"پنل {p['id']}",
+            "emoji": (p.get("emoji") or ""),
             "description": p.get("description") or "",
         })
     return jsonify({"ok": True, "panels": out})
@@ -1136,7 +1149,14 @@ def catalog_categories():
     role = bu.get("role") or "user"
     products = lp(panel_id=panel_id, role=role, active_only=True) if panel_id else lp(role=role, active_only=True)
     cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
-    cats = [c for c in (list_categories(active_only=True) or []) if c["id"] in cat_ids]
+    from database import format_entity_label
+    cats_raw = [c for c in (list_categories(active_only=True) or []) if c["id"] in cat_ids]
+    cats = []
+    for c in cats_raw:
+        item = dict(c)
+        item["name"] = format_entity_label(c, for_miniapp=True) or c.get("name")
+        item["raw_name"] = c.get("name")
+        cats.append(item)
     return jsonify({"ok": True, "categories": _jsonable(cats), "has_uncategorized": any(not p.get("category_id") for p in products)})
 
 
@@ -1856,8 +1876,24 @@ def trial_claim():
     vol = float(get_setting_sync("trial_volume_gb", "1") or 1)
     days = int(get_setting_sync("trial_days", "1") or 1)
     order_id = create_order(user_id, 1, panel_id, 0, 0, 0)
-    update_order(order_id, status="paid", wallet_used=0, pay_amount=0,
-                 volume_gb_override=vol, duration_days_override=days, custom_name="تست رایگان")
+    # پروتکل‌های تست از تنظیمات (per-panel JSON)
+    protocol_override = None
+    try:
+        import json
+        raw = get_setting_sync("trial_protocols_json", "") or "{}"
+        all_cfg = json.loads(raw) if raw else {}
+        cfg = all_cfg.get(str(panel_id)) or all_cfg.get(panel_id) or {}
+        if cfg and (cfg.get("inbound_ids") or cfg.get("group_ids")):
+            protocol_override = json.dumps(cfg, ensure_ascii=False)
+    except Exception as e:
+        print("trial protocol cfg:", e)
+    update_kwargs = dict(
+        status="paid", wallet_used=0, pay_amount=0,
+        volume_gb_override=vol, duration_days_override=days, custom_name="تست رایگان",
+    )
+    if protocol_override:
+        update_kwargs["protocol_override"] = protocol_override
+    update_order(order_id, **update_kwargs)
     result = provision_order(order_id)
     if not result.get("ok"):
         return jsonify({"ok": False, "error": result.get("error") or "ساخت تست ناموفق"}), 502

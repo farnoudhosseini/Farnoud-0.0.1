@@ -21,6 +21,12 @@ async def check_channel_member(bot, user_id: int, channel: str) -> bool:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    # لغو عملیات‌های در انتظار (مثل افزودن ایموجی پریمیوم)
+    try:
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+    except Exception:
+        pass
     referrer_id = None
     if context.args:
         code = context.args[0].strip()

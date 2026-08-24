@@ -8,6 +8,20 @@
 <form method="post">
   <label>نام نمایشی پنل</label>
   <input class="form-control" name="name" value="{{ panel.name }}" maxlength="150" required>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:1rem">
+    <div>
+      <label>ایموجی عادی</label>
+      <input class="form-control" name="emoji" value="{{ panel.emoji or '' }}" maxlength="16" placeholder="مثال: 🌐">
+      <div class="muted" style="font-size:.8rem;margin-top:.3rem">در مینی‌اپ و در صورت نبود پریمیوم در ربات نمایش داده می‌شود.</div>
+    </div>
+    <div>
+      <label>ایموجی پریمیوم</label>
+      <input class="form-control" name="premium_emoji" value="{{ panel.premium_emoji or '' }}" maxlength="64" placeholder="p_xxxxxxxx یا شناسه عددی">
+      <div class="muted" style="font-size:.8rem;margin-top:.3rem">فقط روی دکمه‌های ربات (انتخاب پنل). در مینی‌اپ نشان داده نمی‌شود.</div>
+    </div>
+  </div>
+
   <label style="display:block;margin-top:1rem">سقف فروش پنل</label>
   <input class="form-control" type="number" name="max_sales" min="0" value="{{ max_sales or '' }}" placeholder="خالی = بدون محدودیت">
   <label style="display:block;margin-top:1rem">روش تمدید</label>

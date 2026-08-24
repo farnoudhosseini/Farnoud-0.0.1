@@ -359,6 +359,8 @@ def ensure_panel_max_sales():
                 ("max_sales", "INT DEFAULT NULL"),
                 ("renew_mode", "VARCHAR(32) NOT NULL DEFAULT 'reset_both'"),
                 ("api_key", "VARCHAR(512) DEFAULT NULL"),
+                ("emoji", "VARCHAR(32) DEFAULT NULL"),
+                ("premium_emoji", "VARCHAR(64) DEFAULT NULL"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE vpn_panels ADD COLUMN {col} {ddl}")
@@ -370,15 +372,16 @@ def ensure_panel_max_sales():
 
 
 def set_panel_field(panel_id: int, field: str, value) -> bool:
-    allowed = {"max_sales", "renew_mode", "name", "is_active"}
+    allowed = {"max_sales", "renew_mode", "name", "is_active", "emoji", "premium_emoji"}
     if field not in allowed:
         return False
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE vpn_panels SET {field}=%s WHERE id=%s", (value, panel_id))
+            cur.execute(f"UPDATE vpn_panels SET `{field}`=%s WHERE id=%s", (value, panel_id))
             conn.commit()
-            return cur.rowcount > 0
+            # حتی اگر مقدار عوض نشده باشد (rowcount=0) موفقیت است
+            return True
     except Exception as e:
         print(f"set_panel_field: {e}")
         return False
@@ -393,3 +396,56 @@ def set_panel_max_sales(panel_id: int, max_sales):
             conn.commit()
     finally:
         conn.close()
+
+
+def format_entity_label(entity: dict, for_miniapp: bool = False) -> str:
+    """
+    نام نمایشی پنل/دسته با ایموجی.
+    for_miniapp=True → فقط ایموجی عادی (پریمیوم در مینی‌اپ نیست)
+    for_miniapp=False → اولویت با ایموجی پریمیوم (کد p_ یا شناسه)
+    """
+    if not entity:
+        return ""
+    name = (entity.get("name") or "").strip()
+    emoji = (entity.get("emoji") or "").strip()
+    prem = (entity.get("premium_emoji") or "").strip()
+    if for_miniapp:
+        if emoji:
+            return f"{emoji} {name}".strip()
+        return name
+    # ربات / دکمه اینلاین
+    if prem:
+        return f"{prem} {name}".strip()
+    if emoji:
+        return f"{emoji} {name}".strip()
+    return name
+
+
+def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 64):
+    """ساخت InlineKeyboardButton با پشتیبانی ایموجی پریمیوم برای پنل/دسته."""
+    from telegram import InlineKeyboardButton
+    label = format_entity_label(entity, for_miniapp=False)
+    text = label
+    eid = None
+    try:
+        from db_extras import extract_premium_from_label
+        text, eid = extract_premium_from_label(label)
+    except Exception:
+        # اگر premium_emoji عدد خالص باشد
+        prem = (entity.get("premium_emoji") or "").strip()
+        if prem.isdigit():
+            eid = prem
+            text = (entity.get("name") or "").strip() or "•"
+        else:
+            emoji = (entity.get("emoji") or "").strip()
+            name = (entity.get("name") or "").strip()
+            text = f"{emoji} {name}".strip() if emoji else name
+    text = (text or "•")[:max_len]
+    kwargs = {"text": text, "callback_data": callback_data}
+    if eid:
+        kwargs["icon_custom_emoji_id"] = str(eid)
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except TypeError:
+        return InlineKeyboardButton(text, callback_data=callback_data)
+

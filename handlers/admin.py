@@ -100,6 +100,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
+    # اگر در حال ورود کد/ایموجی پریمیوم بود و دکمه دیگری زده شد، عملیات لغو شود
+    if context.user_data.get("premiji_step") and not (data or "").startswith("admin_premiji"):
+        context.user_data.pop("premiji_step", None)
+        context.user_data.pop("premiji_code", None)
+
     if data == "admin_panel":
         await admin_panel(update, context)
         return ConversationHandler.END
@@ -1324,11 +1329,53 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "admin_optimize":
         from services.optimize import optimize_bot_data, format_optimize_report
+        from database import get_setting_sync
         stats = optimize_bot_data()
+        interval = get_setting_sync("optimize_interval_hours", "0") or "0"
+        try:
+            iv = float(interval)
+        except Exception:
+            iv = 0
+        schedule_line = (
+            f"\n\n⏱ زمان‌بندی خودکار: هر <b>{iv:g}</b> ساعت"
+            if iv > 0 else
+            "\n\n⏱ زمان‌بندی خودکار: <b>خاموش</b>"
+        )
         await query.edit_message_text(
-            format_optimize_report(stats),
+            format_optimize_report(stats) + schedule_line +
+            "\n\nبرای تغییر بازه، یکی از دکمه‌ها را بزنید (بعد از تغییر، یک‌بار ربات را ری‌استارت کنید).",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 دوباره", callback_data="admin_optimize")],
+                [InlineKeyboardButton("🔄 دوباره همین الان", callback_data="admin_optimize")],
+                [
+                    InlineKeyboardButton("هر ۶س", callback_data="admin_opt_int_6"),
+                    InlineKeyboardButton("هر ۱۲س", callback_data="admin_opt_int_12"),
+                    InlineKeyboardButton("هر ۲۴س", callback_data="admin_opt_int_24"),
+                ],
+                [
+                    InlineKeyboardButton("هر ۳روز", callback_data="admin_opt_int_72"),
+                    InlineKeyboardButton("هر ۷روز", callback_data="admin_opt_int_168"),
+                    InlineKeyboardButton("خاموش", callback_data="admin_opt_int_0"),
+                ],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+    if data.startswith("admin_opt_int_"):
+        from database import set_setting_sync, get_setting_sync
+        hours = data.replace("admin_opt_int_", "", 1)
+        try:
+            h = float(hours)
+        except Exception:
+            h = 0
+        set_setting_sync("optimize_interval_hours", str(h if h > 0 else 0))
+        label = f"هر {h:g} ساعت" if h > 0 else "خاموش"
+        await query.edit_message_text(
+            f"✅ زمان‌بندی بهینه‌سازی: <b>{label}</b>\n"
+            "برای اعمال، سرویس ربات را یک‌بار ری‌استارت کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🧹 بهینه‌سازی", callback_data="admin_optimize")],
                 [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
             ]),
             parse_mode="HTML",

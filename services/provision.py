@@ -67,8 +67,22 @@ def provision_order(order_id: int) -> dict:
     if not product or not panel:
         return {"ok": False, "error": "محصول یا پنل نامعتبر"}
 
+    # اول از محصول، بعد اگر روی سفارش override باشد جایگزین می‌شود
+    # (برای تست رایگان و هدیه باشگاه ضروری است)
     volume_gb = float(product.get("volume_gb") or 0)
     days = int(product.get("duration_days") or 30)
+    try:
+        ov_vol = order.get("volume_gb_override")
+        if ov_vol is not None and str(ov_vol).strip() != "":
+            volume_gb = float(ov_vol)
+    except (TypeError, ValueError):
+        pass
+    try:
+        ov_days = order.get("duration_days_override")
+        if ov_days is not None and str(ov_days).strip() != "":
+            days = int(ov_days)
+    except (TypeError, ValueError):
+        pass
     # HWID از محصول — خالی/None = نامحدود
     hwid_raw = product.get("hwid_limit")
     hwid = None
@@ -107,6 +121,23 @@ def provision_order(order_id: int) -> dict:
         panel_cfg = (product.get("panel_config") or {}).get(int(panel["id"])) or {}
     except Exception:
         panel_cfg = {}
+    # override پروتکل از سفارش (تست رایگان / هدیه و ...)
+    try:
+        import json
+        raw_po = order.get("protocol_override")
+        if raw_po:
+            if isinstance(raw_po, str):
+                po = json.loads(raw_po)
+            else:
+                po = raw_po
+            if isinstance(po, dict) and po:
+                panel_cfg = dict(panel_cfg or {})
+                if po.get("inbound_ids"):
+                    panel_cfg["inbound_ids"] = list(po["inbound_ids"])
+                if po.get("group_ids"):
+                    panel_cfg["group_ids"] = list(po["group_ids"])
+    except Exception as e:
+        print("protocol_override:", e)
 
     if is_xui_panel(panel):
         # ---- 3x-ui ----

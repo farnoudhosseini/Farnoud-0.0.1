@@ -205,8 +205,9 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = render_template("charge_card_info", vars_)
         card_num = str(card["card_number"]).replace(" ", "").replace("-", "")
         try:
-            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=card_num)
-        except TypeError:
+            from telegram import CopyTextButton
+            copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num))
+        except Exception:
             copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
         kb = InlineKeyboardMarkup([
             [copy_btn],
@@ -214,16 +215,6 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ])
         await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
-        # پیام جدا برای کپی آسان در کلاینت‌های قدیمی
-        try:
-            await context.bot.send_message(
-                user.id,
-                f"`{card_num}`",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([[copy_btn]]),
-            )
-        except Exception:
-            pass
         context.user_data["waiting_receipt_charge_id"] = charge_id
         return WAITING_RECEIPT
 

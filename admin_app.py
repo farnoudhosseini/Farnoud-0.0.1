@@ -272,17 +272,25 @@ def panel_edit(slug):
         elif renew_mode not in ("reset_both", "reset_time", "reset_volume", "additive"):
             flash("روش تمدید نامعتبر است", "error")
         else:
-            from database import set_panel_field
-            ok = (
-                set_panel_field(panel["id"], "name", name[:150])
-                and set_panel_field(panel["id"], "max_sales", max_sales)
-                and set_panel_field(panel["id"], "renew_mode", renew_mode)
-                and set_panel_field(panel["id"], "is_active", active)
-            )
-            if ok:
+            from database import set_panel_field, ensure_panel_max_sales
+            try:
+                ensure_panel_max_sales()  # اطمینان از وجود ستون‌های emoji/premium_emoji
+            except Exception:
+                pass
+            emoji = (request.form.get("emoji") or "").strip()[:32] or None
+            premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
+            results = [
+                set_panel_field(panel["id"], "name", name[:150]),
+                set_panel_field(panel["id"], "max_sales", max_sales),
+                set_panel_field(panel["id"], "renew_mode", renew_mode),
+                set_panel_field(panel["id"], "is_active", active),
+                set_panel_field(panel["id"], "emoji", emoji),
+                set_panel_field(panel["id"], "premium_emoji", premium_emoji),
+            ]
+            if all(results):
                 flash("تنظیمات پنل با موفقیت ذخیره شد", "success")
                 return redirect(url_for("panel_detail", slug=panel["slug"]))
-            flash("ذخیره ناموفق بود", "error")
+            flash("ذخیره ناموفق بود — ستون‌های جدید ممکن است هنوز ساخته نشده باشند. ربات را یک‌بار ری‌استارت کنید.", "error")
     return render_template(
         "panel_edit.html",
         username=session.get("admin_username"), active="panels", panel=panel,
@@ -861,6 +869,16 @@ def categories_list():
         elif action == "delete":
             delete_category(int(request.form.get("cid")))
             flash("حذف شد", "success")
+        elif action == "edit":
+            cid = int(request.form.get("cid") or 0)
+            name = (request.form.get("name") or "").strip()
+            emoji = (request.form.get("emoji") or "").strip()[:32] or None
+            premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
+            if cid and name:
+                update_category(cid, name=name[:120], emoji=emoji, premium_emoji=premium_emoji)
+                flash("دسته به‌روز شد", "success")
+            else:
+                flash("نام دسته الزامی است", "error")
         return redirect(url_for("categories_list"))
     return render_template(
         "categories.html",
@@ -929,7 +947,7 @@ def growth_settings():
         if action == "settings":
             for key in [
                 "force_join_enabled", "force_join_channel", "force_phone_enabled",
-                "trial_enabled", "trial_panel_id", "trial_volume_gb", "trial_days",
+                "trial_enabled", "trial_volume_gb", "trial_days",
                 "location_change_enabled", "location_change_price", "location_change_limit",
             ]:
                 val = request.form.get(key)
@@ -938,6 +956,15 @@ def growth_settings():
                 elif val is None:
                     continue
                 set_setting_sync(key, val)
+            # چند پنل تست + پروتکل‌ها (تیک‌باکس مثل محصولات)
+            import json
+            ids = request.form.getlist("trial_panel_ids") or []
+            ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+            set_setting_sync("trial_panel_ids", ",".join(ids))
+            set_setting_sync("trial_panel_id", ids[0] if ids else "")
+            # همان منطق محصولات: panel_inbounds_{id} / panel_groups_{id}
+            pcfg = _parse_panel_config_from_form(ids)
+            set_setting_sync("trial_protocols_json", json.dumps(pcfg or {}, ensure_ascii=False))
             flash("تنظیمات ذخیره شد", "success")
         elif action == "discount":
             ok = create_discount(
@@ -955,6 +982,13 @@ def growth_settings():
             ok = delete_discount(did) if did else False
             flash("کد تخفیف حذف شد" if ok else "کد یافت نشد یا حذف نشد", "success" if ok else "error")
         return redirect(url_for("growth_settings"))
+    import json as _json
+    try:
+        _trial_protocols = _json.loads(get_setting_sync("trial_protocols_json", "{}") or "{}")
+        if not isinstance(_trial_protocols, dict):
+            _trial_protocols = {}
+    except Exception:
+        _trial_protocols = {}
     return render_template(
         "growth.html",
         username=session.get("admin_username"), active="growth",
@@ -966,6 +1000,9 @@ def growth_settings():
             "force_phone_enabled": get_setting_sync("force_phone_enabled", "0"),
             "trial_enabled": get_setting_sync("trial_enabled", "0"),
             "trial_panel_id": get_setting_sync("trial_panel_id", ""),
+            "trial_panel_ids": get_setting_sync("trial_panel_ids", "") or get_setting_sync("trial_panel_id", ""),
+            "trial_protocols_json": get_setting_sync("trial_protocols_json", "") or "",
+            "trial_protocols": _trial_protocols,
             "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
             "trial_days": get_setting_sync("trial_days", "1"),
             "location_change_enabled": get_setting_sync("location_change_enabled", "1"),
@@ -1317,6 +1354,49 @@ def miniapp_theme_save():
         save_miniapp_theme(cur)
         flash("شخصی‌سازی مینی‌اپ ذخیره شد", "success")
     return redirect(url_for("miniapp_content"))
+
+
+@app.route("/miniapp-content/logo", methods=["POST"])
+@login_required
+def miniapp_logo_upload():
+    """آپلود مستقیم لوگوی مینی‌اپ — ذخیره در static/miniapp/logo.* و ست کردن theme.logo_url"""
+    import os
+    from werkzeug.utils import secure_filename
+    from miniapp import get_miniapp_theme, save_miniapp_theme
+    f = request.files.get("logo")
+    if not f or not f.filename:
+        flash("فایلی انتخاب نشده", "error")
+        return redirect(url_for("miniapp_content"))
+    ext = (secure_filename(f.filename).rsplit(".", 1)[-1] or "").lower()
+    if ext not in ("png", "jpg", "jpeg", "webp", "gif"):
+        flash("فرمت مجاز: png / jpg / webp / gif", "error")
+        return redirect(url_for("miniapp_content"))
+    # محدودیت حجم ۲ مگ
+    f.seek(0, os.SEEK_END)
+    size = f.tell()
+    f.seek(0)
+    if size > 2 * 1024 * 1024:
+        flash("حجم فایل حداکثر ۲ مگابایت باشد", "error")
+        return redirect(url_for("miniapp_content"))
+    dest_dir = os.path.join(os.path.dirname(__file__), "static", "miniapp")
+    os.makedirs(dest_dir, exist_ok=True)
+    # حذف لوگوهای قبلی
+    for old in ("logo.png", "logo.jpg", "logo.jpeg", "logo.webp", "logo.gif"):
+        try:
+            os.remove(os.path.join(dest_dir, old))
+        except OSError:
+            pass
+    fname = "logo." + ("jpg" if ext == "jpeg" else ext)
+    path = os.path.join(dest_dir, fname)
+    f.save(path)
+    # مسیر سرویس‌شده توسط مینی‌اپ
+    public = "/miniapp/assets/" + fname
+    theme = get_miniapp_theme()
+    theme["logo_url"] = public
+    save_miniapp_theme(theme)
+    flash("لوگو با موفقیت آپلود شد", "success")
+    return redirect(url_for("miniapp_content"))
+
 
 @app.route("/miniapp-content/settings", methods=["POST"])
 @login_required

@@ -134,6 +134,21 @@ function addLevelRow(){
 </script>
 
 <div class="card" style="margin-bottom:16px">
+  <div class="card-title">لوگوی مینی‌اپ (آپلود مستقیم)</div>
+  <p class="muted" style="font-size:.85rem;margin-bottom:12px">به‌جای لینک، تصویر لوگو را مستقیم آپلود کنید (PNG/JPG/WebP، حداکثر ۲ مگابایت). بعد از آپلود به‌صورت خودکار در مینی‌اپ نمایش داده می‌شود.</p>
+  <form method="post" action="{{ url_for('miniapp_logo_upload') }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+    <div class="form-group" style="flex:1;min-width:200px">
+      <label>فایل لوگو</label>
+      <input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif">
+    </div>
+    <button type="submit" class="btn-primary">آپلود لوگو</button>
+    {% if theme.logo_url %}
+    <a class="btn-secondary" href="{{ theme.logo_url }}" target="_blank" rel="noopener">مشاهده لوگو فعلی</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:16px">
   <div class="card-title">شخصی‌سازی کامل مینی‌اپ</div>
   <p class="muted" style="font-size:.85rem;margin-bottom:14px">با تغییر این‌ها ظاهر، متن‌ها و رفتار اپ عوض می‌شود — مثل یک اپ اختصاصی.</p>
   <form method="post" action="{{ url_for('miniapp_theme_save') }}">
