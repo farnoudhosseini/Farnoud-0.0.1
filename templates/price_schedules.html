@@ -2,8 +2,12 @@
 {% block title %}زمان‌بندی قیمت{% endblock %}
 {% block content %}
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
-<header class="topbar"><h2>زمان‌بندی تغییر قیمت</h2>
-<a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
+<header class="topbar">
+<h2>زمان‌بندی تغییر قیمت</h2>
+<div class="topbar-actions">
+<a href="{{ url_for('products_list') }}" class="btn-secondary">بازگشت به محصولات</a>
+</div>
+</header>
 <div class="content">
 <div class="card" style="max-width:720px;margin-bottom:16px">
 <form method="post">

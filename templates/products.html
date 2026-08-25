@@ -4,11 +4,12 @@
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
 <header class="topbar">
 <h2>محصولات</h2>
-<a href="{{ url_for('products_add') }}" class="btn-primary inline">+ محصول جدید</a>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-<a class="btn-secondary inline" href="{{ url_for('products_bulk') }}">تغییر گروهی</a>
-<a class="btn-secondary inline" href="{{ url_for('products_price_schedules') }}">زمان‌بندی قیمت</a>
-</div></header>
+<div class="topbar-actions">
+<a href="{{ url_for('products_bulk') }}" class="btn-secondary">تغییرات گروهی محصولات</a>
+<a href="{{ url_for('products_price_schedules') }}" class="btn-secondary">زمان‌بندی قیمت</a>
+<a href="{{ url_for('products_add') }}" class="btn-primary">+ محصول جدید</a>
+</div>
+</header>
 <div class="content">
 {% if products %}
 <div class="card" style="padding:0;overflow:auto">

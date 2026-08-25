@@ -1,32 +1,65 @@
 {% extends "base.html" %}
-{% block title %}تغییر گروهی{% endblock %}
+{% block title %}تغییرات گروهی محصولات{% endblock %}
 {% block content %}
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
-<header class="topbar"><h2>تغییر گروهی محصولات / سفارشات</h2>
-<a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
+<header class="topbar">
+<h2>تغییرات گروهی محصولات</h2>
+<div class="topbar-actions">
+<a href="{{ url_for('products_list') }}" class="btn-secondary">بازگشت به محصولات</a>
+</div>
+</header>
 <div class="content">
 <div class="card">
-<form method="post">
+<form method="post" id="bulkForm">
 <div class="form-group"><label>هدف</label>
 <select name="target" class="form-select" id="bulkTarget">
 <option value="products">محصولات</option>
 <option value="orders">سفارشات خریداری‌شده</option>
 </select></div>
+
 <div id="boxProducts">
-<label>انتخاب محصولات</label>
-<div class="checkbox-list" style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:8px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+<label style="margin:0;font-weight:700">انتخاب محصولات</label>
+<label class="check-item" style="margin:0;gap:8px;cursor:pointer">
+<input type="checkbox" id="selectAllProducts"> انتخاب همه محصولات
+</label>
+</div>
+<div class="checkbox-list" id="productChecks" style="max-height:280px;overflow:auto;border:1px solid var(--border);padding:10px;border-radius:10px">
 {% for p in products %}
-<label class="check-item"><input type="checkbox" name="ids" value="{{ p.id }}"> #{{ p.id }} — {{ p.name }} ({{ p.price }} ت / {{ p.volume_gb }}G / {{ p.duration_days }}روز)</label>
+<label class="check-item" style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.04)">
+<input type="checkbox" class="product-cb" name="ids" value="{{ p.id }}">
+<span>#{{ p.id }} — <strong>{{ p.name }}</strong>
+<span class="muted">({{ "{:,.0f}".format(p.price|float) if p.price is not none else 0 }} ت / {{ p.volume_gb }}G / {{ p.duration_days }}روز)</span>
+</span>
+</label>
+{% else %}
+<span class="muted">محصولی ثبت نشده</span>
 {% endfor %}
-</div></div>
+</div>
+<p class="muted" style="font-size:.8rem;margin-top:6px" id="productCountHint">۰ مورد انتخاب شده</p>
+</div>
+
 <div id="boxOrders" style="display:none">
-<label>انتخاب سفارشات</label>
-<div class="checkbox-list" style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:8px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+<label style="margin:0;font-weight:700">انتخاب سفارشات</label>
+<label class="check-item" style="margin:0;gap:8px;cursor:pointer">
+<input type="checkbox" id="selectAllOrders"> انتخاب همه سفارشات
+</label>
+</div>
+<div class="checkbox-list" id="orderChecks" style="max-height:280px;overflow:auto;border:1px solid var(--border);padding:10px;border-radius:10px">
 {% for o in orders %}
-<label class="check-item"><input type="checkbox" name="ids" value="{{ o.id }}"> #{{ o.id }} — {{ o.product_name or '?' }} / {{ o.telegram_id }} / {{ o.status }}</label>
+<label class="check-item" style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.04)">
+<input type="checkbox" class="order-cb" name="ids" value="{{ o.id }}">
+<span>#{{ o.id }} — {{ o.product_name or '?' }} / {{ o.telegram_id }} / {{ o.status }}</span>
+</label>
+{% else %}
+<span class="muted">سفارشی نیست</span>
 {% endfor %}
-</div></div>
-<div class="form-group" style="margin-top:12px"><label>تغییر قیمت (مبلغ ثابت +/-) — محصولات</label>
+</div>
+<p class="muted" style="font-size:.8rem;margin-top:6px" id="orderCountHint">۰ مورد انتخاب شده</p>
+</div>
+
+<div class="form-group" style="margin-top:16px"><label>تغییر قیمت (مبلغ ثابت +/-) — محصولات</label>
 <input type="number" name="price_delta" placeholder="1000 یا -500"></div>
 <div class="form-group"><label>تغییر قیمت (درصد +/-) — محصولات</label>
 <input type="number" step="0.01" name="price_percent" placeholder="10 یا -5"></div>
@@ -38,14 +71,64 @@
 <input type="number" step="0.01" name="volume_percent"></div>
 <div class="form-group"><label>تمدید سفارش (روز) — فقط سفارشات</label>
 <input type="number" name="extend_days"></div>
-<p class="muted" style="font-size:.85rem">تغییرات فقط وقتی در دیتابیس ذخیره می‌شود که روی پنل VPN هم با موفقیت اعمال شده باشد؛ در صورت خطا هیچ تغییری ثبت نمی‌شود.</p>
-<button class="btn-primary inline" type="submit">اعمال</button>
-</form></div></div></main></div>
+<p class="muted" style="font-size:.85rem">برای سفارشات: تغییرات فقط وقتی ذخیره می‌شود که روی پنل VPN هم موفق باشد.</p>
+<button class="btn-primary" type="submit">اعمال روی موارد انتخاب‌شده</button>
+</form>
+</div></div></main></div>
 <script>
-document.getElementById('bulkTarget').addEventListener('change', function(){
-  const o = this.value === 'orders';
-  document.getElementById('boxOrders').style.display = o ? '' : 'none';
-  document.getElementById('boxProducts').style.display = o ? 'none' : '';
-});
+(function(){
+  const target = document.getElementById('bulkTarget');
+  const boxP = document.getElementById('boxProducts');
+  const boxO = document.getElementById('boxOrders');
+  const selAllP = document.getElementById('selectAllProducts');
+  const selAllO = document.getElementById('selectAllOrders');
+
+  function productCbs(){ return Array.from(document.querySelectorAll('.product-cb')); }
+  function orderCbs(){ return Array.from(document.querySelectorAll('.order-cb')); }
+
+  function syncHints(){
+    const pc = productCbs().filter(c => c.checked).length;
+    const oc = orderCbs().filter(c => c.checked).length;
+    const ph = document.getElementById('productCountHint');
+    const oh = document.getElementById('orderCountHint');
+    if (ph) ph.textContent = pc + ' مورد انتخاب شده';
+    if (oh) oh.textContent = oc + ' مورد انتخاب شده';
+    if (selAllP) {
+      const all = productCbs();
+      selAllP.checked = all.length > 0 && all.every(c => c.checked);
+      selAllP.indeterminate = all.some(c => c.checked) && !selAllP.checked;
+    }
+    if (selAllO) {
+      const all = orderCbs();
+      selAllO.checked = all.length > 0 && all.every(c => c.checked);
+      selAllO.indeterminate = all.some(c => c.checked) && !selAllO.checked;
+    }
+  }
+
+  function setTarget(){
+    const o = target.value === 'orders';
+    boxO.style.display = o ? '' : 'none';
+    boxP.style.display = o ? 'none' : '';
+    // جلوگیری از ارسال هم‌زمان هر دو گروه چک‌باکس
+    productCbs().forEach(c => { c.disabled = o; if (o) c.checked = false; });
+    orderCbs().forEach(c => { c.disabled = !o; if (!o) c.checked = false; });
+    if (selAllP) selAllP.checked = false;
+    if (selAllO) selAllO.checked = false;
+    syncHints();
+  }
+
+  target.addEventListener('change', setTarget);
+  if (selAllP) selAllP.addEventListener('change', function(){
+    productCbs().forEach(c => { if (!c.disabled) c.checked = selAllP.checked; });
+    syncHints();
+  });
+  if (selAllO) selAllO.addEventListener('change', function(){
+    orderCbs().forEach(c => { if (!c.disabled) c.checked = selAllO.checked; });
+    syncHints();
+  });
+  document.getElementById('productChecks')?.addEventListener('change', syncHints);
+  document.getElementById('orderChecks')?.addEventListener('change', syncHints);
+  setTarget();
+})();
 </script>
 {% endblock %}

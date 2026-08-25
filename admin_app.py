@@ -1123,7 +1123,7 @@ def products_bulk():
         return redirect(url_for("products_bulk"))
     return render_template(
         "products_bulk.html",
-        username=session.get("admin_username"), active="products",
+        username=session.get("admin_username"), active="products_bulk",
         products=products, orders=orders,
     )
 
@@ -1154,7 +1154,7 @@ def products_price_schedules():
     schedules = list_price_schedules(limit=100)
     return render_template(
         "price_schedules.html",
-        username=session.get("admin_username"), active="products",
+        username=session.get("admin_username"), active="price_schedules",
         products=products, panels=panels, schedules=schedules,
     )
 
