@@ -45,6 +45,66 @@ try:
 except Exception as _miniapp_import_error:
     print('Mini App registration warning:', _miniapp_import_error)
 
+# نصب‌کننده وب (cPanel / aaPanel) — مسیر /install
+try:
+    from install_wizard import register_install_wizard
+    register_install_wizard(app)
+except Exception as _inst_err:
+    print('Install wizard registration warning:', _inst_err)
+
+
+# --- Telegram Bot Webhook (برای cPanel / aaPanel / WSGI) ---
+# وقتی USE_WEBHOOK=1 باشد، آپدیت‌های تلگرام از طریق همین اپ Flask دریافت می‌شوند.
+_tg_app = None
+_tg_loop = None
+
+def _get_telegram_app():
+    """Lazy-init Application برای پردازش آپدیت در محیط WSGI."""
+    global _tg_app, _tg_loop
+    if _tg_app is not None:
+        return _tg_app
+    import asyncio
+    from bot import create_bot
+    from config import USE_WEBHOOK
+    if not USE_WEBHOOK:
+        return None
+    _tg_app = create_bot()
+    _tg_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_tg_loop)
+    # initialize handlers / DB
+    _tg_loop.run_until_complete(_tg_app.initialize())
+    return _tg_app
+
+@app.route("/telegram/webhook", methods=["POST"])
+@app.route("/telegram/webhook/", methods=["POST"])
+def telegram_webhook():
+    """Endpoint وب‌هوک تلگرام — برای هاست اشتراکی و پنل‌ها."""
+    from config import USE_WEBHOOK, WEBHOOK_SECRET, WEBHOOK_PATH
+    if not USE_WEBHOOK:
+        return "webhook disabled", 404
+    # تأیید secret_token (اگر تنظیم شده باشد)
+    if WEBHOOK_SECRET:
+        token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if token != WEBHOOK_SECRET:
+            return "forbidden", 403
+    try:
+        from telegram import Update
+        import asyncio
+        app_tg = _get_telegram_app()
+        if app_tg is None:
+            return "bot not ready", 503
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return "bad request", 400
+        update = Update.de_json(data, app_tg.bot)
+        loop = _tg_loop or asyncio.get_event_loop()
+        loop.run_until_complete(app_tg.process_update(update))
+        return "ok", 200
+    except Exception as e:
+        print("telegram webhook error:", e)
+        return "error", 500
+
+
 try:
     ensure_tables_sync()
     ensure_user_tables()

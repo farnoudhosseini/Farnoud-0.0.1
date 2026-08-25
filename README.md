@@ -17,15 +17,25 @@
 
 ---
 
-## نصب یک‌خطی (One-Line Install)
+## نصب روی هاست / VPS (اوبونتو ۲۲.۰۴ / ۲۴.۰۴)
 
-روی سرور اوبونتو ۲۲.۰۴ / ۲۴.۰۴ با دسترسی root:
+### روش ۱ — نصب یک‌خطی از گیت‌هاب
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh | sudo bash
 ```
 
-یا دانلود و اجرا:
+### روش ۲ — نصب از فایل زیپ (همین نسخه)
+
+```bash
+# بعد از آپلود و استخراج زیپ روی سرور:
+cd /path/to/FarnoudBot
+sudo bash install.sh
+```
+
+اسکریپت به‌طور خودکار تشخیص می‌دهد که از پوشهٔ محلی اجرا شده و همان فایل‌ها را نصب می‌کند (نیازی به کلون از گیت نیست).
+
+### روش ۳ — دانلود و اجرا
 
 ```bash
 wget -O install.sh https://raw.githubusercontent.com/FarnoudHosseini/FarnoudBot/main/install.sh
@@ -35,9 +45,12 @@ sudo bash install.sh
 منوی اسکریپت:
 
 ```
-1) Install
+1) Full Install
 2) Update
-3) Full Uninstall
+3) Uninstall
+4) Finish / Resume / Fix packages
+5) Restart Bot
+0) Exit
 ```
 
 ### مراحل نصب خودکار
@@ -50,6 +63,54 @@ sudo bash install.sh
 7. تنظیمات امنیتی نهایی + راه‌اندازی سرویس‌های systemd
 
 پس از نصب، آدرس پنل و رمز ورود وب در خروجی نمایش داده می‌شود.
+
+---
+
+## نصب روی هاست / cPanel / aaPanel
+
+راهنمای کامل و ساده (نصب‌کننده وب، Cron، Supervisor):
+
+📘 **[README_HOSTING.md](README_HOSTING.md)**
+
+خلاصه:
+1. فایل‌ها را آپلود کنید و دامنه + SSL را وصل کنید.
+2. در cPanel از **Setup Python App** با فایل `passenger_wsgi.py` استفاده کنید؛ در aaPanel با `gunicorn` + Supervisor.
+3. مرورگر را باز کنید: `https://دامنه-شما/install` و فرم نصب را پر کنید.
+4. Cron Jobها را با `cron_jobs.py` تنظیم کنید.
+
+> مسیر نصب اوبونتو (`install.sh`) تغییری نکرده و مثل قبل کار می‌کند.
+
+---
+
+## تنظیم Mini App در BotFather
+
+پس از نصب و فعال بودن SSL:
+
+1. به [@BotFather](https://t.me/BotFather) بروید → `/mybots` → ربات خودتان.
+2. **Bot Settings** → **Menu Button** (یا بخش Mini App).
+3. این آدرس را وارد کنید (دامنه خودتان):
+   ```
+   https://your-domain.com/miniapp/
+   ```
+4. در پنل وب ربات هم می‌توانید URL مینی‌اپ را از تنظیمات مربوطه ذخیره کنید (`MINIAPP_URL` در `.env`).
+
+بدون این مرحله، دکمه منوی مینی‌اپ داخل تلگرام باز نمی‌شود.
+
+---
+
+## تنظیم گروه گزارش (`/setgroup`)
+
+1. یک سوپرگروه بسازید؛ بهتر است **Topics / Forum** روشن باشد.
+2. ربات را ادمین گروه کنید.
+3. با همان اکانت ادمین اصلی (`ADMIN_ID`) داخل گروه بزنید:
+   ```
+   /setgroup
+   ```
+4. ربات گروه را ثبت می‌کند و در صورت امکان تاپیک‌های گزارش (بکاپ، خطا و …) را می‌سازد.
+5. تست بکاپ فوری:
+   ```
+   /backup
+   ```
 
 ---
 

@@ -38,12 +38,13 @@ banner(){
   clear 2>/dev/null || true
   echo ""
   echo -e "${CYAN}============================================${NC}"
-  echo -e "${CYAN}   FarnoudBot Installer (system-wide)${NC}"
+  echo -e "${CYAN}   FarnoudBot Installer (VPS / Host)${NC}"
   echo -e "${CYAN}============================================${NC}"
   echo -e "  Install dir : ${GREEN}${INSTALL_DIR}${NC}"
   echo -e "  Database    : ${GREEN}${DB_NAME}${NC}"
   echo -e "  DB user     : ${GREEN}${DB_USER}${NC}"
   echo -e "  Python      : system python3 (no venv)"
+  echo -e "  Source      : local zip/git or GitHub"
   echo -e "${CYAN}============================================${NC}"
   echo ""
 }
@@ -84,7 +85,7 @@ install_os_packages(){
     python3 python3-pip python3-dev python3-setuptools python3-wheel \
     python3-flask python3-pymysql python3-dotenv python3-requests \
     python3-pil python3-cryptography python3-werkzeug \
-    nginx curl git ufw \
+    nginx curl git ufw rsync \
     build-essential libssl-dev libffi-dev pkg-config default-libmysqlclient-dev \
     certbot python3-certbot-nginx \
     >/tmp/farnoud_apt_install.log 2>&1 || true
@@ -101,8 +102,40 @@ install_os_packages(){
 }
 
 clone_code(){
-  if [ -d "$INSTALL_DIR/.git" ]; then
-    log "Updating $INSTALL_DIR"
+  # Detect if we are running from a full source tree (zip / local copy)
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  LOCAL_SRC=""
+  if [ -n "${SCRIPT_DIR:-}" ] && [ -f "$SCRIPT_DIR/main.py" ] && [ -f "$SCRIPT_DIR/admin_app.py" ] && [ -f "$SCRIPT_DIR/bot.py" ]; then
+    LOCAL_SRC="$SCRIPT_DIR"
+  elif [ -f "./main.py" ] && [ -f "./admin_app.py" ] && [ -f "./bot.py" ]; then
+    LOCAL_SRC="$(pwd)"
+  fi
+
+  if [ -n "${LOCAL_SRC:-}" ] && [ "$LOCAL_SRC" != "$INSTALL_DIR" ]; then
+    log "Installing from local source: $LOCAL_SRC"
+    mkdir -p "$INSTALL_DIR"
+    # Preserve existing .env if present
+    [ -f "$INSTALL_DIR/.env" ] && cp -a "$INSTALL_DIR/.env" /tmp/farnoud.env.save
+    # Copy project files (exclude venv, caches, .git)
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete \
+        --exclude='.git' \
+        --exclude='venv' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='.env' \
+        --exclude='miniapp.py.bak' \
+        "$LOCAL_SRC/" "$INSTALL_DIR/"
+    else
+      find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} + 2>/dev/null || true
+      cp -a "$LOCAL_SRC/." "$INSTALL_DIR/" 2>/dev/null || true
+      rm -rf "$INSTALL_DIR/.git" "$INSTALL_DIR/venv" 2>/dev/null || true
+      find "$INSTALL_DIR" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+      rm -f "$INSTALL_DIR/miniapp.py.bak" 2>/dev/null || true
+    fi
+    [ -f /tmp/farnoud.env.save ] && mv -f /tmp/farnoud.env.save "$INSTALL_DIR/.env"
+  elif [ -d "$INSTALL_DIR/.git" ]; then
+    log "Updating $INSTALL_DIR from git"
     [ -f "$INSTALL_DIR/.env" ] && cp -a "$INSTALL_DIR/.env" /tmp/farnoud.env.save
     cd "$INSTALL_DIR" || exit 1
     git fetch --all >/dev/null 2>&1 || true
@@ -119,7 +152,11 @@ clone_code(){
   if [ -f "$INSTALL_DIR/.env" ] && grep -qE 'YOUR_TELEGRAM|CHANGE_ME' "$INSTALL_DIR/.env" 2>/dev/null; then
     rm -f "$INSTALL_DIR/.env"
   fi
-  ok "Source ready"
+  # Ensure critical files exist
+  for f in main.py admin_app.py bot.py config.py requirements.txt; do
+    [ -f "$INSTALL_DIR/$f" ] || { err "Missing $f after source setup"; exit 1; }
+  done
+  ok "Source ready ($INSTALL_DIR)"
 }
 
 pip_try(){
