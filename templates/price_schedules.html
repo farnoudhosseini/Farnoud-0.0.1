@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}زمان‌بندی قیمت{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>زمان‌بندی تغییر قیمت</h2>
+<a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="card" style="max-width:720px;margin-bottom:16px">
+<form method="post">
+<div class="form-group"><label>محصول</label>
+<select name="product_id" class="form-select" required>
+{% for p in products %}<option value="{{ p.id }}">#{{ p.id }} — {{ p.name }}</option>{% endfor %}
+</select></div>
+<div class="form-group"><label>پنل (خالی = قیمت اصلی محصول)</label>
+<select name="panel_id" class="form-select">
+<option value="">— قیمت اصلی —</option>
+{% for pan in panels %}<option value="{{ pan.id }}">{{ pan.name }}</option>{% endfor %}
+</select></div>
+<div class="form-group"><label>نوع تغییر</label>
+<select name="change_type" class="form-select">
+<option value="percent">درصدی</option>
+<option value="fixed">مبلغ ثابت</option>
+</select></div>
+<div class="form-group"><label>جهت</label>
+<select name="direction" class="form-select">
+<option value="increase">افزایش</option>
+<option value="decrease">کاهش</option>
+</select></div>
+<div class="form-group"><label>مقدار</label>
+<input type="number" step="0.01" name="value" required></div>
+<div class="form-group"><label>اعمال روی</label>
+<select name="price_mode" class="form-select">
+<option value="fixed_price">قیمت ثابت</option>
+<option value="hourly_price">قیمت ساعتی</option>
+<option value="both">هر دو</option>
+</select></div>
+<div class="form-group"><label>زمان اجرا</label>
+<input type="datetime-local" name="run_at" required></div>
+<div class="form-group"><label>یادداشت</label>
+<input name="note"></div>
+<button class="btn-primary inline" type="submit">ثبت زمان‌بندی</button>
+</form>
+<p class="muted" style="font-size:.85rem;margin-top:8px">Cron: <code>python cron_jobs.py price_schedules</code></p>
+</div>
+<div class="card">
+<table class="table">
+<thead><tr><th>#</th><th>محصول</th><th>زمان</th><th>تغییر</th><th>وضعیت</th><th></th></tr></thead>
+<tbody>
+{% for s in schedules %}
+<tr>
+<td>{{ s.id }}</td>
+<td>{{ s.product_name or s.product_id }}{% if s.panel_id %} (پنل {{ s.panel_id }}){% endif %}</td>
+<td>{{ s.run_at }}</td>
+<td>{{ s.direction }} {{ s.value }}{% if s.change_type=='percent' %}%{% endif %} — {{ s.price_mode }}</td>
+<td>{{ s.status }}</td>
+<td>{% if s.status=='pending' %}
+<form method="post" action="{{ url_for('products_price_schedule_cancel', sid=s.id) }}" style="display:inline">
+<button type="submit" class="btn-secondary inline">لغو</button></form>{% endif %}</td>
+</tr>
+{% else %}<tr><td colspan="6">موردی نیست</td></tr>{% endfor %}
+</tbody></table></div></div></main></div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}تغییر گروهی{% endblock %}
+{% block content %}
+<div class="dashboard">{% include "_sidebar.html" %}<main class="main">
+<header class="topbar"><h2>تغییر گروهی محصولات / سفارشات</h2>
+<a href="{{ url_for('products_list') }}" class="greeting">بازگشت</a></header>
+<div class="content">
+<div class="card">
+<form method="post">
+<div class="form-group"><label>هدف</label>
+<select name="target" class="form-select" id="bulkTarget">
+<option value="products">محصولات</option>
+<option value="orders">سفارشات خریداری‌شده</option>
+</select></div>
+<div id="boxProducts">
+<label>انتخاب محصولات</label>
+<div class="checkbox-list" style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:8px">
+{% for p in products %}
+<label class="check-item"><input type="checkbox" name="ids" value="{{ p.id }}"> #{{ p.id }} — {{ p.name }} ({{ p.price }} ت / {{ p.volume_gb }}G / {{ p.duration_days }}روز)</label>
+{% endfor %}
+</div></div>
+<div id="boxOrders" style="display:none">
+<label>انتخاب سفارشات</label>
+<div class="checkbox-list" style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:8px">
+{% for o in orders %}
+<label class="check-item"><input type="checkbox" name="ids" value="{{ o.id }}"> #{{ o.id }} — {{ o.product_name or '?' }} / {{ o.telegram_id }} / {{ o.status }}</label>
+{% endfor %}
+</div></div>
+<div class="form-group" style="margin-top:12px"><label>تغییر قیمت (مبلغ ثابت +/-) — محصولات</label>
+<input type="number" name="price_delta" placeholder="1000 یا -500"></div>
+<div class="form-group"><label>تغییر قیمت (درصد +/-) — محصولات</label>
+<input type="number" step="0.01" name="price_percent" placeholder="10 یا -5"></div>
+<div class="form-group"><label>تغییر مدت (روز +/-)</label>
+<input type="number" name="duration_delta"></div>
+<div class="form-group"><label>تغییر حجم گیگ (+/-)</label>
+<input type="number" step="0.1" name="volume_delta"></div>
+<div class="form-group"><label>تغییر حجم (درصد)</label>
+<input type="number" step="0.01" name="volume_percent"></div>
+<div class="form-group"><label>تمدید سفارش (روز) — فقط سفارشات</label>
+<input type="number" name="extend_days"></div>
+<p class="muted" style="font-size:.85rem">تغییرات فقط وقتی در دیتابیس ذخیره می‌شود که روی پنل VPN هم با موفقیت اعمال شده باشد؛ در صورت خطا هیچ تغییری ثبت نمی‌شود.</p>
+<button class="btn-primary inline" type="submit">اعمال</button>
+</form></div></div></main></div>
+<script>
+document.getElementById('bulkTarget').addEventListener('change', function(){
+  const o = this.value === 'orders';
+  document.getElementById('boxOrders').style.display = o ? '' : 'none';
+  document.getElementById('boxProducts').style.display = o ? 'none' : '';
+});
+</script>
+{% endblock %}

@@ -5,7 +5,10 @@
 <header class="topbar">
 <h2>محصولات</h2>
 <a href="{{ url_for('products_add') }}" class="btn-primary inline">+ محصول جدید</a>
-</header>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<a class="btn-secondary inline" href="{{ url_for('products_bulk') }}">تغییر گروهی</a>
+<a class="btn-secondary inline" href="{{ url_for('products_price_schedules') }}">زمان‌بندی قیمت</a>
+</div></header>
 <div class="content">
 {% if products %}
 <div class="card" style="padding:0;overflow:auto">

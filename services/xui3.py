@@ -289,12 +289,16 @@ class XUI3Client:
         reset_max: int = 0,
         traffic_reset: str = "never",
         traffic_reset_day: int = 1,
+        start_on_first_connect: bool = False,
     ) -> dict:
         email = email or _rand_email()
         sub_id = sub_id or _rand_sub_id()
         client_uuid = client_uuid or str(uuid.uuid4())
         total_bytes = gb_to_bytes(total_gb)
-        if days and days > 0:
+        # اولین اتصال: در بسیاری از بیلدهای ثنایی، expiryTime منفی = مدت (ms) بعد از اولین اتصال
+        if start_on_first_connect and days and days > 0:
+            exp_ms = -int(int(days) * 86400 * 1000)
+        elif days and days > 0:
             exp_ms = int((datetime.now(timezone.utc) + timedelta(days=int(days))).timestamp() * 1000)
         else:
             exp_ms = 0

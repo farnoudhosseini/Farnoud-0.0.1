@@ -114,6 +114,7 @@ def provision_order(order_id: int) -> dict:
         except Exception:
             pass
     expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
+    start_on_first = bool(int(product.get("start_on_first_connect") or 0))
 
     # پیکربندی گروه/اینباند از محصول (تنظیم ادمین)
     panel_cfg = {}
@@ -189,6 +190,7 @@ def provision_order(order_id: int) -> dict:
                     reset_max=reset_max,
                     traffic_reset=str(traffic_reset).strip().lower() if traffic_reset else "never",
                     traffic_reset_day=traffic_reset_day,
+                    start_on_first_connect=start_on_first,
                 )
                 shared_sub = created.get("subId") or shared_sub
                 shared_uuid = created.get("uuid") or created.get("id") or shared_uuid
@@ -225,16 +227,29 @@ def provision_order(order_id: int) -> dict:
             except Exception:
                 group_ids = []
 
-        payload = client.build_user_payload(
-            username=username,
-            status="active",
-            data_limit_gb=volume_gb if volume_gb > 0 else 0,
-            expire=expire_dt.isoformat(),
-            group_ids=group_ids,
-            hwid_limit=hwid,
-            note=f"order#{order_id} tg:{order['telegram_id']}",
-            for_create=True,
-        )
+        if start_on_first:
+            payload = client.build_user_payload(
+                username=username,
+                status="on_hold",
+                data_limit_gb=volume_gb if volume_gb > 0 else 0,
+                expire=None,
+                group_ids=group_ids,
+                hwid_limit=hwid,
+                note=f"order#{order_id} tg:{order['telegram_id']} on_hold",
+                on_hold_expire_duration=int(days) * 86400 if days > 0 else 30 * 86400,
+                for_create=True,
+            )
+        else:
+            payload = client.build_user_payload(
+                username=username,
+                status="active",
+                data_limit_gb=volume_gb if volume_gb > 0 else 0,
+                expire=expire_dt.isoformat(),
+                group_ids=group_ids,
+                hwid_limit=hwid,
+                note=f"order#{order_id} tg:{order['telegram_id']}",
+                for_create=True,
+            )
         try:
             # If a previous attempt created the remote user but failed before DB commit,
             # recover it instead of creating a duplicate.

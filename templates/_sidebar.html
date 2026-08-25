@@ -33,6 +33,8 @@
             <button type="button" class="nav-group-btn"><i data-lucide="package"></i><span>فروش و محصولات</span><i class="chevron" data-lucide="chevron-down"></i></button>
             <div class="nav-group-body">
                 <a href="{{ url_for('products_list') }}" class="nav-item {% if active == 'products' %}active{% endif %}"><i data-lucide="box"></i><span>محصولات</span></a>
+    <a href="{{ url_for('products_bulk') }}">تغییر گروهی</a>
+    <a href="{{ url_for('products_price_schedules') }}">زمان‌بندی قیمت</a>
                 <a href="{{ url_for('categories_list') }}" class="nav-item {% if active == 'categories' %}active{% endif %}"><i data-lucide="tags"></i><span>دسته‌بندی‌ها</span></a>
                 <a href="{{ url_for('orders_list') }}" class="nav-item {% if active == 'orders' %}active{% endif %}"><i data-lucide="receipt"></i><span>سفارش‌ها</span></a>
             </div>

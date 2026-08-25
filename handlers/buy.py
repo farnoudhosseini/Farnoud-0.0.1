@@ -9,6 +9,7 @@ from db_users import (
 )
 from db_products import (
     list_categories, list_products, get_product, create_order, get_order, update_order,
+    get_panel_price,
 )
 from services.provision import provision_order, send_service_to_user
 from config import ADMIN_ID
@@ -129,12 +130,12 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         hourly_ok = (
             get_setting_sync("hourly_global_enabled", "0") == "1"
             and product.get("hourly_enabled")
-            and product.get("hourly_price")
+            and (get_panel_price(product, panel_id, hourly=True) > 0 or float(product.get("hourly_price") or 0) > 0)
         )
         if hourly_ok and not is_hourly_buy and not is_full_buy:
             days = int(product.get("duration_days") or 30)
-            hprice = float(product.get("hourly_price") or 0)
-            full = int(product.get("price") or 0)
+            hprice = float(get_panel_price(product, panel_id, hourly=True) if panel_id else (product.get("hourly_price") or 0))
+            full = int(get_panel_price(product, panel_id, hourly=False) if panel_id else (product.get("price") or 0))
             await q.edit_message_text(
                 f"📦 {product['name']}\n\n"
                 f"نوع خرید را انتخاب کنید:\n"
@@ -151,7 +152,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
 
         if is_hourly_buy:
             # خرید ساعتی: فقط موجودی کیف پول — کسر اولین ساعت
-            hprice = int(float(product.get("hourly_price") or 0))
+            hprice = int(float(get_panel_price(product, panel_id, hourly=True) if panel_id else (product.get("hourly_price") or 0)))
             balance = int(bu.get("balance") or 0)
             if balance < hprice:
                 await q.edit_message_text(
@@ -208,7 +209,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         except Exception as e:
             print("max_sales check", e)
 
-        price = int(product["price"] or 0)
+        price = int(get_panel_price(product, panel_id, hourly=False) if panel_id else (product.get("price") or 0))
         balance = int(bu.get("balance") or 0)
         wallet_used = min(balance, price)
         pay_amount = max(0, price - balance)

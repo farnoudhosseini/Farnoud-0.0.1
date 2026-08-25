@@ -13,6 +13,8 @@ from db_products import (
     ensure_product_tables, list_categories, add_category, update_category, delete_category,
     list_products, get_product, create_product, update_product, delete_product, move_product,
     list_all_orders, get_order_full, ensure_service_mgmt_columns, reorder_products,
+    ensure_pricing_features, get_panel_price, list_price_schedules, create_price_schedule,
+    cancel_price_schedule, bulk_update_products, bulk_update_orders,
     ROLE_OPTIONS as PRODUCT_ROLES,
 )
 from db_support import (
@@ -109,6 +111,10 @@ try:
     ensure_tables_sync()
     ensure_user_tables()
     ensure_product_tables()
+    try:
+        ensure_pricing_features()
+    except Exception as _pe:
+        print('pricing features:', _pe)
     ensure_support_tables()
     ensure_growth_tables()
     ensure_service_mgmt_columns()
@@ -844,7 +850,7 @@ def gifts_manage():
 # ---------- محصولات ----------
 
 def _parse_panel_config_from_form(panel_ids):
-    """از فرم: panel_groups_{id} / panel_inbounds_{id}"""
+    """از فرم: panel_groups_{id} / panel_inbounds_{id} + قیمت اختصاصی پنل"""
     cfg = {}
     for pid in panel_ids:
         pid = int(pid)
@@ -855,6 +861,19 @@ def _parse_panel_config_from_form(panel_ids):
             entry["group_ids"] = [int(x) for x in groups if str(x).isdigit()]
         if inbounds:
             entry["inbound_ids"] = [int(x) for x in inbounds if str(x).isdigit()]
+        # قیمت اختصاصی — خالی = پیروی از قیمت اصلی محصول
+        p_price = (request.form.get(f"panel_price_{pid}") or "").strip()
+        p_hprice = (request.form.get(f"panel_hourly_price_{pid}") or "").strip()
+        if p_price != "":
+            try:
+                entry["price"] = int(float(p_price))
+            except (TypeError, ValueError):
+                pass
+        if p_hprice != "":
+            try:
+                entry["hourly_price"] = float(p_hprice)
+            except (TypeError, ValueError):
+                pass
         if entry:
             cfg[pid] = entry
     return cfg
@@ -990,6 +1009,7 @@ def products_add():
             pid,
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
+            start_on_first_connect=1 if request.form.get("start_on_first_connect") == "1" else 0,
         )
         flash("محصول اضافه شد", "success")
         return redirect(url_for("products_list"))
@@ -1029,6 +1049,7 @@ def products_edit(pid):
             is_active=1 if request.form.get("is_active") == "1" else 0,
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
+            start_on_first_connect=1 if request.form.get("start_on_first_connect") == "1" else 0,
             limit_hwid=life["limit_hwid"],
             reset_day=life["reset_day"],
             reset_max=life["reset_max"],
@@ -1062,6 +1083,89 @@ def products_reorder_api():
     payload = request.get_json(silent=True) or {}
     ok = reorder_products(payload.get("ids") or [])
     return jsonify({"ok": ok})
+
+
+@app.route("/products/bulk", methods=["GET", "POST"])
+@login_required
+def products_bulk():
+    ensure_pricing_features()
+    products = list_products()
+    orders = list_all_orders(limit=200)
+    if request.method == "POST":
+        target = request.form.get("target") or "products"
+        ids = request.form.getlist("ids")
+        try:
+            if target == "products":
+                n = bulk_update_products(
+                    ids,
+                    price_delta=float(request.form["price_delta"]) if request.form.get("price_delta") not in (None, "") else None,
+                    price_percent=float(request.form["price_percent"]) if request.form.get("price_percent") not in (None, "") else None,
+                    duration_delta=int(float(request.form["duration_delta"])) if request.form.get("duration_delta") not in (None, "") else None,
+                    volume_delta=float(request.form["volume_delta"]) if request.form.get("volume_delta") not in (None, "") else None,
+                    volume_percent=float(request.form["volume_percent"]) if request.form.get("volume_percent") not in (None, "") else None,
+                )
+                flash(f"{n} محصول به‌روزرسانی شد", "success")
+            else:
+                st = bulk_update_orders(
+                    ids,
+                    volume_delta=float(request.form["volume_delta"]) if request.form.get("volume_delta") not in (None, "") else None,
+                    volume_percent=float(request.form["volume_percent"]) if request.form.get("volume_percent") not in (None, "") else None,
+                    duration_delta=int(float(request.form["duration_delta"])) if request.form.get("duration_delta") not in (None, "") else None,
+                    extend_days=int(float(request.form["extend_days"])) if request.form.get("extend_days") not in (None, "") else None,
+                    apply_panel=True,
+                )
+                msg = f"سفارشات: موفق {st.get('ok',0)} · ناموفق {st.get('failed',0)} · ردشده {st.get('skipped',0)} (اعمال روی پنل VPN)"
+                if st.get("errors"):
+                    msg += " | " + "; ".join(st["errors"][:3])
+                flash(msg, "success" if st.get("ok") else "error")
+        except Exception as e:
+            flash(f"خطا: {e}", "error")
+        return redirect(url_for("products_bulk"))
+    return render_template(
+        "products_bulk.html",
+        username=session.get("admin_username"), active="products",
+        products=products, orders=orders,
+    )
+
+
+@app.route("/products/price-schedules", methods=["GET", "POST"])
+@login_required
+def products_price_schedules():
+    ensure_pricing_features()
+    products = list_products()
+    from database import list_panels
+    panels = list_panels()
+    if request.method == "POST":
+        try:
+            create_price_schedule(
+                product_id=int(request.form["product_id"]),
+                panel_id=int(request.form["panel_id"]) if request.form.get("panel_id") else None,
+                run_at=(request.form.get("run_at") or "").replace("T", " "),
+                value=float(request.form.get("value") or 0),
+                direction=request.form.get("direction") or "increase",
+                change_type=request.form.get("change_type") or "percent",
+                price_mode=request.form.get("price_mode") or "fixed_price",
+                note=request.form.get("note") or None,
+            )
+            flash("زمان‌بندی ثبت شد", "success")
+        except Exception as e:
+            flash(f"خطا: {e}", "error")
+        return redirect(url_for("products_price_schedules"))
+    schedules = list_price_schedules(limit=100)
+    return render_template(
+        "price_schedules.html",
+        username=session.get("admin_username"), active="products",
+        products=products, panels=panels, schedules=schedules,
+    )
+
+
+@app.route("/products/price-schedules/<int:sid>/cancel", methods=["POST"])
+@login_required
+def products_price_schedule_cancel(sid):
+    cancel_price_schedule(sid)
+    flash("لغو شد", "success")
+    return redirect(url_for("products_price_schedules"))
+
 
 @app.route("/categories", methods=["GET", "POST"])
 @login_required

@@ -290,7 +290,7 @@ def create_product(name, price, volume_gb, duration_days, target_role="all",
 def update_product(pid: int, panel_ids=None, panel_config=None, **fields):
     allowed = {"name", "category_id", "price", "volume_gb", "duration_days", "hwid_limit",
                "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price",
-               "limit_hwid", "reset_day", "reset_max", "traffic_reset", "traffic_reset_day"}
+               "limit_hwid", "reset_day", "reset_max", "traffic_reset", "traffic_reset_day", "start_on_first_connect"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -412,6 +412,7 @@ def update_order(oid: int, **fields):
 
 def ensure_service_mgmt_columns():
     """ستون‌های اضافه برای ساعتی و ادیت سرویس"""
+    # pricing features bootstrapped lazily via ensure_pricing_features
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -560,3 +561,361 @@ def ensure_product_panel_extra():
             conn.commit()
     finally:
         conn.close()
+
+
+# ============== قیمت اختصاصی پنل / زمان‌بندی قیمت / عملیات گروهی / اولین اتصال ==============
+
+def ensure_pricing_features():
+    """جداول و ستون‌های قیمت پنل، زمان‌بندی قیمت، on_hold"""
+    ensure_service_mgmt_columns()
+    ensure_product_panel_extra()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            for col, ddl in [
+                ("start_on_first_connect", "TINYINT(1) NOT NULL DEFAULT 0"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE products ADD COLUMN {col} {ddl}")
+                except Exception:
+                    pass
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS price_schedules (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                product_id INT NOT NULL,
+                panel_id INT DEFAULT NULL,
+                change_type ENUM('fixed','percent') NOT NULL DEFAULT 'percent',
+                price_mode ENUM('fixed_price','hourly_price','both') NOT NULL DEFAULT 'fixed_price',
+                value DECIMAL(18,4) NOT NULL,
+                direction ENUM('increase','decrease') NOT NULL DEFAULT 'increase',
+                run_at DATETIME NOT NULL,
+                status ENUM('pending','done','cancelled') NOT NULL DEFAULT 'pending',
+                note VARCHAR(255) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                applied_at TIMESTAMP NULL DEFAULT NULL,
+                INDEX idx_run (status, run_at),
+                INDEX idx_prod (product_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def get_panel_price(product: dict, panel_id: int, hourly: bool = False) -> int:
+    """
+    قیمت مؤثر محصول برای یک پنل.
+    اگر در extra_json پنل قیمت ست شده باشد همان؛ وگرنه قیمت اصلی محصول.
+    """
+    ensure_pricing_features()
+    pid = int(panel_id)
+    cfg = {}
+    try:
+        cfg = (product.get("panel_config") or {}).get(pid) or (product.get("panel_config") or {}).get(str(pid)) or {}
+    except Exception:
+        cfg = {}
+    if hourly:
+        if cfg.get("hourly_price") is not None and str(cfg.get("hourly_price")).strip() != "":
+            try:
+                return int(float(cfg["hourly_price"]))
+            except (TypeError, ValueError):
+                pass
+        return int(float(product.get("hourly_price") or 0))
+    if cfg.get("price") is not None and str(cfg.get("price")).strip() != "":
+        try:
+            return int(float(cfg["price"]))
+        except (TypeError, ValueError):
+            pass
+    return int(float(product.get("price") or 0))
+
+
+def _apply_delta(current, direction: str, change_type: str, value) -> float:
+    cur = float(current or 0)
+    val = float(value or 0)
+    if change_type == "percent":
+        delta = cur * (val / 100.0)
+    else:
+        delta = val
+    if direction == "decrease":
+        return max(0.0, cur - delta)
+    return max(0.0, cur + delta)
+
+
+def list_price_schedules(status=None, limit=100):
+    ensure_pricing_features()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            if status:
+                cur.execute(
+                    """SELECT s.*, p.name AS product_name FROM price_schedules s
+                       LEFT JOIN products p ON p.id=s.product_id
+                       WHERE s.status=%s ORDER BY s.run_at ASC LIMIT %s""",
+                    (status, int(limit)),
+                )
+            else:
+                cur.execute(
+                    """SELECT s.*, p.name AS product_name FROM price_schedules s
+                       LEFT JOIN products p ON p.id=s.product_id
+                       ORDER BY s.run_at DESC LIMIT %s""",
+                    (int(limit),),
+                )
+            return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def create_price_schedule(product_id, run_at, value, direction="increase",
+                          change_type="percent", price_mode="fixed_price",
+                          panel_id=None, note=None) -> int:
+    ensure_pricing_features()
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO price_schedules
+                   (product_id, panel_id, change_type, price_mode, value, direction, run_at, note)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (int(product_id), int(panel_id) if panel_id else None,
+                 change_type, price_mode, float(value), direction, run_at, note),
+            )
+            conn.commit()
+            return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def cancel_price_schedule(sid: int):
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE price_schedules SET status='cancelled' WHERE id=%s AND status='pending'", (int(sid),))
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def apply_due_price_schedules() -> dict:
+    """اعمال زمان‌بندی‌های سررسید — برای cron"""
+    ensure_pricing_features()
+    import json as _json
+    stats = {"applied": 0, "errors": []}
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT * FROM price_schedules
+                   WHERE status='pending' AND run_at <= NOW()
+                   ORDER BY run_at ASC LIMIT 50"""
+            )
+            rows = cur.fetchall() or []
+        for s in rows:
+            try:
+                prod = get_product(int(s["product_id"]))
+                if not prod:
+                    raise RuntimeError("product missing")
+                modes = []
+                pm = s.get("price_mode") or "fixed_price"
+                if pm in ("fixed_price", "both"):
+                    modes.append("fixed")
+                if pm in ("hourly_price", "both"):
+                    modes.append("hourly")
+                panel_id = s.get("panel_id")
+                if panel_id:
+                    # قیمت فقط روی extra_json همان پنل
+                    cfg = dict((prod.get("panel_config") or {}).get(int(panel_id))
+                               or (prod.get("panel_config") or {}).get(str(panel_id)) or {})
+                    if "fixed" in modes:
+                        base = cfg.get("price")
+                        if base is None or str(base).strip() == "":
+                            base = prod.get("price") or 0
+                        cfg["price"] = int(_apply_delta(base, s["direction"], s["change_type"], s["value"]))
+                    if "hourly" in modes:
+                        base = cfg.get("hourly_price")
+                        if base is None or str(base).strip() == "":
+                            base = prod.get("hourly_price") or 0
+                        cfg["hourly_price"] = float(_apply_delta(base, s["direction"], s["change_type"], s["value"]))
+                    # ذخیره
+                    conn2 = get_sync_connection()
+                    try:
+                        with conn2.cursor() as cur2:
+                            cur2.execute(
+                                "UPDATE product_panels SET extra_json=%s WHERE product_id=%s AND panel_id=%s",
+                                (_json.dumps(cfg, ensure_ascii=False), int(s["product_id"]), int(panel_id)),
+                            )
+                            conn2.commit()
+                    finally:
+                        conn2.close()
+                else:
+                    fields = {}
+                    if "fixed" in modes:
+                        fields["price"] = int(_apply_delta(prod.get("price") or 0, s["direction"], s["change_type"], s["value"]))
+                    if "hourly" in modes:
+                        fields["hourly_price"] = float(_apply_delta(prod.get("hourly_price") or 0, s["direction"], s["change_type"], s["value"]))
+                    if fields:
+                        update_product(int(s["product_id"]), **fields)
+                conn3 = get_sync_connection()
+                try:
+                    with conn3.cursor() as cur3:
+                        cur3.execute(
+                            "UPDATE price_schedules SET status='done', applied_at=NOW() WHERE id=%s",
+                            (int(s["id"]),),
+                        )
+                        conn3.commit()
+                finally:
+                    conn3.close()
+                stats["applied"] += 1
+            except Exception as e:
+                stats["errors"].append(f"#{s.get('id')}: {e}")
+    finally:
+        conn.close()
+    return stats
+
+
+def bulk_update_products(product_ids, *, price_delta=None, price_percent=None,
+                         duration_delta=None, volume_delta=None, volume_percent=None) -> int:
+    """تغییر گروهی روی محصولات. delta مثبت=افزایش، منفی=کاهش. percent جداگانه."""
+    ensure_pricing_features()
+    ids = [int(x) for x in (product_ids or []) if str(x).isdigit()]
+    if not ids:
+        return 0
+    n = 0
+    for pid in ids:
+        p = get_product(pid)
+        if not p:
+            continue
+        fields = {}
+        if price_percent is not None:
+            fields["price"] = int(_apply_delta(p.get("price") or 0, "increase" if float(price_percent) >= 0 else "decrease",
+                                               "percent", abs(float(price_percent))))
+        elif price_delta is not None:
+            fields["price"] = max(0, int(float(p.get("price") or 0) + float(price_delta)))
+        if duration_delta is not None:
+            fields["duration_days"] = max(0, int(float(p.get("duration_days") or 0) + float(duration_delta)))
+        if volume_percent is not None:
+            fields["volume_gb"] = round(_apply_delta(p.get("volume_gb") or 0, "increase" if float(volume_percent) >= 0 else "decrease",
+                                                     "percent", abs(float(volume_percent))), 2)
+        elif volume_delta is not None:
+            fields["volume_gb"] = max(0.0, float(p.get("volume_gb") or 0) + float(volume_delta))
+        if fields:
+            update_product(pid, **fields)
+            n += 1
+    return n
+
+
+def bulk_update_orders(order_ids, *, volume_delta=None, volume_percent=None,
+                       duration_delta=None, extend_days=None, apply_panel: bool = True) -> dict:
+    """
+    تغییر گروهی سفارشات + اعمال روی پنل VPN.
+    فقط در صورت موفقیت روی پنل، دیتابیس هم آپدیت می‌شود.
+    برمی‌گرداند: {ok, failed, skipped, errors}
+    """
+    from datetime import datetime, timedelta, timezone
+    ensure_pricing_features()
+    ids = [int(x) for x in (order_ids or []) if str(x).isdigit()]
+    stats = {"ok": 0, "failed": 0, "skipped": 0, "errors": []}
+
+    try:
+        from services.service_edit import edit_sold_service
+    except Exception as e:
+        return {"ok": 0, "failed": 0, "skipped": 0, "errors": [f"import edit_sold_service: {e}"]}
+
+    for oid in ids:
+        o = get_order(oid)
+        if not o:
+            stats["skipped"] += 1
+            continue
+
+        base_vol = o.get("volume_gb_override")
+        if base_vol is None:
+            try:
+                pr = get_product(int(o["product_id"]))
+                base_vol = pr.get("volume_gb") if pr else 0
+            except Exception:
+                base_vol = 0
+        base_days = o.get("duration_days_override")
+        if base_days is None:
+            try:
+                pr = get_product(int(o["product_id"]))
+                base_days = pr.get("duration_days") if pr else 0
+            except Exception:
+                base_days = 0
+
+        new_vol = None
+        if volume_percent is not None:
+            new_vol = round(_apply_delta(
+                base_vol or 0,
+                "increase" if float(volume_percent) >= 0 else "decrease",
+                "percent",
+                abs(float(volume_percent)),
+            ), 2)
+        elif volume_delta is not None:
+            new_vol = max(0.0, float(base_vol or 0) + float(volume_delta))
+
+        new_days = None
+        expire_iso = None
+        if duration_delta is not None:
+            new_days = max(0, int(float(base_days or 0) + float(duration_delta)))
+        if extend_days is not None:
+            days_add = int(extend_days)
+            exp = o.get("expire_at")
+            exp_dt = None
+            if exp:
+                try:
+                    if isinstance(exp, str):
+                        exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00").split(".")[0])
+                    else:
+                        exp_dt = exp
+                except Exception:
+                    exp_dt = None
+            if exp_dt is None:
+                base = int(base_days or 0)
+                exp_dt = datetime.now(timezone.utc) + timedelta(days=max(0, base + days_add))
+            else:
+                if getattr(exp_dt, "tzinfo", None) is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                exp_dt = exp_dt + timedelta(days=days_add)
+            expire_iso = exp_dt.astimezone(timezone.utc).isoformat()
+
+        if new_vol is None and new_days is None and expire_iso is None:
+            stats["skipped"] += 1
+            continue
+
+        # بدون اکانت VPN روی پنل قابل اعمال نیست → ناموفق، بدون تغییر DB
+        if apply_panel:
+            if not o.get("vpn_username") or o.get("status") not in ("paid", "provisioned"):
+                stats["failed"] += 1
+                stats["errors"].append(f"#{oid}: اکانت VPN/وضعیت نامعتبر — دیتابیس تغییر نکرد")
+                continue
+            try:
+                res = edit_sold_service(
+                    oid,
+                    volume_gb=new_vol,
+                    duration_days=new_days if expire_iso is None else None,
+                    expire_iso=expire_iso,
+                )
+                if res.get("ok"):
+                    stats["ok"] += 1
+                else:
+                    # هیچ تغییر DB — edit_sold_service هم فقط بعد از موفقیت پنل DB را می‌نویسد
+                    stats["failed"] += 1
+                    stats["errors"].append(f"#{oid}: {res.get('error') or 'اعمال روی پنل ناموفق'}")
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append(f"#{oid}: {e}")
+        else:
+            # حالت نادر: فقط DB (اگر صریحاً apply_panel=False)
+            fields = {}
+            if new_vol is not None:
+                fields["volume_gb_override"] = new_vol
+            if new_days is not None:
+                fields["duration_days_override"] = new_days
+            if expire_iso:
+                fields["expire_at"] = expire_iso[:19].replace("T", " ")
+            if fields:
+                update_order(oid, **fields)
+                stats["ok"] += 1
+            else:
+                stats["skipped"] += 1
+    return stats
+

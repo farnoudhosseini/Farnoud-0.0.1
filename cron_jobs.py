@@ -121,11 +121,18 @@ async def job_optimize():
             await app.shutdown()
 
 
+async def job_price_schedules():
+    from db_products import apply_due_price_schedules
+    stats = apply_due_price_schedules()
+    log.info("price_schedules: %s", stats)
+
+
 JOBS = {
     "backup": job_backup,
     "hourly": job_hourly,
     "auto_approve": job_auto_approve,
     "optimize": job_optimize,
+    "price_schedules": job_price_schedules,
 }
 
 

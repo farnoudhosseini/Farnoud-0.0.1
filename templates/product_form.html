@@ -48,6 +48,8 @@
 <input type="number" name="traffic_reset_day" min="1" max="31" placeholder="1" value="{{ product.traffic_reset_day if product and product.traffic_reset_day is not none else '' }}"></div>
 </details>
 <div class="form-group"><label><input type="checkbox" name="hourly_enabled" value="1" {% if product and product.hourly_enabled %}checked{% endif %}> قابل خرید ساعتی</label></div>
+<div class="form-group"><label><input type="checkbox" name="start_on_first_connect" value="1" {% if product and product.start_on_first_connect %}checked{% endif %}> شروع زمان از اولین اتصال (on_hold)</label>
+<p class="muted" style="font-size:.8rem">برای پاسارگارد و ثنایی: مهلت سرویس از لحظهٔ اولین اتصال کاربر محاسبه می‌شود، نه از لحظهٔ خرید.</p></div>
 <div class="form-group"><label>قیمت هر ساعت (تومان)</label>
 <input type="number" step="0.01" name="hourly_price" value="{{ product.hourly_price if product and product.hourly_price else '' }}" placeholder="اختیاری"></div>
 <div class="form-group"><label>نوع کاربر هدف</label>
@@ -79,6 +81,19 @@
       <div class="sub-options" data-panel="{{ pan.id }}" data-type="{{ ptype }}">
         <span class="muted">در حال بارگذاری…</span>
       </div>
+      <div class="panel-prices" style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label style="font-size:.8rem">قیمت اختصاصی این پنل (تومان)</label>
+          <input type="number" min="0" name="panel_price_{{ pan.id }}" placeholder="خالی = قیمت اصلی"
+            value="{% if pcfg and pcfg.get(pan.id) and pcfg.get(pan.id).get('price') is not none %}{{ pcfg.get(pan.id).get('price') }}{% elif pcfg and pcfg.get(pan.id|string) and pcfg.get(pan.id|string).get('price') is not none %}{{ pcfg.get(pan.id|string).get('price') }}{% endif %}">
+        </div>
+        <div>
+          <label style="font-size:.8rem">قیمت ساعتی اختصاصی</label>
+          <input type="number" step="0.01" min="0" name="panel_hourly_price_{{ pan.id }}" placeholder="خالی = قیمت اصلی"
+            value="{% if pcfg and pcfg.get(pan.id) and pcfg.get(pan.id).get('hourly_price') is not none %}{{ pcfg.get(pan.id).get('hourly_price') }}{% elif pcfg and pcfg.get(pan.id|string) and pcfg.get(pan.id|string).get('hourly_price') is not none %}{{ pcfg.get(pan.id|string).get('hourly_price') }}{% endif %}">
+        </div>
+      </div>
+      <p class="muted" style="font-size:.75rem;margin-top:4px">اگر خالی بگذارید از قیمت اصلی محصول استفاده می‌شود.</p>
     </div>
   </div>
 {% else %}<span style="color:var(--text-tertiary)">ابتدا پنل اضافه کنید</span>{% endfor %}
