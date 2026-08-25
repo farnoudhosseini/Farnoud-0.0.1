@@ -2246,19 +2246,31 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if mode=="web_user":
         from database import get_sync_connection
+        new_user = (text or "").strip()[:50]
+        if not new_user:
+            await update.message.reply_text("❌ نام کاربری نمی‌تواند خالی باشد.")
+            return WAITING_ADMIN_TEXT
         conn=get_sync_connection()
+        ok = False
         try:
             with conn.cursor() as cur:
-                cur.execute("UPDATE admins SET username=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",(text[:50],))
+                cur.execute("UPDATE admins SET username=%s ORDER BY id LIMIT 1", (new_user,))
+                ok = cur.rowcount > 0
             conn.commit()
-        finally: conn.close()
-        await update.message.reply_text("✅ نام کاربری وب‌پنل تغییر کرد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
+        finally:
+            conn.close()
+        msg = "✅ نام کاربری وب‌پنل تغییر کرد." if ok else "❌ خطا در تغییر نام کاربری (ممکن است جدول admins خالی باشد)."
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت",callback_data="admin_panel")]]))
         return ConversationHandler.END
 
     if mode=="web_pass":
         from database import set_admin_password
-        ok = set_admin_password(text)
-        msg = "✅ رمز وب‌پنل تغییر کرد." if ok else "❌ خطا در تغییر رمز."
+        pwd = (text or "").strip()
+        if not pwd or len(pwd) < 4:
+            await update.message.reply_text("❌ رمز باید حداقل ۴ کاراکتر باشد.\nدوباره بفرستید یا /cancel")
+            return WAITING_ADMIN_TEXT
+        ok = set_admin_password(pwd)
+        msg = "✅ رمز وب‌پنل با موفقیت تغییر کرد." if ok else "❌ خطا در تغییر رمز (ممکن است جدول admins خالی باشد)."
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت", callback_data="admin_panel")]]))
         return ConversationHandler.END
 

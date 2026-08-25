@@ -318,7 +318,7 @@ def create_bot() -> Application:
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome)"),
+            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_web_|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome)"),
         ],
         states={
             WAITING_WELCOME: [MessageHandler(filters.TEXT, receive_welcome_message)],

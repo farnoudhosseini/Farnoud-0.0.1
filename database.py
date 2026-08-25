@@ -126,6 +126,9 @@ def check_admin(username: str, password: str):
 
 def set_admin_password(password: str, admin_id: int = None) -> bool:
     """تنظیم/تغییر رمز ادمین با هش امن."""
+    password = (password or "").strip()
+    if not password:
+        return False
     connection = None
     try:
         connection = get_sync_connection()
@@ -134,12 +137,10 @@ def set_admin_password(password: str, admin_id: int = None) -> bool:
             if admin_id:
                 cursor.execute("UPDATE admins SET password=%s WHERE id=%s", (hashed, admin_id))
             else:
-                cursor.execute(
-                    "UPDATE admins SET password=%s WHERE id=(SELECT id FROM (SELECT id FROM admins ORDER BY id LIMIT 1) x)",
-                    (hashed,),
-                )
+                # آپدیت امن‌تر با ORDER BY + LIMIT (سازگار با MySQL/MariaDB)
+                cursor.execute("UPDATE admins SET password=%s ORDER BY id LIMIT 1", (hashed,))
             connection.commit()
-            return True
+            return cursor.rowcount > 0
     except Exception as e:
         print(f"❌ خطا در تغییر رمز ادمین: {e}")
         return False
