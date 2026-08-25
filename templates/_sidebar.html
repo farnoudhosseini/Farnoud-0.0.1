@@ -79,6 +79,7 @@
         <a href="{{ url_for('reseller_requests_page') }}" class="nav-item {% if active == 'reseller_requests' %}active{% endif %}"><i data-lucide="briefcase-business"></i><span>درخواست نمایندگی</span></a>
 
         <div class="nav-section-label">Settings</div>
+        <a href="{{ url_for('bot_settings') }}" class="nav-item {% if active == 'bot_settings' %}active{% endif %}"><i data-lucide="settings-2"></i><span>تنظیمات ربات و بکاپ</span></a>
         <a href="{{ url_for('personalize') }}" class="nav-item {% if active == 'personalize' %}active{% endif %}"><i data-lucide="sliders-horizontal"></i><span>شخصی‌سازی</span></a>
         <a href="{{ url_for('premium_emojis_manage') }}" class="nav-item {% if active == 'premium_emojis' %}active{% endif %}"><i data-lucide="sparkles"></i><span>ایموجی پریمیوم</span></a>
         <a href="{{ url_for('menu_buttons_manage') }}" class="nav-item {% if active == 'menu_buttons' %}active{% endif %}"><i data-lucide="panel-top"></i><span>کنترل دکمه‌ها</span></a>

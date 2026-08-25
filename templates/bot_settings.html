@@ -33,6 +33,63 @@
             </div>
 
             <div class="card" style="margin-top:16px">
+                <div class="card-title">بازیابی بکاپ دیتابیس</div>
+                <p class="muted" style="font-size:.88rem;margin-bottom:12px;line-height:1.7">
+                    فایل‌های بکاپ که ربات دامپ می‌کند (<code>.sql</code> یا <code>.sql.gz</code>) را اینجا آپلود کنید تا دیتابیس به همان وضعیت برگردد.
+                    <br>
+                    <strong style="color:var(--danger)">هشدار:</strong> این عمل داده‌های فعلی را با محتویات بکاپ جایگزین می‌کند. قبل از بازیابی از وضعیت فعلی بکاپ بگیرید.
+                </p>
+                <form method="POST" action="{{ url_for('bot_restore_backup') }}" enctype="multipart/form-data" id="restoreBackupForm">
+                    <div class="form-group">
+                        <label for="backup_file">فایل بکاپ</label>
+                        <input type="file" id="backup_file" name="backup_file" accept=".sql,.gz,.sql.gz,application/gzip,application/sql,text/plain" required
+                               style="width:100%;padding:12px;border:1px dashed var(--border);border-radius:12px;background:var(--glass2);cursor:pointer">
+                    </div>
+                    <label style="display:flex;align-items:flex-start;gap:10px;margin:14px 0 18px;cursor:pointer;font-size:.9rem;line-height:1.5">
+                        <input type="checkbox" name="confirm_restore" value="1" id="confirm_restore" style="margin-top:3px;width:18px;height:18px;flex-shrink:0" required>
+                        <span>تأیید می‌کنم که می‌خواهم دیتابیس فعلی با این بکاپ جایگزین شود و از پیامد آن آگاه هستم.</span>
+                    </label>
+                    <div class="card-actions" style="display:flex;flex-direction:column;gap:10px">
+                        <button type="submit" class="btn-primary" id="btnRestoreBackup"
+                                style="width:100%;min-height:48px;font-size:14px;font-weight:700;border-radius:12px;justify-content:center;gap:10px">
+                            <span style="font-size:18px;line-height:1">♻️</span>
+                            <span>آپلود و بازیابی بکاپ</span>
+                        </button>
+                    </div>
+                </form>
+                <script>
+                (function(){
+                    var form = document.getElementById('restoreBackupForm');
+                    if (!form) return;
+                    form.addEventListener('submit', function(e){
+                        var cb = document.getElementById('confirm_restore');
+                        var file = document.getElementById('backup_file');
+                        if (!file || !file.files || !file.files.length) {
+                            e.preventDefault();
+                            alert('لطفاً فایل بکاپ را انتخاب کنید.');
+                            return;
+                        }
+                        if (!cb || !cb.checked) {
+                            e.preventDefault();
+                            alert('تأیید امنیتی را فعال کنید.');
+                            return;
+                        }
+                        if (!confirm('آیا مطمئن هستید؟ دیتابیس فعلی با محتویات این بکاپ جایگزین می‌شود.')) {
+                            e.preventDefault();
+                            return;
+                        }
+                        var btn = document.getElementById('btnRestoreBackup');
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.style.opacity = '0.7';
+                            btn.innerHTML = '<span>⏳</span><span>در حال بازیابی… لطفاً صبر کنید</span>';
+                        }
+                    });
+                })();
+                </script>
+            </div>
+
+            <div class="card" style="margin-top:16px">
                 <div class="card-title">آنتی‌اسپم</div>
                 <p class="muted" style="font-size:.88rem;margin-bottom:12px">
                   اگر کاربر بیش از حد پیام بفرستد، برای مدت مشخص محدود می‌شود و هیچ پیام یا اکشنی انجام نمی‌دهد.

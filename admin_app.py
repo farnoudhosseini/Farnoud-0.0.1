@@ -39,6 +39,8 @@ from db_users import (
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = SECRET_KEY
+# آپلود بکاپ‌های بزرگ (تا ۲۵۶ مگابایت)
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024
 
 # Telegram Mini App: public API routes are isolated in a Blueprint and use Telegram initData auth.
 try:
@@ -719,6 +721,44 @@ def bot_settings():
         antispam_admins_exempt=get_setting_sync("antispam_admins_exempt", "1") != "0",
         antispam_message=get_setting_sync("antispam_message", "") or "به دلیل ارسال بیش از حد، تا ۵ دقیقه امکان ارسال پیام ندارید.",
     )
+
+
+@app.route("/bot/restore-backup", methods=["POST"])
+@login_required
+def bot_restore_backup():
+    """آپلود و بازیابی بکاپ دیتابیس (.sql / .sql.gz) که ربات دامپ می‌کند."""
+    f = request.files.get("backup_file")
+    confirm = request.form.get("confirm_restore") == "1"
+    if not f or not f.filename:
+        flash("فایل بکاپ انتخاب نشده است", "error")
+        return redirect(url_for("bot_settings"))
+    if not confirm:
+        flash("برای بازیابی باید تأیید امنیتی را فعال کنید", "error")
+        return redirect(url_for("bot_settings"))
+    filename = f.filename or ""
+    lower = filename.lower()
+    if not (lower.endswith(".sql") or lower.endswith(".sql.gz") or lower.endswith(".gz")):
+        flash("فقط فایل‌های .sql یا .sql.gz قابل قبول هستند", "error")
+        return redirect(url_for("bot_settings"))
+    try:
+        raw = f.read()
+    except Exception as e:
+        flash(f"خطا در خواندن فایل: {e}", "error")
+        return redirect(url_for("bot_settings"))
+    if not raw:
+        flash("فایل خالی است", "error")
+        return redirect(url_for("bot_settings"))
+    try:
+        from handlers.group_reports import restore_database_from_bytes
+        ok, msg, method = restore_database_from_bytes(raw, filename)
+        if ok:
+            flash(f"✅ {msg} (روش: {method}) — داده‌ها به وضعیت بکاپ برگشتند.", "success")
+        else:
+            flash(f"❌ بازیابی ناموفق: {msg}", "error")
+    except Exception as e:
+        flash(f"❌ خطای بازیابی: {e}", "error")
+    return redirect(url_for("bot_settings"))
+
 
 @app.route("/messages", methods=["GET", "POST"])
 @login_required

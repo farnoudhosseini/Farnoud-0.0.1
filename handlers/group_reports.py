@@ -252,6 +252,124 @@ def _gzip_bytes(data: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _gunzip_bytes(data: bytes) -> bytes:
+    import gzip
+    return gzip.decompress(data)
+
+
+def _prepare_sql_from_upload(raw: bytes, filename: str = "") -> tuple[bytes | None, str]:
+    """از فایل آپلود شده (.sql یا .sql.gz) بایت‌های SQL خام را برمی‌گرداند."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".gz") or (len(raw) >= 2 and raw[0] == 0x1F and raw[1] == 0x8B):
+            raw = _gunzip_bytes(raw)
+        return raw, ""
+    except Exception as e:
+        return None, f"خواندن فایل بکاپ: {e}"
+
+
+def _mysql_client_restore(sql_bytes: bytes) -> tuple[bool, str]:
+    """بازیابی با کلاینت mysql (ترجیحی)."""
+    host, port, user, password, db = _db_params()
+    env = os.environ.copy()
+    if password:
+        env["MYSQL_PWD"] = password
+    cmd = [
+        "mysql",
+        f"-h{host}",
+        f"-P{str(port)}",
+        f"-u{user}",
+        "--default-character-set=utf8mb4",
+        db,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=sql_bytes,
+            capture_output=True,
+            env=env,
+            timeout=600,
+        )
+        if proc.returncode == 0:
+            return True, "mysql"
+        err = (proc.stderr or b"").decode("utf-8", errors="ignore")[:600]
+        if "No such file" in err or "not found" in err.lower():
+            return False, "mysql_not_found"
+        return False, err or f"mysql exit {proc.returncode}"
+    except FileNotFoundError:
+        return False, "mysql_not_found"
+    except Exception as e:
+        return False, str(e)
+
+
+def _pymysql_restore(sql_bytes: bytes) -> tuple[bool, str]:
+    """بازیابی با pymysql وقتی کلاینت mysql در دسترس نیست."""
+    try:
+        import pymysql
+        from pymysql.constants import CLIENT
+    except ImportError:
+        return False, "pymysql نصب نیست"
+    host, port, user, password, db = _db_params()
+    try:
+        text = sql_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        return False, f"decode: {e}"
+    try:
+        conn = pymysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=db,
+            charset="utf8mb4",
+            autocommit=True,
+            client_flag=CLIENT.MULTI_STATEMENTS,
+        )
+    except Exception as e:
+        return False, f"اتصال MySQL: {e}"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(text)
+            while True:
+                try:
+                    if not cur.nextset():
+                        break
+                except Exception:
+                    break
+        return True, "pymysql"
+    except Exception as e:
+        return False, f"اجرای SQL: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def restore_database_from_bytes(raw: bytes, filename: str = "") -> tuple[bool, str, str]:
+    """
+    بازیابی دیتابیس از فایل بکاپ ربات (.sql یا .sql.gz).
+    returns (ok, message, method)
+    method: mysql | pymysql | none
+    """
+    sql_bytes, err = _prepare_sql_from_upload(raw, filename)
+    if not sql_bytes:
+        return False, err or "فایل نامعتبر", "none"
+    if len(sql_bytes) < 20:
+        return False, "فایل بکاپ خالی یا خیلی کوچک است", "none"
+
+    ok, info = _mysql_client_restore(sql_bytes)
+    if ok:
+        return True, "بازیابی با موفقیت انجام شد", "mysql"
+    if info != "mysql_not_found":
+        pass
+
+    ok2, info2 = _pymysql_restore(sql_bytes)
+    if ok2:
+        return True, "بازیابی با موفقیت انجام شد", "pymysql"
+    return False, (info2 if info == "mysql_not_found" else f"{info} | fallback: {info2}"), "none"
+
+
 async def send_db_backup(bot):
     """اکسپورت MySQL و ارسال به تاپیک backup"""
     gid = get_report_group()
