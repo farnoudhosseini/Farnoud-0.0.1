@@ -9,7 +9,7 @@ from db_users import (
 )
 from db_products import (
     list_categories, list_products, get_product, create_order, get_order, update_order,
-    get_panel_price,
+    get_panel_price, batch_panel_prices,
 )
 from services.provision import provision_order, send_service_to_user
 from config import ADMIN_ID
@@ -391,7 +391,50 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         context.user_data["waiting_buy_receipt"] = order_id
         return WAITING_BUY_RECEIPT
 
+
+    if data.startswith("buy_pay_stars_"):
+        order_id = int(data.replace("buy_pay_stars_", ""))
+        order = get_order(order_id)
+        if not order or order["telegram_id"] != user.id:
+            await q.edit_message_text("سفارش نامعتبر.")
+            return ConversationHandler.END
+        from database import get_setting_sync
+        if get_setting_sync("stars_enabled", "0") != "1":
+            await q.edit_message_text("پرداخت با استارز غیرفعال است.")
+            return ConversationHandler.END
+        pay_amount = int(order.get("pay_amount") or 0)
+        try:
+            rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+        except Exception:
+            rate = 1000.0
+        if rate <= 0:
+            rate = 1000.0
+        stars_amount = max(1, int(round(pay_amount / rate)))
+        title = get_setting_sync("stars_payment_title", "⭐ استارز تلگرام") or "⭐ استارز تلگرام"
+        try:
+            from telegram import LabeledPrice
+            await context.bot.send_invoice(
+                chat_id=user.id,
+                title=title[:32],
+                description=f"خرید سرویس #{order_id} — {pay_amount:,} تومان",
+                payload=f"order_stars_{order_id}",
+                provider_token="",
+                currency="XTR",
+                prices=[LabeledPrice(label=title[:32], amount=stars_amount)],
+            )
+            update_order(order_id, method_key="stars", status="pending_payment")
+            await q.edit_message_text(
+                f"⭐ فاکتور استارز ارسال شد.\n"
+                f"مبلغ: <b>{pay_amount:,}</b> تومان ≈ <b>{stars_amount}</b> استار\n"
+                f"نرخ: هر استار ≈ {int(rate):,} تومان",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await q.edit_message_text(f"❌ خطا در ساخت فاکتور استارز:\n{str(e)[:250]}")
+        return ConversationHandler.END
+
     return ConversationHandler.END
+
 
 async def _show_products(q, context, panel_id, cat_id, bu):
     products = list_products(
@@ -399,14 +442,25 @@ async def _show_products(q, context, panel_id, cat_id, bu):
         panel_id=panel_id,
         role=bu.get("role"),
         active_only=True,
+        with_panels=False,
     )
     if not products:
         await q.edit_message_text("محصولی در این دسته نیست.")
         return
-    rows = [[InlineKeyboardButton(
-        f"{p['name']} — {int(p['price']):,} ت",
-        callback_data=f"buy_prod_{p['id']}",
-    )] for p in products]
+    price_map = {}
+    if panel_id:
+        try:
+            price_map = batch_panel_prices([p["id"] for p in products], int(panel_id)) or {}
+        except Exception as e:
+            print("show_products panel prices:", e)
+    rows = []
+    for p in products:
+        pid = int(p["id"])
+        price = int(price_map.get(pid, p.get("price") or 0))
+        rows.append([InlineKeyboardButton(
+            f"{p['name']} — {price:,} ت",
+            callback_data=f"buy_prod_{pid}",
+        )])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = render_template("buy_select_product", {}) or "📦 محصول را انتخاب کنید:"
@@ -442,46 +496,4 @@ async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         print(e)
     context.user_data.pop("waiting_buy_receipt", None)
-
-    if data.startswith("buy_pay_stars_"):
-        order_id = int(data.replace("buy_pay_stars_", ""))
-        order = get_order(order_id)
-        if not order or order["telegram_id"] != user.id:
-            await q.edit_message_text("سفارش نامعتبر.")
-            return ConversationHandler.END
-        from database import get_setting_sync
-        if get_setting_sync("stars_enabled", "0") != "1":
-            await q.edit_message_text("پرداخت با استارز غیرفعال است.")
-            return ConversationHandler.END
-        pay_amount = int(order.get("pay_amount") or 0)
-        try:
-            rate = float(get_setting_sync("stars_rate", "1000") or 1000)
-        except Exception:
-            rate = 1000.0
-        if rate <= 0:
-            rate = 1000.0
-        stars_amount = max(1, int(round(pay_amount / rate)))
-        title = get_setting_sync("stars_payment_title", "⭐ استارز تلگرام") or "⭐ استارز تلگرام"
-        try:
-            from telegram import LabeledPrice
-            await context.bot.send_invoice(
-                chat_id=user.id,
-                title=title[:32],
-                description=f"خرید سرویس #{order_id} — {pay_amount:,} تومان",
-                payload=f"order_stars_{order_id}",
-                provider_token="",  # Stars: empty provider_token
-                currency="XTR",
-                prices=[LabeledPrice(label=title[:32], amount=stars_amount)],
-            )
-            update_order(order_id, method_key="stars", status="pending_payment")
-            await q.edit_message_text(
-                f"⭐ فاکتور استارز ارسال شد.\n"
-                f"مبلغ: <b>{pay_amount:,}</b> تومان ≈ <b>{stars_amount}</b> استار\n"
-                f"نرخ: هر استار ≈ {int(rate):,} تومان",
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            await q.edit_message_text(f"❌ خطا در ساخت فاکتور استارز:\n{str(e)[:250]}")
-        return ConversationHandler.END
-
     return ConversationHandler.END

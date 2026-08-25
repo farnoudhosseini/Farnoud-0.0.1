@@ -177,7 +177,8 @@ def delete_category(cid: int):
         conn.close()
 
 # ---- products ----
-def list_products(category_id=None, panel_id=None, role=None, active_only=False):
+def list_products(category_id=None, panel_id=None, role=None, active_only=False, with_panels=True):
+    """لیست محصولات. with_panels=False برای لیست سبک‌تر (مثلاً دکمه خرید)."""
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -189,26 +190,40 @@ def list_products(category_id=None, panel_id=None, role=None, active_only=False)
             if active_only:
                 sql += " AND p.is_active=1"
             if category_id:
-                sql += " AND p.category_id=%s"; params.append(category_id)
+                sql += " AND p.category_id=%s"
+                params.append(category_id)
             if role and role != "all":
-                sql += " AND (p.target_role='all' OR p.target_role=%s)"; params.append(role)
+                sql += " AND (p.target_role='all' OR p.target_role=%s)"
+                params.append(role)
+            if panel_id:
+                sql += """ AND EXISTS (
+                    SELECT 1 FROM product_panels pp
+                    WHERE pp.product_id=p.id AND pp.panel_id=%s
+                )"""
+                params.append(int(panel_id))
             sql += " ORDER BY p.sort_order, p.id"
             cur.execute(sql, params)
             rows = cur.fetchall() or []
-            if panel_id:
-                filtered = []
-                for r in rows:
-                    cur.execute("SELECT 1 FROM product_panels WHERE product_id=%s AND panel_id=%s", (r["id"], panel_id))
-                    if cur.fetchone():
-                        filtered.append(r)
-                rows = filtered
-            for r in rows:
+            if with_panels and rows:
+                ids = [int(r["id"]) for r in rows]
+                ph = ",".join(["%s"] * len(ids))
                 cur.execute(
-                    """SELECT vp.id, vp.name FROM product_panels pp
-                       JOIN vpn_panels vp ON vp.id=pp.panel_id WHERE pp.product_id=%s""",
-                    (r["id"],),
+                    f"""SELECT pp.product_id, vp.id, vp.name
+                        FROM product_panels pp
+                        JOIN vpn_panels vp ON vp.id=pp.panel_id
+                        WHERE pp.product_id IN ({ph})""",
+                    tuple(ids),
                 )
-                r["panels"] = cur.fetchall() or []
+                by_prod = {}
+                for x in (cur.fetchall() or []):
+                    by_prod.setdefault(int(x["product_id"]), []).append(
+                        {"id": x["id"], "name": x["name"]}
+                    )
+                for r in rows:
+                    r["panels"] = by_prod.get(int(r["id"]), [])
+            elif rows:
+                for r in rows:
+                    r["panels"] = []
             return rows
     finally:
         conn.close()
@@ -550,7 +565,12 @@ def reorder_products(ids: list) -> bool:
     finally:
         conn.close()
 
+_product_panel_extra_ready = False
+
 def ensure_product_panel_extra():
+    global _product_panel_extra_ready
+    if _product_panel_extra_ready:
+        return
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -561,12 +581,18 @@ def ensure_product_panel_extra():
             conn.commit()
     finally:
         conn.close()
+    _product_panel_extra_ready = True
 
 
 # ============== قیمت اختصاصی پنل / زمان‌بندی قیمت / عملیات گروهی / اولین اتصال ==============
 
+_pricing_features_ready = False
+
 def ensure_pricing_features():
-    """جداول و ستون‌های قیمت پنل، زمان‌بندی قیمت، on_hold"""
+    """جداول و ستون‌های قیمت پنل، زمان‌بندی قیمت، on_hold — فقط یک‌بار در هر پروسس"""
+    global _pricing_features_ready
+    if _pricing_features_ready:
+        return
     ensure_service_mgmt_columns()
     ensure_product_panel_extra()
     conn = get_sync_connection()
@@ -600,6 +626,7 @@ def ensure_pricing_features():
             conn.commit()
     finally:
         conn.close()
+    _pricing_features_ready = True
 
 
 def get_panel_price(product: dict, panel_id: int, hourly: bool = False) -> int:
@@ -918,4 +945,40 @@ def bulk_update_orders(order_ids, *, volume_delta=None, volume_percent=None,
             else:
                 stats["skipped"] += 1
     return stats
+
+
+def batch_panel_prices(product_ids, panel_id: int) -> dict:
+    """{product_id: effective_price} برای یک پنل — یک کوئری."""
+    if not product_ids or not panel_id:
+        return {}
+    import json as _json
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            ids = [int(x) for x in product_ids]
+            ph = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f"SELECT product_id, extra_json FROM product_panels "
+                f"WHERE panel_id=%s AND product_id IN ({ph})",
+                (int(panel_id), *ids),
+            )
+            out = {}
+            for row in (cur.fetchall() or []):
+                cfg = {}
+                if row.get("extra_json"):
+                    try:
+                        cfg = _json.loads(row["extra_json"]) or {}
+                    except Exception:
+                        cfg = {}
+                if cfg.get("price") is not None and str(cfg.get("price")).strip() != "":
+                    try:
+                        out[int(row["product_id"])] = int(float(cfg["price"]))
+                    except (TypeError, ValueError):
+                        pass
+            return out
+    except Exception as e:
+        print("batch_panel_prices:", e)
+        return {}
+    finally:
+        conn.close()
 

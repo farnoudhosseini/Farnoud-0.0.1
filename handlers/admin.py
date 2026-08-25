@@ -35,11 +35,14 @@ def main_keyboard():
         [btn("📊 آمار ربات", "admin_stats", "primary")],
         [btn("📝 تنظیم پیام‌ها", "admin_msgs"), btn("👋 خوش‌آمدگویی", "admin_welcome")],
         [btn("🖥 مدیریت پنل‌ها", "admin_panels")],
-        [btn("📦 محصولات", "admin_products")],
+        [btn("📦 محصولات", "admin_products"), btn("📁 دسته‌ها", "admin_categories")],
         [btn("📋 سرویس‌های فروخته‌شده", "admin_orders")],
         [btn("👥 کاربران ربات", "admin_bot_users")],
         [btn("📣 ارسال همگانی", "admin_broadcast"), btn("🔎 جستجوی کاربر", "admin_user_search")],
         [btn("🛠 وب‌پنل", "admin_web"), btn("🎁 رفرال", "admin_referral")],
+        [btn("🌱 رشد و تست", "admin_growth"), btn("🏷 کد هدیه", "admin_gifts")],
+        [btn("🤝 نمایندگی‌ها", "admin_resellers"), btn("🎧 تیکت‌ها", "admin_tickets")],
+        [btn("⭐ امتیاز خرید", "admin_loyalty")],
         [btn("💳 کارت‌ها / پرداخت", "admin_cards")],
         [btn("🧾 درخواست‌های شارژ", "admin_charges")],
         [btn("✨ ایموجی پریمیوم", "admin_premiji"), btn("⌨️ منوی شیشه‌ای", "admin_inline_menu")],
@@ -709,6 +712,226 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("تست کاربر ریست و پیام ارسال شد", show_alert=True)
             query.data = f"admin_bu_{tid}"
             return await admin_callback(update, context)
+
+
+    if data == "admin_categories":
+        from db_products import list_categories
+        cats = list_categories(active_only=False) or []
+        lines = ["📁 <b>دسته‌بندی محصولات</b>\n"]
+        rows = []
+        for c in cats[:30]:
+            st = "🟢" if c.get("is_active", 1) else "🔴"
+            lines.append(f"• {st} #{c['id']} {c.get('name') or '—'}")
+        if not cats:
+            lines.append("دسته‌ای تعریف نشده. از وب‌پنل اضافه کنید.")
+        rows.append([InlineKeyboardButton("🌐 مدیریت در وب‌پنل", callback_data="admin_web")])
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_growth":
+        from database import get_setting_sync
+        te = get_setting_sync("trial_enabled", "0") == "1"
+        tv = get_setting_sync("trial_volume_gb", "1") or "1"
+        td = get_setting_sync("trial_days", "1") or "1"
+        fj = get_setting_sync("force_join_enabled", "0") == "1"
+        fp = get_setting_sync("force_phone_enabled", "0") == "1"
+        textg = (
+            "🌱 <b>رشد و احراز / تست رایگان</b>\n\n"
+            f"تست رایگان: {'🟢 فعال' if te else '🔴 خاموش'}\n"
+            f"حجم تست: <b>{tv}</b> GB | مدت: <b>{td}</b> روز\n"
+            f"عضویت اجباری: {'🟢' if fj else '🔴'} | موبایل اجباری: {'🟢' if fp else '🔴'}\n\n"
+            "تنظیمات پیشرفته (پنل تست، پروتکل) از وب‌پنل."
+        )
+        rows = [
+            [InlineKeyboardButton(
+                ("🔴 خاموش کردن تست" if te else "🟢 روشن کردن تست"),
+                callback_data="admin_trial_toggle",
+            )],
+            [InlineKeyboardButton("📦 حجم تست (GB)", callback_data="admin_trial_vol")],
+            [InlineKeyboardButton("📅 مدت تست (روز)", callback_data="admin_trial_days")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+        ]
+        await query.edit_message_text(textg, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_trial_toggle":
+        from database import get_setting_sync, set_setting_sync
+        te = get_setting_sync("trial_enabled", "0") == "1"
+        set_setting_sync("trial_enabled", "0" if te else "1")
+        await query.answer("تست " + ("خاموش" if te else "روشن") + " شد", show_alert=True)
+        query.data = "admin_growth"
+        return await admin_callback(update, context)
+
+    if data == "admin_trial_vol":
+        context.user_data["admin_input_mode"] = "trial_vol"
+        await query.edit_message_text("حجم تست رایگان را به گیگابایت بفرستید (مثلاً 1):\n/cancel انصراف")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_trial_days":
+        context.user_data["admin_input_mode"] = "trial_days"
+        await query.edit_message_text("مدت تست رایگان را به روز بفرستید (مثلاً 1):\n/cancel انصراف")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_gifts":
+        from db_users import list_gift_codes
+        codes = list_gift_codes() or []
+        lines = ["🏷 <b>کدهای هدیه</b>\n"]
+        for g in codes[:20]:
+            lines.append(
+                f"• <code>{g.get('code')}</code> — {int(g.get('amount') or 0):,} ت "
+                f"({int(g.get('used_count') or 0)}/{int(g.get('max_uses') or 1)}) "
+                f"{'🟢' if g.get('is_active', 1) else '🔴'}"
+            )
+        if not codes:
+            lines.append("کدی نیست.")
+        rows = [
+            [InlineKeyboardButton("➕ ساخت کد هدیه", callback_data="admin_gift_add")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+        ]
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_gift_add":
+        context.user_data["admin_input_mode"] = "gift_add"
+        await query.edit_message_text(
+            "کد هدیه را این‌طور بفرستید:\n"
+            "<code>کد مبلغ حداکثر_استفاده</code>\n"
+            "مثال: <code>NOWROZ 50000 10</code>\n/cancel انصراف",
+            parse_mode="HTML",
+        )
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_resellers":
+        from db_growth import list_reseller_requests
+        reqs = list_reseller_requests(status="pending", limit=20) or []
+        lines = ["🤝 <b>درخواست‌های نمایندگی (در انتظار)</b>\n"]
+        rows = []
+        for r in reqs:
+            lines.append(
+                f"• #{r['id']} tg:<code>{r.get('telegram_id')}</code> "
+                f"{(r.get('description') or '')[:40]}"
+            )
+            rows.append([
+                InlineKeyboardButton(f"✅ #{r['id']}", callback_data=f"admin_rs_ok_{r['id']}"),
+                InlineKeyboardButton(f"❌ #{r['id']}", callback_data=f"admin_rs_no_{r['id']}"),
+            ])
+        if not reqs:
+            lines.append("درخواستی در صف نیست.")
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines)[:3500], reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_rs_ok_"):
+        from db_growth import review_reseller_request, get_reseller_request
+        rid = int(data.replace("admin_rs_ok_", ""))
+        req = get_reseller_request(rid)
+        ok = review_reseller_request(rid, "approved", reseller_type="reseller")
+        if ok and req:
+            try:
+                await context.bot.send_message(
+                    int(req["telegram_id"]),
+                    "🎉 درخواست نمایندگی شما تایید شد!",
+                )
+            except Exception:
+                pass
+        await query.answer("تایید شد" if ok else "خطا", show_alert=True)
+        query.data = "admin_resellers"
+        return await admin_callback(update, context)
+
+    if data.startswith("admin_rs_no_"):
+        from db_growth import review_reseller_request, get_reseller_request
+        rid = int(data.replace("admin_rs_no_", ""))
+        req = get_reseller_request(rid)
+        ok = review_reseller_request(rid, "rejected")
+        if ok and req:
+            try:
+                await context.bot.send_message(
+                    int(req["telegram_id"]),
+                    "❌ درخواست نمایندگی شما رد شد.",
+                )
+            except Exception:
+                pass
+        await query.answer("رد شد" if ok else "خطا", show_alert=True)
+        query.data = "admin_resellers"
+        return await admin_callback(update, context)
+
+    if data == "admin_tickets":
+        from db_support import list_open_tickets
+        tickets = list_open_tickets(limit=20) or []
+        lines = ["🎧 <b>تیکت‌های باز</b>\n"]
+        rows = []
+        for t in tickets:
+            lines.append(
+                f"• #{t.get('id')} tg:<code>{t.get('telegram_id')}</code> "
+                f"{(t.get('subject') or t.get('title') or '')[:40]}"
+            )
+            rows.append([InlineKeyboardButton(
+                f"#{t.get('id')} باز کردن",
+                callback_data=f"admin_ticket_{t.get('id')}",
+            )])
+        if not tickets:
+            lines.append("تیکت بازی نیست.")
+        rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        await query.edit_message_text("\n".join(lines)[:3500], reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data.startswith("admin_ticket_"):
+        from db_support import get_ticket, get_ticket_messages
+        tid = int(data.replace("admin_ticket_", ""))
+        t = get_ticket(tid)
+        if not t:
+            await query.answer("یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        msgs = get_ticket_messages(tid) or []
+        lines = [
+            f"🎧 تیکت #{tid}\n"
+            f"کاربر: <code>{t.get('telegram_id')}</code>\n"
+            f"موضوع: {t.get('subject') or t.get('title') or '—'}\n"
+            f"وضعیت: {t.get('status')}\n"
+        ]
+        for m in msgs[-8:]:
+            who = "ادمین" if (m.get("sender") == "admin" or m.get("is_admin") or m.get("from_admin")) else "کاربر"
+            body = (m.get("message") or m.get("body") or "")[:120]
+            lines.append(f"• [{who}] {body}")
+        context.user_data["admin_reply_ticket"] = tid
+        context.user_data["admin_input_mode"] = "ticket_reply"
+        rows = [[InlineKeyboardButton("🔙 تیکت‌ها", callback_data="admin_tickets")]]
+        await query.edit_message_text(
+            "\n".join(lines)[:3500] + "\n\nپاسخ را همین‌جا بنویسید:",
+            reply_markup=InlineKeyboardMarkup(rows),
+            parse_mode="HTML",
+        )
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_loyalty":
+        from database import get_setting_sync, set_setting_sync
+        en = get_setting_sync("purchase_points_enabled", "1") == "1"
+        unit = get_setting_sync("purchase_points_unit", "10000") or "10000"
+        val = get_setting_sync("purchase_points_value", "1") or "1"
+        textl = (
+            "⭐ <b>امتیاز خرید (باشگاه)</b>\n\n"
+            f"وضعیت: {'🟢 فعال' if en else '🔴 خاموش'}\n"
+            f"هر {unit} تومان → {val} امتیاز\n"
+        )
+        rows = [
+            [InlineKeyboardButton(
+                ("🔴 خاموش" if en else "🟢 روشن"),
+                callback_data="admin_loyalty_toggle",
+            )],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
+        ]
+        await query.edit_message_text(textl, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        return ConversationHandler.END
+
+    if data == "admin_loyalty_toggle":
+        from database import get_setting_sync, set_setting_sync
+        en = get_setting_sync("purchase_points_enabled", "1") == "1"
+        set_setting_sync("purchase_points_enabled", "0" if en else "1")
+        await query.answer("ذخیره شد", show_alert=True)
+        query.data = "admin_loyalty"
+        return await admin_callback(update, context)
+
 
     if data == "admin_cards":
 
@@ -1597,6 +1820,86 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛠 وب‌پنل", callback_data="admin_web")]]),
         )
+        return ConversationHandler.END
+
+
+    if mode == "trial_vol":
+        from database import set_setting_sync
+        try:
+            val = float(text.replace(",", "."))
+            if val <= 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید.")
+            context.user_data["admin_input_mode"] = "trial_vol"
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("trial_volume_gb", str(val))
+        await update.message.reply_text(
+            f"✅ حجم تست: {val} GB",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌱 رشد", callback_data="admin_growth")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "trial_days":
+        from database import set_setting_sync
+        try:
+            val = int(float(text))
+            if val <= 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("عدد صحیح بفرستید.")
+            context.user_data["admin_input_mode"] = "trial_days"
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("trial_days", str(val))
+        await update.message.reply_text(
+            f"✅ مدت تست: {val} روز",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌱 رشد", callback_data="admin_growth")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "gift_add":
+        from db_users import create_gift_code
+        parts = text.split()
+        if len(parts) < 2:
+            await update.message.reply_text("فرمت: کد مبلغ [حداکثر_استفاده]")
+            context.user_data["admin_input_mode"] = "gift_add"
+            return WAITING_ADMIN_TEXT
+        code = parts[0].upper()
+        try:
+            amount = int(float(parts[1].replace(",", "")))
+            max_uses = int(parts[2]) if len(parts) > 2 else 1
+        except Exception:
+            await update.message.reply_text("مبلغ/تعداد نامعتبر.")
+            context.user_data["admin_input_mode"] = "gift_add"
+            return WAITING_ADMIN_TEXT
+        ok = create_gift_code(code, amount, max_uses)
+        await update.message.reply_text(
+            f"{'✅ ساخته شد' if ok else '❌ خطا (شاید کد تکراری)'}: {code} — {amount:,}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏷 کدها", callback_data="admin_gifts")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "ticket_reply":
+        tid = context.user_data.pop("admin_reply_ticket", None)
+        if not tid:
+            await update.message.reply_text("تیکت نامشخص.")
+            return ConversationHandler.END
+        try:
+            from db_support import add_ticket_message, get_ticket
+            add_ticket_message(tid, "admin", text)
+            t = get_ticket(tid) or {}
+            tg = t.get("telegram_id")
+            if tg:
+                try:
+                    await context.bot.send_message(int(tg), f"🎧 پاسخ پشتیبانی (تیکت #{tid}):\n{text}")
+                except Exception:
+                    pass
+            await update.message.reply_text(
+                "✅ پاسخ ثبت و برای کاربر ارسال شد.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎧 تیکت‌ها", callback_data="admin_tickets")]]),
+            )
+        except Exception as e:
+            await update.message.reply_text(f"خطا: {e}")
         return ConversationHandler.END
 
     if mode == "stars_rate":

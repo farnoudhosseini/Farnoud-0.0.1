@@ -1185,7 +1185,7 @@ def catalog_categories():
     user_id = int(request.tg_user["id"])
     bu = get_bot_user(user_id) or {}
     role = bu.get("role") or "user"
-    products = lp(panel_id=panel_id, role=role, active_only=True) if panel_id else lp(role=role, active_only=True)
+    products = lp(panel_id=panel_id, role=role, active_only=True, with_panels=False) if panel_id else lp(role=role, active_only=True, with_panels=False)
     cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
     from database import format_entity_label
     cats_raw = [c for c in (list_categories(active_only=True) or []) if c["id"] in cat_ids]
@@ -1201,7 +1201,7 @@ def catalog_categories():
 @miniapp_bp.get("/api/catalog/products")
 @auth_required
 def catalog_products():
-    from db_products import list_products as lp
+    from db_products import list_products as lp, batch_panel_prices
     from database import get_setting_sync
     panel_id = request.args.get("panel_id")
     category_id = request.args.get("category_id")
@@ -1213,7 +1213,7 @@ def catalog_products():
     user_id = int(request.tg_user["id"])
     bu = get_bot_user(user_id) or {}
     role = bu.get("role") or "user"
-    products = lp(panel_id=panel_id, category_id=category_id, role=role, active_only=True) or []
+    products = lp(panel_id=panel_id, category_id=category_id, role=role, active_only=True, with_panels=False) or []
     hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
 
     # یک کوئری برای قیمت اختصاصی همه محصولات این پنل (بدون N+1)
