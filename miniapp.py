@@ -1215,19 +1215,51 @@ def catalog_products():
     role = bu.get("role") or "user"
     products = lp(panel_id=panel_id, category_id=category_id, role=role, active_only=True) or []
     hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
-    from db_products import get_panel_price, get_product
+
+    # یک کوئری برای قیمت اختصاصی همه محصولات این پنل (بدون N+1)
+    panel_cfg_map = {}
+    if panel_id and products:
+        try:
+            import json as _json
+            from database import get_sync_connection
+            ids = [int(p["id"]) for p in products]
+            conn = get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    ph = ",".join(["%s"] * len(ids))
+                    cur.execute(
+                        f"SELECT product_id, extra_json FROM product_panels "
+                        f"WHERE panel_id=%s AND product_id IN ({ph})",
+                        (int(panel_id), *ids),
+                    )
+                    for row in (cur.fetchall() or []):
+                        cfg = {}
+                        if row.get("extra_json"):
+                            try:
+                                cfg = _json.loads(row["extra_json"]) or {}
+                            except Exception:
+                                cfg = {}
+                        panel_cfg_map[int(row["product_id"])] = cfg
+            finally:
+                conn.close()
+        except Exception as e:
+            print("catalog panel prices batch:", e)
+
     out = []
     for p in products:
-        # قیمت اختصاصی پنل (اگر ست شده باشد)
         eff_price = int(p.get("price") or 0)
         eff_hourly = int(float(p.get("hourly_price") or 0))
-        if panel_id:
+        cfg = panel_cfg_map.get(int(p["id"])) or {}
+        if cfg.get("price") is not None and str(cfg.get("price")).strip() != "":
             try:
-                full = get_product(int(p["id"])) or p
-                eff_price = int(get_panel_price(full, panel_id, hourly=False))
-                eff_hourly = int(get_panel_price(full, panel_id, hourly=True))
-            except Exception as e:
-                print("catalog get_panel_price", e)
+                eff_price = int(float(cfg["price"]))
+            except (TypeError, ValueError):
+                pass
+        if cfg.get("hourly_price") is not None and str(cfg.get("hourly_price")).strip() != "":
+            try:
+                eff_hourly = int(float(cfg["hourly_price"]))
+            except (TypeError, ValueError):
+                pass
         hourly_ok = bool(hourly_global and p.get("hourly_enabled") and eff_hourly > 0)
         out.append({
             "id": p["id"],
