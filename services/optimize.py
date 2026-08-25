@@ -38,10 +38,24 @@ def _delete_from_panel(order: dict) -> bool:
     return False
 
 
+def _is_trial_order(o: dict) -> bool:
+    """تشخیص سفارش تست رایگان."""
+    cname = (o.get("custom_name") or "").strip().lower()
+    if cname and any(x in cname for x in ("تست", "trial", "رایگان", "free")):
+        return True
+    try:
+        if float(o.get("amount") or 0) == 0 and o.get("volume_gb_override") is not None:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
     """
     - سفارش‌های cancelled / expired قدیمی + حذف از پنل
     - سرویس‌های provisioned/paid منقضی‌شده که تمدید نشده‌اند + حذف از پنل
+    - تست‌های رایگان منقضی: حذف از پنل و مخفی از سرویس‌های من، ولی در دیتابیس می‌مانند
     - لاگ فعالیت قدیمی
     - سفارش‌های pending قدیمی بدون پرداخت
     """
@@ -51,6 +65,8 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
         "orders_expired_live": 0,
         "panel_deleted": 0,
         "activity_logs": 0,
+        "expired_trials": 0,
+        "unused_trials": 0,
         "errors": [],
     }
     conn = get_sync_connection()
@@ -58,7 +74,8 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    """SELECT id, vpn_username, panel_id, inbound_id
+                    """SELECT id, vpn_username, panel_id, inbound_id, custom_name, amount,
+                              volume_gb_override
                        FROM service_orders
                        WHERE status IN ('cancelled','canceled','expired','failed')
                          AND created_at < (NOW() - INTERVAL %s DAY)""",
@@ -66,13 +83,24 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                 )
                 rows = cur.fetchall() or []
                 for o in rows:
+                    # تست‌ها را از دیتابیس پاک نکن — فقط از پنل حذف
+                    if _is_trial_order(o):
+                        if _delete_from_panel(o):
+                            stats["panel_deleted"] += 1
+                        continue
                     if _delete_from_panel(o):
                         stats["panel_deleted"] += 1
                 cur.execute(
                     """DELETE FROM service_orders
                        WHERE status IN ('cancelled','canceled','expired','failed')
-                         AND created_at < (NOW() - INTERVAL %s DAY)""",
-                    (int(days_cancelled),),
+                         AND created_at < (NOW() - INTERVAL %s DAY)
+                         AND NOT (
+                           (custom_name IS NOT NULL AND (
+                             custom_name LIKE %s OR custom_name LIKE %s OR custom_name LIKE %s OR custom_name LIKE %s
+                           ))
+                           OR (COALESCE(amount,0)=0 AND volume_gb_override IS NOT NULL)
+                         )""",
+                    (int(days_cancelled), "%تست%", "%trial%", "%رایگان%", "%free%"),
                 )
                 stats["orders_cancelled"] = cur.rowcount or 0
             except Exception as e:
@@ -81,7 +109,8 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
             try:
                 cur.execute(
                     """SELECT o.id, o.vpn_username, o.panel_id, o.inbound_id,
-                              o.expire_at, vp.base_url AS panel_base, vp.username AS panel_user,
+                              o.expire_at, o.custom_name, o.amount, o.volume_gb_override,
+                              vp.base_url AS panel_base, vp.username AS panel_user,
                               vp.password AS panel_pass, vp.panel_type, vp.api_key
                        FROM service_orders o
                        LEFT JOIN vpn_panels vp ON vp.id = o.panel_id
@@ -101,12 +130,21 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                         )
                     except Exception:
                         pass
+                    if _is_trial_order(o):
+                        stats["expired_trials"] += 1
+                # سفارش‌های غیرتست expired قدیمی را حذف کن؛ تست‌ها در DB بمانند
                 cur.execute(
                     """DELETE FROM service_orders
                        WHERE status = 'expired'
                          AND expire_at IS NOT NULL
-                         AND expire_at < (NOW() - INTERVAL %s DAY)""",
-                    (int(days_cancelled),),
+                         AND expire_at < (NOW() - INTERVAL %s DAY)
+                         AND NOT (
+                           (custom_name IS NOT NULL AND (
+                             custom_name LIKE %s OR custom_name LIKE %s OR custom_name LIKE %s OR custom_name LIKE %s
+                           ))
+                           OR (COALESCE(amount,0)=0 AND volume_gb_override IS NOT NULL)
+                         )""",
+                    (int(days_cancelled), "%تست%", "%trial%", "%رایگان%", "%free%"),
                 )
                 stats["orders_expired_live"] = len(expired_live)
             except Exception as e:
@@ -137,8 +175,7 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                 except Exception:
                     pass
 
-            # تست‌های رایگان استفاده‌نشده: حذف از پنل + لیست سرویس کاربر
-            stats.setdefault("unused_trials", 0)
+            # تست‌های رایگان استفاده‌نشده (ترافیک صفر): فقط حذف از پنل + status=expired — در DB بمانند
             try:
                 cur.execute(
                     """SELECT o.id, o.vpn_username, o.panel_id, o.inbound_id, o.custom_name,
@@ -149,10 +186,10 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                        LEFT JOIN vpn_panels vp ON vp.id = o.panel_id
                        WHERE o.status IN ('paid','provisioned')
                          AND (
-                           (o.custom_name IS NOT NULL AND (o.custom_name LIKE %s OR o.custom_name LIKE %s OR o.custom_name LIKE %s))
+                           (o.custom_name IS NOT NULL AND (o.custom_name LIKE %s OR o.custom_name LIKE %s OR o.custom_name LIKE %s OR o.custom_name LIKE %s))
                            OR (COALESCE(o.amount,0)=0 AND o.volume_gb_override IS NOT NULL)
                          )""",
-                    ("%تست%", "%trial%", "%رایگان%"),
+                    ("%تست%", "%trial%", "%رایگان%", "%free%"),
                 )
                 trials = cur.fetchall() or []
                 for o in trials:
@@ -194,10 +231,15 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                         if _delete_from_panel(o):
                             stats["panel_deleted"] += 1
                         try:
-                            cur.execute("DELETE FROM service_orders WHERE id=%s", (o["id"],))
+                            # در DB نگه دار تا کاربر نتواند دوباره تست بگیرد (trials table جداست)
+                            # اما از سرویس‌های من حذف شود با status=expired
+                            cur.execute(
+                                "UPDATE service_orders SET status='expired' WHERE id=%s",
+                                (o["id"],),
+                            )
                             stats["unused_trials"] += 1
                         except Exception as e:
-                            stats["errors"].append(f"trial delete {o.get('id')}: {e}")
+                            stats["errors"].append(f"trial expire {o.get('id')}: {e}")
             except Exception as e:
                 stats["errors"].append(f"unused_trials: {e}")
 
@@ -218,6 +260,7 @@ def format_optimize_report(stats: dict) -> str:
         "🧹 <b>بهینه‌سازی ربات انجام شد</b>",
         f"• سفارش‌های لغو/منقضی حذف‌شده: <b>{stats.get('orders_cancelled', 0)}</b>",
         f"• سرویس‌های منقضی (زنده): <b>{stats.get('orders_expired_live', 0)}</b>",
+        f"• تست‌های منقضی (نگه‌داشته در DB): <b>{stats.get('expired_trials', 0)}</b>",
         f"• حذف از پنل: <b>{stats.get('panel_deleted', 0)}</b>",
         f"• سفارش‌های معلق قدیمی: <b>{stats.get('orders_pending', 0)}</b>",
         f"• لاگ‌های قدیمی: <b>{stats.get('activity_logs', 0)}</b>",

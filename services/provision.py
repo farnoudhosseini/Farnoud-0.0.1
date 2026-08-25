@@ -62,9 +62,17 @@ def provision_order(order_id: int) -> dict:
     order = get_order(order_id)
     if not order:
         return {"ok": False, "error": "سفارش یافت نشد"}
-    product = get_product(order["product_id"])
+    product = get_product(order["product_id"]) or {}
     panel = get_panel_by_id(order["panel_id"])
-    if not product or not panel:
+    if not panel:
+        return {"ok": False, "error": "پنل نامعتبر"}
+    # اگر محصول وجود ندارد فقط با override روی سفارش ادامه می‌دهیم (تست رایگان)
+    has_override = (
+        order.get("volume_gb_override") is not None
+        or order.get("duration_days_override") is not None
+        or order.get("custom_name")
+    )
+    if not product and not has_override:
         return {"ok": False, "error": "محصول یا پنل نامعتبر"}
 
     # اول از محصول، بعد اگر روی سفارش override باشد جایگزین می‌شود

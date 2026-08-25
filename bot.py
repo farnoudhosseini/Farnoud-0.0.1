@@ -1,7 +1,7 @@
 # فایل اصلی ربات تلگرام فرنود
 
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
+    Application, CommandHandler, MessageHandler, PreCheckoutQueryHandler,
     CallbackQueryHandler, ConversationHandler, filters,
 )
 from config import BOT_TOKEN, ADMIN_ID
@@ -358,6 +358,65 @@ def create_bot() -> Application:
         per_message=False,
     )
     application.add_handler(reseller_conv)
+
+
+    # پرداخت استارز تلگرام
+    async def _pre_checkout(update, context):
+        q = update.pre_checkout_query
+        try:
+            await q.answer(ok=True)
+        except Exception as e:
+            print("pre_checkout:", e)
+            try:
+                await q.answer(ok=False, error_message="خطا در تایید پرداخت")
+            except Exception:
+                pass
+
+    async def _successful_payment(update, context):
+        msg = update.message
+        sp = msg.successful_payment
+        if not sp:
+            return
+        payload = sp.invoice_payload or ""
+        if not payload.startswith("order_stars_"):
+            return
+        try:
+            order_id = int(payload.replace("order_stars_", ""))
+        except Exception:
+            return
+        from db_products import get_order, update_order
+        from services.provision import provision_order
+        from services.provision import send_service_to_user
+        order = get_order(order_id)
+        if not order:
+            await msg.reply_text("سفارش یافت نشد.")
+            return
+        if order.get("status") in ("paid", "provisioned"):
+            await msg.reply_text("این سفارش قبلاً پردازش شده است.")
+            return
+        update_order(order_id, status="paid", method_key="stars", pay_amount=0)
+        await msg.reply_text("⏳ پرداخت استارز تایید شد. در حال ساخت سرویس...")
+        result = provision_order(order_id)
+        try:
+            await send_service_to_user(context.bot, order["telegram_id"], result)
+        except Exception as e:
+            print("stars deliver:", e)
+            if result.get("ok"):
+                await msg.reply_text("✅ سرویس ساخته شد. از «سرویس‌های من» ببینید.")
+            else:
+                await msg.reply_text(f"❌ خطا در ساخت: {result.get('error')}")
+        if result.get("ok"):
+            try:
+                from db_growth import award_purchase_points, pay_referral_commission
+                amt = int(order.get("amount") or 0)
+                award_purchase_points(order["telegram_id"], amt, order_id)
+                pay_referral_commission(order["telegram_id"], amt)
+            except Exception:
+                pass
+
+    application.add_handler(PreCheckoutQueryHandler(_pre_checkout))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, _successful_payment))
+
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
 

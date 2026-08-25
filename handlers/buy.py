@@ -246,6 +246,8 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
 
         # کمبود موجودی → روش‌های پرداخت فعال (با پشتیبانی ایموجی پریمیوم در عنوان)
         rows = []
+        from database import get_setting_sync
+        from db_users import user_can_see_card
         for pm in list_payment_methods(active_only=True):
             key = pm.get("method_key")
             if key == "variza":
@@ -255,8 +257,14 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
                         continue
                 except Exception:
                     continue
-            if key == "card" and not list_cards(active_only=True):
-                continue
+            if key == "card":
+                if not list_cards(active_only=True):
+                    continue
+                if not user_can_see_card(user.id):
+                    continue
+            if key == "stars":
+                if get_setting_sync("stars_enabled", "0") != "1":
+                    continue
             rows.append([payment_method_button(pm, f"buy_pay_{key}_{order_id}")])
         rows.extend([
             [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
@@ -343,6 +351,13 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         if not order or order["telegram_id"] != user.id:
             await q.edit_message_text("سفارش نامعتبر.")
             return ConversationHandler.END
+        from db_users import user_can_see_card
+        if not user_can_see_card(user.id):
+            await q.edit_message_text(
+                "💳 پرداخت کارت‌به‌کارت پس از اولین خرید موفق در دسترس است.\n"
+                "لطفاً از روش‌های دیگر یا شارژ کیف پول استفاده کنید."
+            )
+            return ConversationHandler.END
         cards = list_cards(active_only=True)
         if not cards:
             await q.edit_message_text("کارتی تعریف نشده. با پشتیبانی تماس بگیرید.")
@@ -427,4 +442,46 @@ async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         print(e)
     context.user_data.pop("waiting_buy_receipt", None)
+
+    if data.startswith("buy_pay_stars_"):
+        order_id = int(data.replace("buy_pay_stars_", ""))
+        order = get_order(order_id)
+        if not order or order["telegram_id"] != user.id:
+            await q.edit_message_text("سفارش نامعتبر.")
+            return ConversationHandler.END
+        from database import get_setting_sync
+        if get_setting_sync("stars_enabled", "0") != "1":
+            await q.edit_message_text("پرداخت با استارز غیرفعال است.")
+            return ConversationHandler.END
+        pay_amount = int(order.get("pay_amount") or 0)
+        try:
+            rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+        except Exception:
+            rate = 1000.0
+        if rate <= 0:
+            rate = 1000.0
+        stars_amount = max(1, int(round(pay_amount / rate)))
+        title = get_setting_sync("stars_payment_title", "⭐ استارز تلگرام") or "⭐ استارز تلگرام"
+        try:
+            from telegram import LabeledPrice
+            await context.bot.send_invoice(
+                chat_id=user.id,
+                title=title[:32],
+                description=f"خرید سرویس #{order_id} — {pay_amount:,} تومان",
+                payload=f"order_stars_{order_id}",
+                provider_token="",  # Stars: empty provider_token
+                currency="XTR",
+                prices=[LabeledPrice(label=title[:32], amount=stars_amount)],
+            )
+            update_order(order_id, method_key="stars", status="pending_payment")
+            await q.edit_message_text(
+                f"⭐ فاکتور استارز ارسال شد.\n"
+                f"مبلغ: <b>{pay_amount:,}</b> تومان ≈ <b>{stars_amount}</b> استار\n"
+                f"نرخ: هر استار ≈ {int(rate):,} تومان",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await q.edit_message_text(f"❌ خطا در ساخت فاکتور استارز:\n{str(e)[:250]}")
+        return ConversationHandler.END
+
     return ConversationHandler.END

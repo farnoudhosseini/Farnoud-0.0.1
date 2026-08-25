@@ -45,7 +45,16 @@ def ensure_user_tables():
             ):
                 try: cur.execute(ddl)
                 except Exception: pass
-            for key, value in (("variza_enabled", "0"), ("variza_api_key", ""), ("variza_webhook_secret", ""), ("variza_title", "پرداخت واریزا"), ("public_base_url", ""), ("payment_method_card_enabled", "1"), ("card_payment_title", "کارت به کارت")):
+            for key, value in (
+                ("variza_enabled", "0"), ("variza_api_key", ""), ("variza_webhook_secret", ""),
+                ("variza_title", "پرداخت واریزا"), ("public_base_url", ""),
+                ("payment_method_card_enabled", "1"), ("card_payment_title", "کارت به کارت"),
+                ("card_min_purchases", "0"),  # 0=همیشه، 1=از خرید دوم به بعد
+                ("stars_enabled", "0"), ("stars_title", "⭐ پرداخت با استارز"),
+                ("stars_rate", "1000"),  # تومان به‌ازای هر استار
+                ("stars_payment_title", "⭐ استارز تلگرام"),
+                ("trial_reset_message", "🎁 تست رایگان شما دوباره فعال شد!\nاکنون می‌توانید مجدداً از تست رایگان استفاده کنید."),
+            ):
                 try: cur.execute("INSERT IGNORE INTO settings (`key`,`value`) VALUES (%s,%s)", (key, value))
                 except Exception: pass
             try: cur.execute("INSERT IGNORE INTO payment_methods (method_key,title,is_active) VALUES ('variza','پرداخت واریزا',0)")
@@ -637,3 +646,54 @@ def create_gift_code(code: str, amount: int, max_uses: int = 1) -> bool:
         return False
     finally:
         conn.close()
+
+
+def count_user_paid_orders(telegram_id: int) -> int:
+    """تعداد خریدهای موفق کاربر (برای محدودیت نمایش کارت)."""
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT COUNT(*) AS c FROM service_orders
+                   WHERE telegram_id=%s AND status IN ('paid','provisioned','expired')
+                     AND COALESCE(amount,0) > 0""",
+                (int(telegram_id),),
+            )
+            row = cur.fetchone() or {}
+            return int(row.get("c") or 0)
+    except Exception as e:
+        print("count_user_paid_orders:", e)
+        return 0
+    finally:
+        conn.close()
+
+
+def user_can_see_card(telegram_id: int) -> bool:
+    """آیا کاربر مجاز به دیدن شماره کارت هست؟"""
+    from database import get_setting_sync
+    try:
+        min_p = int(get_setting_sync("card_min_purchases", "0") or 0)
+    except Exception:
+        min_p = 0
+    if min_p <= 0:
+        return True
+    return count_user_paid_orders(telegram_id) >= min_p
+
+
+def ensure_stars_payment_method():
+    """ثبت روش پرداخت استارز در جدول payment_methods."""
+    from database import get_sync_connection
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO payment_methods (method_key, title, is_active) VALUES ('stars', %s, 0)",
+                ("⭐ استارز تلگرام",),
+            )
+            conn.commit()
+    except Exception as e:
+        print("ensure_stars_payment_method:", e)
+    finally:
+        conn.close()
+

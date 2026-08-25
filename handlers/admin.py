@@ -600,6 +600,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for u in users:
             lines.append(f"• <code>{u['telegram_id']}</code> {u.get('username') or ''} — {ROLE_LABELS.get(u.get('role'), u.get('role'))} — {int(u.get('balance') or 0):,}")
             rows.append([InlineKeyboardButton(f"👤 {u['telegram_id']}", callback_data=f"admin_bu_{u['telegram_id']}")])
+        rows.append([InlineKeyboardButton("🎁 ریست تست همه کاربران", callback_data="admin_reset_trial_all")])
         rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
         await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
         return ConversationHandler.END
@@ -622,6 +623,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"زیرمجموعه: {refs}\n"
             f"مسدود: {'بله' if u.get('is_blocked') else 'خیر'}"
         )
+        used_trial = False
+        try:
+            from db_growth import has_used_trial
+            used_trial = bool(has_used_trial(tid))
+        except Exception:
+            pass
+        text += f"\nتست رایگان: {'استفاده شده ✅' if used_trial else 'آزاد 🎁'}"
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("➕۱۰هزار", callback_data=f"admin_bal_{tid}_10000"),
@@ -636,6 +644,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("نماینده ویژه", callback_data=f"admin_role_{tid}_reseller_vip"),
                 InlineKeyboardButton("VIP", callback_data=f"admin_role_{tid}_vip"),
             ],
+            [InlineKeyboardButton("🎁 ریست تست رایگان", callback_data=f"admin_reset_trial_{tid}")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_bot_users")],
         ])
         await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
@@ -663,7 +672,46 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query.data = f"admin_bu_{tid}"
         return await admin_callback(update, context)
 
+    if data.startswith("admin_reset_trial_"):
+        from db_growth import reset_user_trial, reset_trials_bulk
+        from database import get_setting_sync
+        target = data.replace("admin_reset_trial_", "")
+        premium = "🎁"
+        try:
+            # پیام قابل شخصی‌سازی از تنظیمات
+            msg_tpl = get_setting_sync(
+                "trial_reset_message",
+                f"{premium} تست رایگان شما دوباره فعال شد!\nاکنون می‌توانید مجدداً از تست رایگان استفاده کنید.",
+            ) or f"{premium} تست رایگان شما دوباره فعال شد!"
+        except Exception:
+            msg_tpl = f"{premium} تست رایگان شما دوباره فعال شد!"
+        if target == "all":
+            count = reset_trials_bulk(None)
+            await query.answer(f"تست {count} کاربر ریست شد", show_alert=True)
+            # پیام گروهی — فقط به کسانی که قبلاً تست داشتند سخت است؛ ادمین می‌تواند جدا broadcast کند
+            try:
+                await context.bot.send_message(
+                    query.from_user.id,
+                    f"✅ تست رایگان همه کاربران ریست شد ({count} نفر).\n"
+                    "در صورت نیاز از «ارسال همگانی» پیام اطلاع‌رسانی بفرستید.",
+                )
+            except Exception:
+                pass
+            query.data = "admin_bot_users"
+            return await admin_callback(update, context)
+        else:
+            tid = int(target)
+            reset_user_trial(tid)
+            try:
+                await context.bot.send_message(tid, msg_tpl)
+            except Exception as e:
+                print("notify trial reset:", e)
+            await query.answer("تست کاربر ریست و پیام ارسال شد", show_alert=True)
+            query.data = f"admin_bu_{tid}"
+            return await admin_callback(update, context)
+
     if data == "admin_cards":
+
         from db_users import list_cards
         cards=list_cards()
         rows=[[InlineKeyboardButton("➕ افزودن کارت",callback_data="admin_card_add")]]
@@ -681,12 +729,20 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_enabled = get_setting_sync("payment_method_card_enabled", "1") != "0"
         variza_enabled = get_setting_sync("variza_enabled", "0") == "1"
         variza_title = get_setting_sync("variza_title", "پرداخت واریزا") or "پرداخت واریزا"
+        stars_enabled = get_setting_sync("stars_enabled", "0") == "1"
+        stars_rate = get_setting_sync("stars_rate", "1000") or "1000"
+        card_min = get_setting_sync("card_min_purchases", "0") or "0"
         lines.append("")
         lines.append(f"💳 کارت‌به‌کارت: {'🟢 فعال' if card_enabled else '🔴 خاموش'}")
         lines.append(f"🟣 {variza_title}: {'🟢 فعال' if variza_enabled else '🔴 خاموش'}")
+        lines.append(f"⭐ استارز: {'🟢 فعال' if stars_enabled else '🔴 خاموش'} (نرخ: {stars_rate})")
+        lines.append(f"🔒 حداقل خرید برای نمایش کارت: <b>{card_min}</b> (0=همیشه)")
         lines.append(f"⏱ تایید خودکار رسید: {mins} دقیقه")
         lines.append(f"👤 کاربران سفید: <code>{ausers}</code>")
         rows.append([InlineKeyboardButton("💳 روشن/خاموش کارت‌به‌کارت", callback_data="admin_card_system_toggle")])
+        rows.append([InlineKeyboardButton("⭐ روشن/خاموش استارز", callback_data="admin_stars_toggle")])
+        rows.append([InlineKeyboardButton("⭐ نرخ استارز (تومان)", callback_data="admin_stars_rate")])
+        rows.append([InlineKeyboardButton("🔒 حداقل خرید برای کارت", callback_data="admin_card_min_purchases")])
         rows.append([InlineKeyboardButton("🟣 تنظیم واریزا", callback_data="admin_variza")])
         rows.append([InlineKeyboardButton("✏️ نام دکمه کارت‌به‌کارت", callback_data="admin_card_title")])
         rows.append([InlineKeyboardButton("⏱ دقیقه تایید خودکار", callback_data="admin_auto_mins")])
@@ -697,7 +753,42 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+    if data == "admin_stars_toggle":
+        from database import get_setting_sync, set_setting_sync
+        from db_users import set_payment_method_state, ensure_stars_payment_method
+        try:
+            ensure_stars_payment_method()
+        except Exception:
+            pass
+        enabled = get_setting_sync("stars_enabled", "0") == "1"
+        set_setting_sync("stars_enabled", "0" if enabled else "1")
+        try:
+            set_payment_method_state("stars", not enabled)
+        except Exception:
+            pass
+        await query.answer("استارز " + ("خاموش" if enabled else "روشن") + " شد", show_alert=True)
+        query.data = "admin_cards"
+        return await admin_callback(update, context)
+
+    if data == "admin_stars_rate":
+        context.user_data["admin_input_mode"] = "stars_rate"
+        await query.edit_message_text(
+            "نرخ تبدیل استارز را بفرستید (تومان به‌ازای هر استار).\nمثال: 1000\n/cancel انصراف"
+        )
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_card_min_purchases":
+        context.user_data["admin_input_mode"] = "card_min_purchases"
+        await query.edit_message_text(
+            "حداقل تعداد خرید موفق برای نمایش شماره کارت را بفرستید.\n"
+            "0 = همیشه نمایش داده شود\n"
+            "1 = از خرید دوم به بعد\n"
+            "/cancel انصراف"
+        )
+        return WAITING_ADMIN_TEXT
+
     if data == "admin_antispam":
+
         from database import get_setting_sync
         en = get_setting_sync("antispam_enabled", "1") != "0"
         hits = get_setting_sync("antispam_max_hits", "8") or "8"
@@ -1508,7 +1599,43 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ConversationHandler.END
 
+    if mode == "stars_rate":
+        from database import set_setting_sync
+        try:
+            val = int(float(text.replace(",", "").replace("،", "")))
+            if val <= 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("عدد معتبر بفرستید (مثلاً 1000).")
+            context.user_data["admin_input_mode"] = "stars_rate"
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("stars_rate", str(val))
+        await update.message.reply_text(
+            f"✅ نرخ استارز: هر استار ≈ {val:,} تومان",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها", callback_data="admin_cards")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "card_min_purchases":
+        from database import set_setting_sync
+        try:
+            val = int(text.strip())
+            if val < 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("عدد صحیح ≥ 0 بفرستید.")
+            context.user_data["admin_input_mode"] = "card_min_purchases"
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("card_min_purchases", str(val))
+        note = "همیشه نمایش داده می‌شود" if val == 0 else f"بعد از {val} خرید موفق"
+        await update.message.reply_text(
+            f"✅ حداقل خرید برای نمایش کارت: {val}\n({note})",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها", callback_data="admin_cards")]]),
+        )
+        return ConversationHandler.END
+
     if mode == "order_search":
+
         from db_products import list_all_orders
         orders = list_all_orders(search=text, limit=20)
         if not orders:

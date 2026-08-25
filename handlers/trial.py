@@ -3,11 +3,11 @@ from telegram.ext import ContextTypes
 from database import get_setting_sync, get_panel_by_id, list_panels
 from db_growth import has_used_trial, record_trial
 from db_users import upsert_bot_user, log_activity
-from services.pasarguard import PasarGuardClient
-from services.provision import fix_subscription_url, make_qr_png
-from datetime import datetime, timedelta, timezone
-import secrets, string, io
+from db_products import create_order, update_order, list_products
+from services.provision import provision_order, make_qr_png
 from telegram import InputFile
+import io
+import html
 
 
 def _trial_panels():
@@ -26,11 +26,23 @@ def _trial_panels():
     return [p for p in active if p["id"] in ids]
 
 
+def _pick_product_id():
+    """یک product_id معتبر برای ثبت سفارش تست پیدا می‌کند."""
+    try:
+        prods = list_products(active_only=False) or []
+        if prods:
+            return int(prods[0]["id"])
+    except Exception:
+        pass
+    return 1
+
+
 async def start_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     upsert_bot_user(user)
     msg = update.message
     q = update.callback_query
+
     async def reply(text, **kw):
         if q:
             await q.answer()
@@ -68,9 +80,11 @@ async def trial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, panel_id: int):
+    """ساخت تست از طریق service_orders تا در «سرویس‌های من» نمایش داده شود."""
     user = update.effective_user
     q = update.callback_query
     msg = update.message
+
     async def reply(text, **kw):
         if q:
             try:
@@ -91,48 +105,89 @@ async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, pane
     days = int(get_setting_sync("trial_days", "1") or 1)
     await reply("⏳ در حال ساخت اکانت تست...")
     try:
-        client = PasarGuardClient(panel["base_url"], panel["username"], panel["password"], verify_ssl=False)
-        uname = "tr" + "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(8))
-        groups = []
+        product_id = _pick_product_id()
+        order_id = create_order(user.id, product_id, panel_id, 0, 0, 0)
+
+        protocol_override = None
         try:
-            g = client.get_groups()
-            if g:
-                groups = [g[0].get("id")]
-        except Exception:
-            pass
-        exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-        payload = client.build_user_payload(
-            username=uname, status="active", data_limit_gb=vol, expire=exp,
-            group_ids=groups, note=f"trial tg:{user.id}", for_create=True,
+            import json
+            raw = get_setting_sync("trial_protocols_json", "") or "{}"
+            all_cfg = json.loads(raw) if raw else {}
+            cfg = all_cfg.get(str(panel_id)) or all_cfg.get(panel_id) or {}
+            if cfg and (cfg.get("inbound_ids") or cfg.get("group_ids")):
+                protocol_override = json.dumps(cfg, ensure_ascii=False)
+        except Exception as e:
+            print("trial protocol cfg:", e)
+
+        update_kwargs = dict(
+            status="paid",
+            wallet_used=0,
+            pay_amount=0,
+            volume_gb_override=vol,
+            duration_days_override=days,
+            custom_name="تست رایگان",
         )
-        created = client.create_user(payload)
-        full = client.get_user(created.get("username") or uname)
-        raw = full.get("subscription_url") or full.get("subscription_link") or ""
-        if not raw and full.get("subscription_token"):
-            raw = f"/sub/{full['subscription_token']}"
-        link = fix_subscription_url(panel["base_url"], raw)
-        record_trial(user.id, panel["id"], uname)
+        if protocol_override:
+            update_kwargs["protocol_override"] = protocol_override
+        update_order(order_id, **update_kwargs)
+
+        result = provision_order(order_id)
+        if not result.get("ok"):
+            err = html.escape(str(result.get("error") or "ساخت تست ناموفق")[:300])
+            await context.bot.send_message(
+                user.id,
+                f"❌ خطا در ساخت تست: {err}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]
+                ),
+            )
+            return
+
+        uname = result.get("vpn_username") or ""
+        link = result.get("subscription_link") or ""
+        try:
+            record_trial(user.id, panel["id"], uname)
+        except Exception as e:
+            print("record_trial:", e)
+
+        panel_name = html.escape(str(panel.get("name") or ""))
+        uname_safe = html.escape(str(uname))
+        link_safe = html.escape(str(link))
         text = (
-            f"🎁 اکانت تست — {panel.get('name')}\n"
+            f"🎁 اکانت تست — {panel_name}\n"
             f"حجم: {vol} GB\nمدت: {days} روز\n"
-            f"یوزرنیم: `{uname}`\n"
-            f"لینک:\n{link}"
+            f"یوزرنیم: <code>{uname_safe}</code>\n"
+            f"لینک:\n<code>{link_safe}</code>"
         )
-        qr = make_qr_png(link)
+        qr = result.get("qr_bytes") or (make_qr_png(link) if link else None)
         if qr:
             await context.bot.send_photo(
-                user.id, photo=InputFile(io.BytesIO(qr), filename="trial.png"),
-                caption=text[:1000], parse_mode="Markdown",
+                user.id,
+                photo=InputFile(io.BytesIO(qr), filename="trial.png"),
+                caption=text[:1000],
+                parse_mode="HTML",
             )
         else:
-            await context.bot.send_message(user.id, text, parse_mode="Markdown")
+            await context.bot.send_message(user.id, text, parse_mode="HTML")
         await context.bot.send_message(
-            user.id, "👇",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+            user.id,
+            "👇",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("📱 سرویس‌های من", callback_data="menu_services")],
+                    [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+                ]
+            ),
         )
-        log_activity(user.id, "trial", f"panel={panel_id}")
+        log_activity(user.id, "trial", f"panel={panel_id},order={order_id}")
     except Exception as e:
+        err = html.escape(str(e)[:300])
         await context.bot.send_message(
-            user.id, f"❌ خطا در ساخت تست: {e}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+            user.id,
+            f"❌ خطا در ساخت تست: {err}",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]
+            ),
         )

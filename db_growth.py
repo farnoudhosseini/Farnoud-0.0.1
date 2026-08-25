@@ -190,17 +190,58 @@ def has_used_trial(telegram_id: int) -> bool:
     finally:
         conn.close()
 
-def record_trial(telegram_id: int, panel_id: int, vpn_username: str):
+def record_trial(telegram_id: int, panel_id: int = 0, vpn_username: str = ""):
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO trials (telegram_id, panel_id, vpn_username) VALUES (%s,%s,%s)",
-                (telegram_id, panel_id, vpn_username),
+                (telegram_id, panel_id or 0, vpn_username or ""),
             )
             conn.commit()
     except Exception:
         pass
+    finally:
+        conn.close()
+
+
+def reset_user_trial(telegram_id: int) -> bool:
+    """ریست تعداد تست رایگان یک کاربر — حذف از جدول trials."""
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM trials WHERE telegram_id=%s", (int(telegram_id),))
+            conn.commit()
+            return (cur.rowcount or 0) > 0
+    except Exception as e:
+        print("reset_user_trial:", e)
+        return False
+    finally:
+        conn.close()
+
+
+def reset_trials_bulk(telegram_ids=None) -> int:
+    """
+    ریست گروهی تست‌ها.
+    اگر telegram_ids خالی/None باشد همه را ریست می‌کند.
+    برمی‌گرداند تعداد ردیف حذف‌شده.
+    """
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            if telegram_ids:
+                ids = [int(x) for x in telegram_ids if str(x).lstrip("-").isdigit()]
+                if not ids:
+                    return 0
+                placeholders = ",".join(["%s"] * len(ids))
+                cur.execute(f"DELETE FROM trials WHERE telegram_id IN ({placeholders})", tuple(ids))
+            else:
+                cur.execute("DELETE FROM trials")
+            conn.commit()
+            return int(cur.rowcount or 0)
+    except Exception as e:
+        print("reset_trials_bulk:", e)
+        return 0
     finally:
         conn.close()
 

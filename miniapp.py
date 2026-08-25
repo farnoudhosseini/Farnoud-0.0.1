@@ -25,18 +25,24 @@ from services.provision import provision_order
 
 
 
-def _active_payment_methods():
+def _active_payment_methods(user_id=None):
     """Payment methods exposed to Mini App, filtered by global settings and Variza readiness.
     Premium emoji codes are stripped for display (Mini App has no custom emoji icons).
     """
     try:
-        from db_users import list_payment_methods
+        from db_users import list_payment_methods, user_can_see_card, ensure_stars_payment_method
         from db_extras import strip_premium_codes
+        try:
+            ensure_stars_payment_method()
+        except Exception:
+            pass
         methods = []
         for m in list_payment_methods(active_only=True):
             key = m.get("method_key")
             if key == "card":
                 if get_setting_sync("payment_method_card_enabled", "1") == "0":
+                    continue
+                if user_id and not user_can_see_card(int(user_id)):
                     continue
             elif key == "variza":
                 try:
@@ -44,6 +50,9 @@ def _active_payment_methods():
                     if not (is_enabled() and configured()):
                         continue
                 except Exception:
+                    continue
+            elif key == "stars":
+                if get_setting_sync("stars_enabled", "0") != "1":
                     continue
             raw_title = m.get("title") or key
             methods.append({"key": key, "title": strip_premium_codes(raw_title) or key})
@@ -1112,7 +1121,7 @@ def wallet_topup():
         return jsonify({"ok": False, "error": "مبلغ نامعتبر است"}), 400
     if amount < int(os.getenv("MIN_CHARGE", "10000")) or amount > int(os.getenv("MAX_CHARGE", "50000000")):
         return jsonify({"ok": False, "error": "مبلغ خارج از محدوده مجاز است"}), 400
-    methods = _active_payment_methods()
+    methods = _active_payment_methods(int(request.tg_user["id"]) if getattr(request, "tg_user", None) else None)
     if not methods:
         return jsonify({"ok": False, "error": "در حال حاضر روش پرداخت فعالی وجود ندارد"}), 503
     conn = get_sync_connection()
@@ -1206,20 +1215,30 @@ def catalog_products():
     role = bu.get("role") or "user"
     products = lp(panel_id=panel_id, category_id=category_id, role=role, active_only=True) or []
     hourly_global = get_setting_sync("hourly_global_enabled", "0") == "1"
+    from db_products import get_panel_price, get_product
     out = []
     for p in products:
-        hourly_ok = bool(hourly_global and p.get("hourly_enabled") and p.get("hourly_price"))
+        # قیمت اختصاصی پنل (اگر ست شده باشد)
+        eff_price = int(p.get("price") or 0)
+        eff_hourly = int(float(p.get("hourly_price") or 0))
+        if panel_id:
+            try:
+                full = get_product(int(p["id"])) or p
+                eff_price = int(get_panel_price(full, panel_id, hourly=False))
+                eff_hourly = int(get_panel_price(full, panel_id, hourly=True))
+            except Exception as e:
+                print("catalog get_panel_price", e)
+        hourly_ok = bool(hourly_global and p.get("hourly_enabled") and eff_hourly > 0)
         out.append({
             "id": p["id"],
             "name": p["name"],
             "description": p.get("description") or "",
-            "price": _jsonable(p.get("price") or 0),
+            "price": _jsonable(eff_price),
             "volume_gb": _jsonable(p.get("volume_gb") or 0),
             "duration_days": p.get("duration_days") or 0,
             "hwid_limit": p.get("hwid_limit"),
             "hourly_enabled": hourly_ok,
-            "hourly_price": _jsonable(p.get("hourly_price") or 0) if hourly_ok else None,
-            "hwid_limit": p.get("hwid_limit"),
+            "hourly_price": _jsonable(eff_hourly) if hourly_ok else None,
             "category_id": p.get("category_id"),
         })
     return jsonify({"ok": True, "products": out})
@@ -1359,10 +1378,19 @@ def prepare_order():
     bu = get_bot_user(user_id) or {}
     balance = int(bu.get("balance") or 0)
 
+    from db_products import get_panel_price
+    try:
+        panel_base_price = int(get_panel_price(product, panel_id, hourly=False))
+        panel_hourly_price = int(get_panel_price(product, panel_id, hourly=True))
+    except Exception:
+        panel_base_price = int(product.get("price") or 0)
+        panel_hourly_price = int(float(product.get("hourly_price") or 0))
+    hourly_ok = bool(hourly_global and product.get("hourly_enabled") and panel_hourly_price > 0)
+
     if buy_mode == "hourly":
         if not hourly_ok:
             return jsonify({"ok": False, "error": "خرید ساعتی برای این محصول فعال نیست"}), 400
-        hprice = int(float(product.get("hourly_price") or 0))
+        hprice = panel_hourly_price
         if balance < hprice:
             return jsonify({
                 "ok": False, "error": "موجودی کافی نیست.",
@@ -1397,7 +1425,7 @@ def prepare_order():
             return jsonify({"ok": True, "mode": "hourly", "order_id": order_id, "message": "سرویس ساعتی فعال شد.", "provision": _jsonable(result)})
         return jsonify({"ok": False, "error": result.get("error") or "ساخت سرویس ناموفق"}), 502
 
-    price = int(product.get("price") or 0)
+    price = panel_base_price
     discount = 0
     if coupon_code:
         discount, derr = _calculate_discount(user_id, product, coupon_code)
@@ -1431,7 +1459,7 @@ def prepare_order():
         "wallet_used": wallet_used,
         "pay_amount": pay_amount,
         "can_pay_wallet": pay_amount <= 0,
-        "payment_methods": _active_payment_methods(),
+        "payment_methods": _active_payment_methods(int(request.tg_user["id"]) if getattr(request, "tg_user", None) else None),
         "hourly_available": hourly_ok,
         "hourly_price": _jsonable(product.get("hourly_price") or 0) if hourly_ok else None,
         "message": "فاکتور آماده است.",
