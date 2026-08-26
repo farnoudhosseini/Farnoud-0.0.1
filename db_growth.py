@@ -94,6 +94,7 @@ def ensure_growth_tables():
                 ("trial_panel_id", ""),
                 ("trial_volume_gb", "1"),
                 ("trial_days", "1"),
+                ("trial_hours", "24"),
                 ("trial_per_user", "1"),
                 ("location_change_enabled", "1"),
                 ("location_change_price", "0"),

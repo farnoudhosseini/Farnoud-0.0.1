@@ -23,17 +23,30 @@ def is_admin(user_id: int) -> bool:
 
 async def cancel_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """لغو امن هر ورودی متنی ادمین و پاک‌کردن state مربوط به همان عملیات."""
-    for key in (
-        "admin_input_mode", "charge_manual_id", "charge_reject_id",
-        "order_manual_id", "order_reject_id", "edit_menu_key",
-        "admin_panel_id", "prod_new", "premiji_step", "premiji_code",
-    ):
-        context.user_data.pop(key, None)
-    if update.message:
-        await update.message.reply_text(
-            "❌ عملیات لغو شد.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]]),
-        )
+    for key in list(context.user_data.keys()):
+        if (
+            key.startswith("admin_")
+            or key in (
+                "charge_manual_id", "charge_reject_id",
+                "order_manual_id", "order_reject_id", "edit_menu_key",
+                "prod_new", "premiji_step", "premiji_code",
+                "edit_msg_key", "ord_edit_id", "ord_edit_field",
+            )
+        ):
+            context.user_data.pop(key, None)
+    msg = "❌ عملیات لغو شد."
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]])
+    if update.callback_query:
+        try:
+            await update.callback_query.answer("لغو شد")
+            await update.callback_query.edit_message_text(msg, reply_markup=kb)
+        except Exception:
+            try:
+                await update.callback_query.message.reply_text(msg, reply_markup=kb)
+            except Exception:
+                pass
+    elif update.message:
+        await update.message.reply_text(msg, reply_markup=kb)
     return ConversationHandler.END
 
 
@@ -751,14 +764,21 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database import get_setting_sync
         te = get_setting_sync("trial_enabled", "0") == "1"
         tv = get_setting_sync("trial_volume_gb", "1") or "1"
-        td = get_setting_sync("trial_days", "1") or "1"
+        # مدت تست به ساعت — اگر trial_hours نباشد از trial_days*24 مهاجرت نرم
+        th = get_setting_sync("trial_hours", "")
+        if not th:
+            td_legacy = get_setting_sync("trial_days", "1") or "1"
+            try:
+                th = str(max(1, int(float(td_legacy)) * 24))
+            except Exception:
+                th = "24"
         tp = get_setting_sync("trial_per_user", "1") or "1"
         fj = get_setting_sync("force_join_enabled", "0") == "1"
         fp = get_setting_sync("force_phone_enabled", "0") == "1"
         textg = (
             "🌱 <b>رشد و احراز / تست رایگان</b>\n\n"
             f"تست رایگان: {'🟢 فعال' if te else '🔴 خاموش'}\n"
-            f"حجم تست: <b>{tv}</b> GB | مدت: <b>{td}</b> روز | سهمیه هر کاربر: <b>{tp}</b>\n"
+            f"حجم تست: <b>{tv}</b> GB | مدت: <b>{th}</b> ساعت | سهمیه هر کاربر: <b>{tp}</b>\n"
             f"عضویت اجباری: {'🟢' if fj else '🔴'} | موبایل اجباری: {'🟢' if fp else '🔴'}\n\n"
             "تنظیمات پیشرفته (پنل تست، پروتکل) از وب‌پنل."
         )
@@ -768,7 +788,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data="admin_trial_toggle",
             )],
             [InlineKeyboardButton("📦 حجم تست (GB)", callback_data="admin_trial_vol")],
-            [InlineKeyboardButton("📅 مدت تست (روز)", callback_data="admin_trial_days")],
+            [InlineKeyboardButton("⏱ مدت تست (ساعت)", callback_data="admin_trial_days")],
             [InlineKeyboardButton("🔢 تعداد تست هر کاربر", callback_data="admin_trial_limit")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
         ]
@@ -789,8 +809,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_ADMIN_TEXT
 
     if data == "admin_trial_days":
-        context.user_data["admin_input_mode"] = "trial_days"
-        await query.edit_message_text("مدت تست رایگان را به روز بفرستید (مثلاً 1):\n/cancel انصراف")
+        # callback همان admin_trial_days می‌ماند برای سازگاری؛ واحد اکنون ساعت است
+        context.user_data["admin_input_mode"] = "trial_hours"
+        await query.edit_message_text(
+            "⏱ مدت تست رایگان را به <b>ساعت</b> بفرستید (مثلاً 1 یا 6 یا 24):\n/cancel انصراف",
+            parse_mode="HTML",
+        )
         return WAITING_ADMIN_TEXT
 
     if data == "admin_trial_limit":
@@ -1886,13 +1910,12 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not user or not is_admin(user.id):
         return ConversationHandler.END
     text=(update.message.text or "").strip()
-    if text.lower() in ("/cancel", "cancel", "انصراف"):
-        for k in list(context.user_data.keys()):
-            if k.startswith("admin_") or k in ("edit_msg_key", "ord_edit_id", "ord_edit_field"):
-                context.user_data.pop(k, None)
-        await update.message.reply_text("❌ لغو شد.", reply_markup=main_keyboard())
-        return ConversationHandler.END
+    if text.lower() in ("/cancel", "cancel", "انصراف", "لغو"):
+        return await cancel_admin_input(update, context)
     mode=context.user_data.pop("admin_input_mode",None)
+    if not mode:
+        # state مکالمه ممکن است ست شده باشد ولی mode پاک شده؛ ایمن خارج شو
+        return ConversationHandler.END
 
     if mode == "web_url":
         from database import set_setting_sync
@@ -1926,19 +1949,31 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return ConversationHandler.END
 
-    if mode == "trial_days":
+    if mode in ("trial_days", "trial_hours"):
+        # واحد مدت تست: ساعت (سازگاری با mode قدیمی trial_days)
         from database import set_setting_sync
         try:
-            val = int(float(text))
+            val = float(text.replace(",", "."))
             if val <= 0:
                 raise ValueError()
+            # اگر عدد خیلی بزرگ مثل 1 و کاربر منظورش روز بوده، باز هم به عنوان ساعت ذخیره می‌شود
+            if val != int(val):
+                # اجازه ساعت اعشاری (مثلاً 0.5)
+                pass
+            val_store = str(val).rstrip("0").rstrip(".") if "." in str(val) else str(int(val))
         except Exception:
-            await update.message.reply_text("عدد صحیح بفرستید.")
-            context.user_data["admin_input_mode"] = "trial_days"
+            await update.message.reply_text("عدد معتبر به ساعت بفرستید (مثلاً 1 یا 6 یا 24).")
+            context.user_data["admin_input_mode"] = "trial_hours"
             return WAITING_ADMIN_TEXT
-        set_setting_sync("trial_days", str(val))
+        set_setting_sync("trial_hours", val_store)
+        # همگام‌سازی اختیاری با trial_days برای داشبوردهای قدیمی (تقریبی به روز)
+        try:
+            days_approx = max(1, int(float(val) // 24)) if float(val) >= 24 else 0
+            set_setting_sync("trial_days", str(days_approx) if days_approx else "0")
+        except Exception:
+            pass
         await update.message.reply_text(
-            f"✅ مدت تست: {val} روز",
+            f"✅ مدت تست: {val_store} ساعت",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌱 رشد", callback_data="admin_growth")]]),
         )
         return ConversationHandler.END

@@ -439,9 +439,9 @@ def claim_stars_order_payment(oid: int, telegram_id: int, expected_stars: int, p
 def update_order(oid: int, **fields):
     allowed = {"status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
                "wallet_used", "pay_amount", "custom_name", "is_hourly", "hourly_rate", "hourly_active",
-               "volume_gb_override", "duration_days_override", "expire_at", "panel_id", "product_id",
-               "variza_slug", "variza_amount", "variza_attempt_code", "variza_delivery_id", "paid_at",
-               "protocol_override", "inbound_id"}
+               "volume_gb_override", "duration_days_override", "duration_hours_override", "expire_at",
+               "panel_id", "product_id", "variza_slug", "variza_amount", "variza_attempt_code",
+               "variza_delivery_id", "paid_at", "protocol_override", "inbound_id"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -467,16 +467,17 @@ def ensure_service_mgmt_columns():
     try:
         with conn.cursor() as cur:
             for col, ddl in [
-                ("is_hourly", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("is_hourly", "TINYINT DEFAULT 0"),
                 ("hourly_rate", "DECIMAL(18,2) DEFAULT NULL"),
-                ("hourly_active", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_active", "TINYINT DEFAULT 0"),
                 ("hourly_started_at", "TIMESTAMP NULL DEFAULT NULL"),
                 ("hourly_last_charge_at", "TIMESTAMP NULL DEFAULT NULL"),
                 ("volume_gb_override", "DECIMAL(12,2) DEFAULT NULL"),
                 ("duration_days_override", "INT DEFAULT NULL"),
+                ("duration_hours_override", "DECIMAL(12,2) DEFAULT NULL"),
                 ("expire_at", "TIMESTAMP NULL DEFAULT NULL"),
                 ("custom_name", "VARCHAR(100) DEFAULT NULL"),
-                ("hourly_notify_mute", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("hourly_notify_mute", "TINYINT DEFAULT 0"),
                 ("inbound_id", "INT DEFAULT NULL"),
                 ("protocol_override", "TEXT DEFAULT NULL"),
             ]:
@@ -566,8 +567,9 @@ def update_order(oid: int, **fields):
         "status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",
         "wallet_used", "pay_amount", "amount", "is_hourly", "hourly_rate", "hourly_active",
         "hourly_started_at", "hourly_last_charge_at", "volume_gb_override",
-        "duration_days_override", "expire_at", "custom_name", "panel_id", "product_id",
-        "hourly_notify_mute", "inbound_id", "coupon_code", "discount_amount",
+        "duration_days_override", "duration_hours_override", "expire_at", "custom_name",
+        "panel_id", "product_id", "hourly_notify_mute", "inbound_id", "coupon_code",
+        "discount_amount", "protocol_override",
     }
     sets, vals = [], []
     for k, v in fields.items():

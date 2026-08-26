@@ -277,6 +277,7 @@ class XUI3Client:
         email: str = None,
         total_gb: float = 0,
         days: int = 30,
+        hours: float = 0,
         limit_ip: int = 0,
         tg_id: int = 0,
         enable: bool = True,
@@ -295,8 +296,15 @@ class XUI3Client:
         sub_id = sub_id or _rand_sub_id()
         client_uuid = client_uuid or str(uuid.uuid4())
         total_bytes = gb_to_bytes(total_gb)
-        # اولین اتصال: در بسیاری از بیلدهای ثنایی، expiryTime منفی = مدت (ms) بعد از اولین اتصال
-        if start_on_first_connect and days and days > 0:
+        # اولویت با hours (تست ساعتی و سرویس‌های کوتاه‌مدت)
+        # اولین اتصال: expiryTime منفی = مدت (ms) بعد از اولین اتصال
+        if hours and float(hours) > 0:
+            h = float(hours)
+            if start_on_first_connect:
+                exp_ms = -int(h * 3600 * 1000)
+            else:
+                exp_ms = int((datetime.now(timezone.utc) + timedelta(hours=h)).timestamp() * 1000)
+        elif start_on_first_connect and days and days > 0:
             exp_ms = -int(int(days) * 86400 * 1000)
         elif days and days > 0:
             exp_ms = int((datetime.now(timezone.utc) + timedelta(days=int(days))).timestamp() * 1000)

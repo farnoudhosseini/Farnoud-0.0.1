@@ -247,7 +247,26 @@ def create_bot() -> Application:
         from handlers.admin import is_admin, receive_admin_text
         from telegram.ext import ApplicationHandlerStop
         user = update.effective_user
-        if user and is_admin(user.id) and context.user_data.get("admin_input_mode"):
+        if not user or not is_admin(user.id):
+            return
+        # هر حالت ورودی ادمین (mode یا idهای مربوط به شارژ/سفارش)
+        if (
+            context.user_data.get("admin_input_mode")
+            or context.user_data.get("charge_manual_id")
+            or context.user_data.get("charge_reject_id")
+            or context.user_data.get("order_manual_id")
+            or context.user_data.get("order_reject_id")
+        ):
+            # اگر mode پاک شده ولی id مانده، mode را بازسازی کن
+            if not context.user_data.get("admin_input_mode"):
+                if context.user_data.get("charge_manual_id"):
+                    context.user_data["admin_input_mode"] = "charge_manual_amount"
+                elif context.user_data.get("charge_reject_id"):
+                    context.user_data["admin_input_mode"] = "charge_reject_reason"
+                elif context.user_data.get("order_manual_id"):
+                    context.user_data["admin_input_mode"] = "order_manual_balance"
+                elif context.user_data.get("order_reject_id"):
+                    context.user_data["admin_input_mode"] = "order_reject_reason"
             await receive_admin_text(update, context)
             raise ApplicationHandlerStop
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _admin_text_fallback), group=-1)
@@ -362,21 +381,25 @@ def create_bot() -> Application:
     application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wallet_|pay_)"))
 
     # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN + ورودی‌های متنی مثل افزودن ادمین)
-    # entry_points شامل همه callbackهایی است که ممکن است به WAITING_ADMIN_TEXT بروند تا state درست ست شود
+    # entry_points باید همه callbackهایی که به WAITING_ADMIN_TEXT می‌روند را پوشش دهد
+    # از جمله adm_ch_ (شارژ دستی/رد رسید) و adm_ord_ (سفارش دستی/رد)
     admin_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
                 admin_callback,
-                pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_web_|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome|admin_badm_|admin_botadmins|admin_stars_|admin_gift_|admin_trial_|admin_as_|admin_card_|admin_auto_|admin_charge_|admin_menu_|admin_prod_|admin_order_|admin_ticket_|admin_backup_|admin_inline_|admin_panel|admin_optimize|admin_settings|admin_users|admin_support)",
+                pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_web_|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome|admin_badm_|admin_botadmins|admin_stars_|admin_gift_|admin_trial_|admin_as_|admin_card_|admin_auto_|admin_charge_|admin_menu_|admin_prod_|admin_order_|admin_ticket_|admin_backup_|admin_inline_|admin_panel|admin_optimize|admin_settings|admin_users|admin_support|adm_ch_|adm_ord_|adm_ref_)",
             ),
         ],
         states={
-            WAITING_WELCOME: [MessageHandler(filters.TEXT, receive_welcome_message)],
-            WAITING_USER_FIELD: [MessageHandler(filters.TEXT, receive_user_field)],
-            WAITING_ADMIN_TEXT: [MessageHandler(filters.TEXT, receive_admin_text)],
+            WAITING_WELCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_welcome_message)],
+            WAITING_USER_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_user_field)],
+            WAITING_ADMIN_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_admin_text),
+                CommandHandler("cancel", cancel_admin_input),
+            ],
         },
         fallbacks=[
-            CallbackQueryHandler(admin_callback, pattern="^admin_"),
+            CallbackQueryHandler(admin_callback, pattern="^(admin_|adm_ch_|adm_ord_|adm_ref_)"),
             CommandHandler("start", start_command),
             CommandHandler("cancel", cancel_admin_input),
             CommandHandler("admin", admin_panel),
@@ -385,9 +408,37 @@ def create_bot() -> Application:
         per_message=False,
     )
     application.add_handler(admin_conv)
+    # هندلر عمومی ادمین برای callbackهایی که داخل مکالمه نیستند
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin_|adm_ch_|adm_ord_|adm_ref_)"))
 
+    # /cancel سراسری برای ادمین وقتی خارج از ConversationHandler است (شارژ دستی/رد رسید و ...)
+    async def _global_admin_cancel(update, context):
+        from handlers.admin import is_admin, cancel_admin_input
+        user = update.effective_user
+        if user and is_admin(user.id) and (
+            context.user_data.get("admin_input_mode")
+            or context.user_data.get("charge_manual_id")
+            or context.user_data.get("charge_reject_id")
+            or context.user_data.get("order_manual_id")
+            or context.user_data.get("order_reject_id")
+        ):
+            return await cancel_admin_input(update, context)
+        return None
+    application.add_handler(CommandHandler("cancel", _global_admin_cancel))
+
     # درخواست نمایندگی
+    async def _reseller_exit_to_menu(update, context):
+        """اگر کاربر از درخواست نمایندگی خارج شد، state را ببند و منوی مقصد را باز کن."""
+        context.user_data.pop("reseller_request", None)
+        for k in list(context.user_data.keys()):
+            if str(k).startswith("reseller"):
+                context.user_data.pop(k, None)
+        try:
+            await menu_callback(update, context)
+        except Exception:
+            pass
+        return ConversationHandler.END
+
     reseller_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(start_reseller_request, pattern="^menu_reseller$"),
@@ -399,9 +450,13 @@ def create_bot() -> Application:
         states={
             WAITING_RESELLER_DESC: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_reseller_desc),
+                CallbackQueryHandler(cancel_reseller, pattern="^reseller_cancel$"),
+                CommandHandler("cancel", cancel_reseller),
             ],
         },
         fallbacks=[
+            CallbackQueryHandler(cancel_reseller, pattern="^reseller_cancel$"),
+            CallbackQueryHandler(_reseller_exit_to_menu, pattern="^menu_"),
             CommandHandler("start", start_command),
             CommandHandler("cancel", cancel_reseller),
         ],
@@ -409,6 +464,8 @@ def create_bot() -> Application:
         per_message=False,
     )
     application.add_handler(reseller_conv)
+    # دکمه انصراف نمایندگی حتی اگر مکالمه state نداشته باشد
+    application.add_handler(CallbackQueryHandler(cancel_reseller, pattern="^reseller_cancel$"))
 
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
 

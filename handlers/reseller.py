@@ -107,14 +107,35 @@ async def receive_reseller_desc(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def cancel_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """لغو درخواست نمایندگی و بستن state مکالمه (از دکمه، /cancel یا خروج به منو)."""
     context.user_data.pop("reseller_request", None)
+    # پاک‌کردن هر state مرتبط تا دیگر منتظر توضیحات نماند
+    for k in list(context.user_data.keys()):
+        if k.startswith("reseller"):
+            context.user_data.pop(k, None)
     q = update.callback_query
     if q:
-        await q.answer("لغو شد.")
-        await q.edit_message_text(
-            "❌ درخواست نمایندگی لغو شد.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
-        )
+        try:
+            await q.answer("لغو شد.")
+        except Exception:
+            pass
+        data = (q.data or "")
+        # اگر کاربر به منوی دیگری رفت، فقط state را ببند و پیام لغو نشان نده
+        if data.startswith("menu_") and data != "menu_reseller":
+            return ConversationHandler.END
+        try:
+            await q.edit_message_text(
+                "❌ درخواست نمایندگی لغو شد.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+            )
+        except Exception:
+            try:
+                await q.message.reply_text(
+                    "❌ درخواست نمایندگی لغو شد.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+                )
+            except Exception:
+                pass
     elif update.message:
         await update.message.reply_text(
             "❌ درخواست نمایندگی لغو شد.",

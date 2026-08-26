@@ -70,6 +70,7 @@ def provision_order(order_id: int) -> dict:
     has_override = (
         order.get("volume_gb_override") is not None
         or order.get("duration_days_override") is not None
+        or order.get("duration_hours_override") is not None
         or order.get("custom_name")
     )
     if not product and not has_override:
@@ -77,8 +78,9 @@ def provision_order(order_id: int) -> dict:
 
     # اول از محصول، بعد اگر روی سفارش override باشد جایگزین می‌شود
     # (برای تست رایگان و هدیه باشگاه ضروری است)
-    volume_gb = float(product.get("volume_gb") or 0)
-    days = int(product.get("duration_days") or 30)
+    volume_gb = float(product.get("volume_gb") or 0) if product else 0.0
+    days = int(product.get("duration_days") or 30) if product else 30
+    hours_override = None  # اگر ست شود، expire بر اساس ساعت محاسبه می‌شود
     try:
         ov_vol = order.get("volume_gb_override")
         if ov_vol is not None and str(ov_vol).strip() != "":
@@ -86,9 +88,19 @@ def provision_order(order_id: int) -> dict:
     except (TypeError, ValueError):
         pass
     try:
-        ov_days = order.get("duration_days_override")
-        if ov_days is not None and str(ov_days).strip() != "":
-            days = int(ov_days)
+        ov_hours = order.get("duration_hours_override")
+        if ov_hours is not None and str(ov_hours).strip() != "":
+            hours_override = float(ov_hours)
+            if hours_override > 0:
+                import math
+                days = max(1, int(math.ceil(hours_override / 24.0)))
+    except (TypeError, ValueError):
+        hours_override = None
+    try:
+        if hours_override is None:
+            ov_days = order.get("duration_days_override")
+            if ov_days is not None and str(ov_days).strip() != "":
+                days = int(ov_days)
     except (TypeError, ValueError):
         pass
     # HWID از محصول — خالی/None = نامحدود
@@ -121,8 +133,11 @@ def provision_order(order_id: int) -> dict:
                     "vpn_username": order["vpn_username"], "idempotent": True}
         except Exception:
             pass
-    expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
-    start_on_first = bool(int(product.get("start_on_first_connect") or 0))
+    if hours_override is not None and hours_override > 0:
+        expire_dt = datetime.now(timezone.utc) + timedelta(hours=hours_override)
+    else:
+        expire_dt = datetime.now(timezone.utc) + timedelta(days=days)
+    start_on_first = bool(int((product or {}).get("start_on_first_connect") or 0))
 
     # پیکربندی گروه/اینباند از محصول (تنظیم ادمین)
     panel_cfg = {}
@@ -189,6 +204,7 @@ def provision_order(order_id: int) -> dict:
                     email=shared_email,
                     total_gb=volume_gb if volume_gb > 0 else 0,
                     days=days if days > 0 else 0,
+                    hours=hours_override if hours_override and hours_override > 0 else 0,
                     limit_ip=limit_ip,
                     tg_id=int(order.get("telegram_id") or 0),
                     client_uuid=shared_uuid,
@@ -248,7 +264,10 @@ def provision_order(order_id: int) -> dict:
                 group_ids=group_ids,
                 hwid_limit=hwid,
                 note=f"{note_base} on_hold",
-                on_hold_expire_duration=int(days) * 86400 if days > 0 else 30 * 86400,
+                on_hold_expire_duration=(
+                    int(hours_override * 3600) if hours_override and hours_override > 0
+                    else (int(days) * 86400 if days > 0 else 30 * 86400)
+                ),
                 for_create=True,
             )
         else:

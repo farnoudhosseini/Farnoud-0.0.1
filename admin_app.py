@@ -1314,7 +1314,7 @@ def growth_settings():
         if action == "settings":
             for key in [
                 "force_join_enabled", "force_join_channel", "force_phone_enabled",
-                "trial_enabled", "trial_volume_gb", "trial_days",
+                "trial_enabled", "trial_volume_gb", "trial_hours",
                 "location_change_enabled", "location_change_price", "location_change_limit",
             ]:
                 val = request.form.get(key)
@@ -1323,6 +1323,14 @@ def growth_settings():
                 elif val is None:
                     continue
                 set_setting_sync(key, val)
+            # سازگاری با نسخه‌های قدیمی که trial_days می‌خواندند
+            th = request.form.get("trial_hours")
+            if th is not None and str(th).strip() != "":
+                try:
+                    hv = float(th)
+                    set_setting_sync("trial_days", str(max(0, int(hv // 24))))
+                except Exception:
+                    pass
             # چند پنل تست + پروتکل‌ها (تیک‌باکس مثل محصولات)
             import json
             ids = request.form.getlist("trial_panel_ids") or []
@@ -1371,6 +1379,10 @@ def growth_settings():
             "trial_protocols_json": get_setting_sync("trial_protocols_json", "") or "",
             "trial_protocols": _trial_protocols,
             "trial_volume_gb": get_setting_sync("trial_volume_gb", "1"),
+            "trial_hours": (
+                get_setting_sync("trial_hours", "")
+                or str(int(float(get_setting_sync("trial_days", "1") or 1) * 24))
+            ),
             "trial_days": get_setting_sync("trial_days", "1"),
             "location_change_enabled": get_setting_sync("location_change_enabled", "1"),
             "location_change_price": get_setting_sync("location_change_price", "0"),

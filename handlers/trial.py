@@ -102,7 +102,20 @@ async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, pane
         await reply("پنل تست یافت نشد.")
         return
     vol = float(get_setting_sync("trial_volume_gb", "1") or 1)
-    days = int(get_setting_sync("trial_days", "1") or 1)
+    # مدت تست به ساعت — مهاجرت نرم از trial_days
+    th_raw = get_setting_sync("trial_hours", "")
+    if th_raw:
+        try:
+            hours = float(th_raw)
+        except Exception:
+            hours = 24.0
+    else:
+        try:
+            hours = float(get_setting_sync("trial_days", "1") or 1) * 24.0
+        except Exception:
+            hours = 24.0
+    if hours <= 0:
+        hours = 1.0
     await reply("⏳ در حال ساخت اکانت تست...")
     try:
         product_id = _pick_product_id()
@@ -119,12 +132,16 @@ async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, pane
         except Exception as e:
             print("trial protocol cfg:", e)
 
+        # duration_hours_override برای provision؛ days تقریبی فقط برای فیلد INT قدیمی
+        import math
+        days_ceil = max(1, int(math.ceil(hours / 24.0)))
         update_kwargs = dict(
             status="paid",
             wallet_used=0,
             pay_amount=0,
             volume_gb_override=vol,
-            duration_days_override=days,
+            duration_days_override=days_ceil,
+            duration_hours_override=hours,
             custom_name="تست رایگان",
         )
         if protocol_override:
@@ -154,9 +171,10 @@ async def _create_trial(update: Update, context: ContextTypes.DEFAULT_TYPE, pane
         panel_name = html.escape(str(panel.get("name") or ""))
         uname_safe = html.escape(str(uname))
         link_safe = html.escape(str(link))
+        hours_label = str(int(hours)) if float(hours) == int(hours) else str(hours)
         text = (
             f"🎁 اکانت تست — {panel_name}\n"
-            f"حجم: {vol} GB\nمدت: {days} روز\n"
+            f"حجم: {vol} GB\nمدت: {hours_label} ساعت\n"
             f"یوزرنیم: <code>{uname_safe}</code>\n"
             f"لینک:\n<code>{link_safe}</code>"
         )
