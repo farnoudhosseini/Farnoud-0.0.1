@@ -25,6 +25,7 @@ from db_stats import dashboard_counts, chart_series
 from db_growth import (
     ensure_growth_tables, list_discounts, create_discount, delete_discount,
     list_reseller_requests, review_reseller_request, get_reseller_request,
+    get_trial_count, get_trial_limit, reset_user_trial, reset_trials_bulk,
 )
 from database import list_panels as db_list_panels
 from services.pasarguard import PasarGuardClient, normalize_base_url, bytes_to_gb
@@ -637,6 +638,7 @@ def bot_users_list():
         "bot_users.html",
         username=session.get("admin_username"), active="bot_users",
         users=users, total=total, q=q or "", roles=ROLE_LABELS,
+        trial_limit=get_trial_limit(),
     )
 
 @app.route("/users/<int:telegram_id>", methods=["GET", "POST"])
@@ -664,6 +666,11 @@ def bot_user_detail(telegram_id):
                     flash(f"موجودی تغییر کرد: {amt:+,}", "success")
             except ValueError:
                 flash("مبلغ نامعتبر", "error")
+        elif action == "reset_trial":
+            if reset_user_trial(telegram_id):
+                flash("سهمیه تست این کاربر از نو شروع شد.", "success")
+            else:
+                flash("ریست تست انجام نشد.", "error")
         return redirect(url_for("bot_user_detail", telegram_id=telegram_id))
     activity = get_user_activity(telegram_id, 40)
     refs = count_referrals(telegram_id)
@@ -671,7 +678,16 @@ def bot_user_detail(telegram_id):
         "bot_user_detail.html",
         username=session.get("admin_username"), active="bot_users",
         user=user, activity=activity, refs=refs, roles=ROLE_LABELS,
+        trial_count=get_trial_count(telegram_id), trial_limit=get_trial_limit(),
     )
+
+@app.route("/users/reset-trials", methods=["POST"])
+@login_required
+def reset_all_trials():
+    count = reset_trials_bulk(None)
+    flash(f"سهمیه تست همه کاربران ریست شد ({count} کاربر).", "success")
+    return redirect(url_for("bot_users_list"))
+
 
 # ---------- پیام‌ها و کیف پول تنظیمات ----------
 

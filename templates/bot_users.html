@@ -3,6 +3,9 @@
 {% block content %}
 <div class="dashboard">{% include "_sidebar.html" %}<main class="main">
 <header class="topbar"><h2>کاربران ربات</h2>
+<form method="post" action="{{ url_for('reset_all_trials') }}" onsubmit="return confirm('سهمیه تست همه کاربران ریست شود؟')">
+<button class="btn-primary inline" type="submit">🔄 ریست تست همه کاربران</button>
+</form>
 <form method="get" style="display:flex;gap:8px">
 <input name="q" value="{{ q }}" placeholder="جستجو..." style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text)">
 <button class="btn-primary inline" type="submit">جستجو</button>

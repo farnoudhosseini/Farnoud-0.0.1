@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS bot_users (
     last_name VARCHAR(150) DEFAULT NULL,
     phone VARCHAR(30) DEFAULT NULL,
     balance DECIMAL(18,0) NOT NULL DEFAULT 0,
+    trial_count INT NOT NULL DEFAULT 0,
     role ENUM('user','reseller','reseller_vip','vip') NOT NULL DEFAULT 'user',
     referrer_id BIGINT DEFAULT NULL,
     invite_code VARCHAR(32) NOT NULL,
@@ -87,6 +88,16 @@ CREATE TABLE IF NOT EXISTS charge_requests (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_tg (telegram_id),
     INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS stars_payments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    charge_id INT DEFAULT NULL,
+    stars_amount INT NOT NULL,
+    toman_amount DECIMAL(18,0) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_stars_charge (charge_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS gift_codes (

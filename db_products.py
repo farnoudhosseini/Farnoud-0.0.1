@@ -99,6 +99,14 @@ def ensure_product_tables():
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            # Safe migrations for service lifecycle states.
+            try:
+                cur.execute("""ALTER TABLE service_orders MODIFY COLUMN status
+                    ENUM('pending_payment','waiting_receipt','pending_review','paid','provisioned','cancelled','rejected','expired','failed')
+                    NOT NULL DEFAULT 'pending_payment'""")
+            except Exception as e:
+                print("status enum migration:", e)
+
             # Safe Variza migration for existing service orders.
             for col, ddl in [("variza_slug", "VARCHAR(120) DEFAULT NULL"),("variza_amount", "DECIMAL(18,0) DEFAULT NULL"),("variza_attempt_code", "VARCHAR(120) DEFAULT NULL"),("variza_delivery_id", "VARCHAR(120) DEFAULT NULL"),("paid_at", "TIMESTAMP NULL")]:
                 try: cur.execute(f"ALTER TABLE service_orders ADD COLUMN {col} {ddl}")
@@ -402,6 +410,31 @@ def get_order(oid: int):
             return cur.fetchone()
     finally:
         conn.close()
+
+def claim_stars_order_payment(oid: int, telegram_id: int, expected_stars: int, pay_amount: int) -> tuple[bool, str]:
+    """ثبت اتمیک پرداخت Stars برای سفارش؛ جلوی دوبار ساخت سرویس را می‌گیرد."""
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE service_orders
+                   SET status='paid', method_key='stars', pay_amount=%s, paid_at=NOW()
+                   WHERE id=%s AND telegram_id=%s
+                     AND status NOT IN ('paid','provisioned')""",
+                (int(pay_amount), int(oid), int(telegram_id)),
+            )
+            if cur.rowcount != 1:
+                return False, "already_processed"
+            conn.commit()
+            return True, "ok"
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        print("claim stars order:", e)
+        return False, str(e)
+    finally:
+        conn.close()
+
 
 def update_order(oid: int, **fields):
     allowed = {"status", "method_key", "card_id", "receipt_file_id", "vpn_username", "admin_note",

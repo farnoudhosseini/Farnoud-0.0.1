@@ -35,6 +35,8 @@ def ensure_extras_tables():
                 ("hourly_global_enabled", "0"),
                 ("menu_buttons_json", "[]"),
                 ("menu_buttons_per_row", "3"),
+                ("backup_interval_hours", "2"),
+                ("optimize_interval_hours", "0"),
             ]:
                 cur.execute(
                     "INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)",
@@ -241,6 +243,13 @@ def get_menu_buttons() -> List[Dict[str, Any]]:
 
 def set_menu_buttons(items):
     set_setting_sync("menu_buttons_json", json.dumps(items, ensure_ascii=False))
+    # کیبوردهای کش‌شده باید فوراً invalidate شوند تا دکمه جدید/حذف‌شده
+    # بدون نیاز به ری‌استارت در بات اعمال شود.
+    try:
+        from handlers.wallet import invalidate_main_keyboard_cache
+        invalidate_main_keyboard_cache()
+    except Exception:
+        pass
 
 
 def get_buttons_per_row() -> int:

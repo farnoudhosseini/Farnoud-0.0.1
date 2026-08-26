@@ -58,11 +58,15 @@ async def start_reseller_request(update: Update, context: ContextTypes.DEFAULT_T
         "توضیحات خود را بنویسید (سابقه فروش، تعداد مشتری، شهر و ...):\n"
         "پس از ارسال، درخواست در صف بررسی ادمین قرار می‌گیرد."
     )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ انصراف", callback_data="reseller_cancel")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+    ])
     if update.message:
-        await update.message.reply_text(prompt)
+        await update.message.reply_text(prompt, reply_markup=kb)
     else:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(prompt)
+        await update.callback_query.edit_message_text(prompt, reply_markup=kb)
     return WAITING_RESELLER_DESC
 
 
@@ -103,5 +107,17 @@ async def receive_reseller_desc(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def cancel_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("لغو شد.")
+    context.user_data.pop("reseller_request", None)
+    q = update.callback_query
+    if q:
+        await q.answer("لغو شد.")
+        await q.edit_message_text(
+            "❌ درخواست نمایندگی لغو شد.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
+    elif update.message:
+        await update.message.reply_text(
+            "❌ درخواست نمایندگی لغو شد.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
+        )
     return ConversationHandler.END

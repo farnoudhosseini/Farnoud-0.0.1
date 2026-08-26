@@ -1,3 +1,4 @@
+import math
 # خرید سرویس جدید + تحویل خودکار
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -468,7 +469,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             rate = 1000.0
         if rate <= 0:
             rate = 1000.0
-        stars_amount = max(1, int(round(pay_amount / rate)))
+        stars_amount = max(1, int(math.ceil(pay_amount / rate)))
         title = get_setting_sync("stars_payment_title", "⭐ استارز تلگرام") or "⭐ استارز تلگرام"
         try:
             from telegram import LabeledPrice
@@ -575,6 +576,8 @@ async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ تایید و ساخت سرویس", callback_data=f"adm_ord_ok_{order_id}"),
                 InlineKeyboardButton("❌ رد", callback_data=f"adm_ord_no_{order_id}"),
+            ], [
+                InlineKeyboardButton("💰 اضافه کردن موجودی دستی", callback_data=f"adm_ord_manual_{order_id}"),
             ]]),
         )
         await context.bot.send_photo(ADMIN_ID, file_id, caption=f"رسید سفارش #{order_id}")

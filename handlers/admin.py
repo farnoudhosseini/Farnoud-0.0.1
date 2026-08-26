@@ -21,6 +21,22 @@ def is_admin(user_id: int) -> bool:
     except Exception:
         return False
 
+async def cancel_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """لغو امن هر ورودی متنی ادمین و پاک‌کردن state مربوط به همان عملیات."""
+    for key in (
+        "admin_input_mode", "charge_manual_id", "charge_reject_id",
+        "order_manual_id", "order_reject_id", "edit_menu_key",
+        "admin_panel_id", "prod_new", "premiji_step", "premiji_code",
+    ):
+        context.user_data.pop(key, None)
+    if update.message:
+        await update.message.reply_text(
+            "❌ عملیات لغو شد.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]]),
+        )
+    return ConversationHandler.END
+
+
 def main_keyboard():
     def btn(text, data, style=None):
         kw = {"text": text, "callback_data": data}
@@ -626,13 +642,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"زیرمجموعه: {refs}\n"
             f"مسدود: {'بله' if u.get('is_blocked') else 'خیر'}"
         )
-        used_trial = False
+        trial_count = 0
+        trial_limit = 1
         try:
-            from db_growth import has_used_trial
-            used_trial = bool(has_used_trial(tid))
+            from db_growth import get_trial_count, get_trial_limit
+            trial_count = get_trial_count(tid)
+            trial_limit = get_trial_limit()
         except Exception:
             pass
-        text += f"\nتست رایگان: {'استفاده شده ✅' if used_trial else 'آزاد 🎁'}"
+        text += f"\nتست رایگان: <b>{trial_count}/{trial_limit}</b>"
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("➕۱۰هزار", callback_data=f"admin_bal_{tid}_10000"),
@@ -734,12 +752,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         te = get_setting_sync("trial_enabled", "0") == "1"
         tv = get_setting_sync("trial_volume_gb", "1") or "1"
         td = get_setting_sync("trial_days", "1") or "1"
+        tp = get_setting_sync("trial_per_user", "1") or "1"
         fj = get_setting_sync("force_join_enabled", "0") == "1"
         fp = get_setting_sync("force_phone_enabled", "0") == "1"
         textg = (
             "🌱 <b>رشد و احراز / تست رایگان</b>\n\n"
             f"تست رایگان: {'🟢 فعال' if te else '🔴 خاموش'}\n"
-            f"حجم تست: <b>{tv}</b> GB | مدت: <b>{td}</b> روز\n"
+            f"حجم تست: <b>{tv}</b> GB | مدت: <b>{td}</b> روز | سهمیه هر کاربر: <b>{tp}</b>\n"
             f"عضویت اجباری: {'🟢' if fj else '🔴'} | موبایل اجباری: {'🟢' if fp else '🔴'}\n\n"
             "تنظیمات پیشرفته (پنل تست، پروتکل) از وب‌پنل."
         )
@@ -750,6 +769,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )],
             [InlineKeyboardButton("📦 حجم تست (GB)", callback_data="admin_trial_vol")],
             [InlineKeyboardButton("📅 مدت تست (روز)", callback_data="admin_trial_days")],
+            [InlineKeyboardButton("🔢 تعداد تست هر کاربر", callback_data="admin_trial_limit")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
         ]
         await query.edit_message_text(textg, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
@@ -771,6 +791,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_trial_days":
         context.user_data["admin_input_mode"] = "trial_days"
         await query.edit_message_text("مدت تست رایگان را به روز بفرستید (مثلاً 1):\n/cancel انصراف")
+        return WAITING_ADMIN_TEXT
+
+    if data == "admin_trial_limit":
+        context.user_data["admin_input_mode"] = "trial_limit"
+        await query.edit_message_text("حداکثر تعداد تست رایگان برای هر کاربر را بفرستید (مثلاً 3):\n/cancel انصراف")
         return WAITING_ADMIN_TEXT
 
     if data == "admin_gifts":
@@ -1122,7 +1147,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "admin_auto_users":
         context.user_data["admin_input_mode"] = "auto_approve_users"
-        await query.edit_message_text("شناسه کاربران تایید خودکار را با کاما بفرستید (پاک کردن: -):")
+        await query.edit_message_text(
+            "شناسه کاربران تایید خودکار را با کاما بفرستید (پاک کردن: -):\n/cancel برای انصراف",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_cards")]]),
+        )
         return WAITING_ADMIN_TEXT
 
     if data=="admin_card_add":
@@ -1210,20 +1238,20 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_ADMIN_TEXT
 
     if data.startswith("adm_ch_no_"):
-        from db_users import reject_charge, get_charge, render_template, user_vars, get_bot_user
+        from db_users import get_charge
         cid = int(data.replace("adm_ch_no_", ""))
         ch = get_charge(cid)
-        if reject_charge(cid, "توسط ادمین"):
-            try:
-                u = get_bot_user(ch["telegram_id"])
-                vars_ = user_vars(u)
-                vars_["amount"] = f"{int(ch['amount']):,}"
-                vars_["reason"] = "توسط ادمین"
-                await context.bot.send_message(ch["telegram_id"], render_template("charge_rejected", vars_), parse_mode="HTML")
-            except Exception:
-                pass
-            await query.edit_message_text(f"❌ فاکتور #{cid} رد شد.")
-        return ConversationHandler.END
+        if not ch:
+            await query.answer("فاکتور یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        context.user_data["admin_input_mode"] = "charge_reject_reason"
+        context.user_data["charge_reject_id"] = cid
+        await query.edit_message_text(
+            f"❌ رد رسید شارژ #{cid}\n\n"
+            "دلیل رد رسید را بنویسید تا برای کاربر ارسال شود.\n"
+            "/cancel برای انصراف"
+        )
+        return WAITING_ADMIN_TEXT
 
 
 
@@ -1397,18 +1425,38 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ پرداخت OK — خطای ساخت: {result.get('error')}")
         return ConversationHandler.END
 
+    if data.startswith("adm_ord_manual_"):
+        oid = int(data.replace("adm_ord_manual_", ""))
+        from db_products import get_order
+        order = get_order(oid)
+        if not order:
+            await query.answer("سفارش یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        context.user_data["admin_input_mode"] = "order_manual_balance"
+        context.user_data["order_manual_id"] = oid
+        suggested = int(order.get("pay_amount") or order.get("amount") or 0)
+        await query.edit_message_text(
+            f"💰 اضافه کردن موجودی دستی برای سفارش #{oid}\n"
+            f"مبلغ پرداختی سفارش: {suggested:,} تومان\n\n"
+            "مبلغی که باید به کیف پول کاربر اضافه شود را به تومان بفرستید:"
+        )
+        return WAITING_ADMIN_TEXT
+
     if data.startswith("adm_ord_no_"):
-        from db_products import get_order, update_order
+        from db_products import get_order
         oid = int(data.replace("adm_ord_no_", ""))
         order = get_order(oid)
-        if order:
-            update_order(oid, status="rejected")
-            try:
-                await context.bot.send_message(order["telegram_id"], f"❌ سفارش #{oid} رد شد.")
-            except Exception:
-                pass
-            await query.edit_message_text(f"❌ سفارش #{oid} رد شد.")
-        return ConversationHandler.END
+        if not order:
+            await query.answer("سفارش یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        context.user_data["admin_input_mode"] = "order_reject_reason"
+        context.user_data["order_reject_id"] = oid
+        await query.edit_message_text(
+            f"❌ رد سفارش #{oid}\n\n"
+            "دلیل رد رسید/سفارش را بنویسید تا برای کاربر ارسال شود.\n"
+            "/cancel برای انصراف"
+        )
+        return WAITING_ADMIN_TEXT
 
     if data.startswith("adm_ref_ok_"):
         from db_products import get_order, update_order
@@ -1694,7 +1742,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = "admin_backup_cfg"
         # fallthrough by re-dispatching - simpler message:
         await query.edit_message_text(
-            f"✅ فاصله بکاپ روی <b>هر {h:g} ساعت</b> تنظیم شد.\nجاب زمان‌بندی دوباره ثبت شد.",
+            f"✅ فاصله بکاپ روی <b>هر {h:g} ساعت</b> تنظیم شد.\nزمان‌بندی جدید بلافاصله ثبت شد.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💾 تنظیمات بکاپ", callback_data="admin_backup_cfg")],
                 [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
@@ -1763,10 +1811,30 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             h = 0
         set_setting_sync("optimize_interval_hours", str(h if h > 0 else 0))
+        # زمان‌بندی را همان لحظه روی JobQueue اعمال کن؛ ری‌استارت لازم نیست.
+        try:
+            jq = getattr(context.application, "job_queue", None)
+            if jq:
+                for job in list(jq.jobs()):
+                    if getattr(job, "name", "") == "auto_optimize":
+                        job.schedule_removal()
+                if h > 0:
+                    from services.optimize import optimize_bot_data, format_optimize_report
+                    async def _dynamic_optimize_job(job_context):
+                        try:
+                            stats = optimize_bot_data()
+                            from config import ADMIN_ID
+                            if ADMIN_ID:
+                                await job_context.bot.send_message(ADMIN_ID, format_optimize_report(stats), parse_mode="HTML")
+                        except Exception as e:
+                            print("dynamic optimize:", e)
+                    jq.run_repeating(_dynamic_optimize_job, interval=max(3600, int(h * 3600)), first=30, name="auto_optimize")
+        except Exception as e:
+            print("reschedule optimize:", e)
         label = f"هر {h:g} ساعت" if h > 0 else "خاموش"
         await query.edit_message_text(
             f"✅ زمان‌بندی بهینه‌سازی: <b>{label}</b>\n"
-            "برای اعمال، سرویس ربات را یک‌بار ری‌استارت کنید.",
+            "زمان‌بندی جدید بلافاصله اعمال شد.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🧹 بهینه‌سازی", callback_data="admin_optimize")],
                 [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")],
@@ -1871,6 +1939,23 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         set_setting_sync("trial_days", str(val))
         await update.message.reply_text(
             f"✅ مدت تست: {val} روز",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌱 رشد", callback_data="admin_growth")]]),
+        )
+        return ConversationHandler.END
+
+    if mode == "trial_limit":
+        from database import set_setting_sync
+        try:
+            val = int(float(text))
+            if val <= 0:
+                raise ValueError()
+        except Exception:
+            context.user_data["admin_input_mode"] = "trial_limit"
+            await update.message.reply_text("عدد صحیح بزرگ‌تر از صفر بفرستید.")
+            return WAITING_ADMIN_TEXT
+        set_setting_sync("trial_per_user", str(val))
+        await update.message.reply_text(
+            f"✅ سهمیه تست هر کاربر: {val}",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌱 رشد", callback_data="admin_growth")]]),
         )
         return ConversationHandler.END
@@ -2249,6 +2334,87 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from db_users import add_card
         add_card(parts[0],parts[1],parts[2] if len(parts)>2 and parts[2] else None)
         await update.message.reply_text("✅ کارت اضافه شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها",callback_data="admin_cards")]]))
+        return ConversationHandler.END
+
+    if mode == "charge_reject_reason":
+        cid = context.user_data.pop("charge_reject_id", None)
+        reason = (text or "").strip()[:500] or "توسط ادمین"
+        if not cid:
+            await update.message.reply_text("❌ شناسه فاکتور نامعتبر.")
+            return ConversationHandler.END
+        from db_users import reject_charge, get_charge, render_template, user_vars, get_bot_user
+        ch = get_charge(int(cid))
+        if ch and reject_charge(int(cid), reason):
+            try:
+                u = get_bot_user(ch["telegram_id"])
+                vars_ = user_vars(u)
+                vars_["amount"] = f"{int(ch['amount']):,}"
+                vars_["reason"] = reason
+                await context.bot.send_message(ch["telegram_id"], render_template("charge_rejected", vars_), parse_mode="HTML")
+            except Exception as e:
+                print("notify charge rejection:", e)
+            await update.message.reply_text(f"❌ رسید شارژ #{cid} رد شد.\nدلیل: {reason}")
+        else:
+            await update.message.reply_text("❌ رد رسید ناموفق بود یا قبلاً پردازش شده است.")
+        return ConversationHandler.END
+
+    if mode == "order_reject_reason":
+        oid = context.user_data.pop("order_reject_id", None)
+        reason = (text or "").strip()[:500] or "توسط ادمین"
+        if not oid:
+            await update.message.reply_text("❌ شناسه سفارش نامعتبر.")
+            return ConversationHandler.END
+        from db_products import get_order, update_order
+        order = get_order(int(oid))
+        if not order:
+            await update.message.reply_text("❌ سفارش یافت نشد.")
+            return ConversationHandler.END
+        update_order(int(oid), status="rejected", admin_note=reason)
+        try:
+            await context.bot.send_message(
+                order["telegram_id"],
+                f"❌ سفارش #{oid} رد شد.\n\n📝 دلیل رد رسید:\n{reason}"
+            )
+        except Exception:
+            pass
+        await update.message.reply_text(f"❌ سفارش #{oid} رد شد و دلیل برای کاربر ارسال شد.")
+        return ConversationHandler.END
+
+    if mode == "order_manual_balance":
+        oid = context.user_data.pop("order_manual_id", None)
+        if not oid:
+            await update.message.reply_text("❌ شناسه سفارش نامعتبر.")
+            return ConversationHandler.END
+        try:
+            amount = int(str(text).replace(",", "").replace("،", "").replace(" ", ""))
+            if amount <= 0:
+                raise ValueError()
+        except Exception:
+            context.user_data["admin_input_mode"] = "order_manual_balance"
+            context.user_data["order_manual_id"] = oid
+            await update.message.reply_text("❌ مبلغ معتبر به تومان بفرستید.")
+            return WAITING_ADMIN_TEXT
+        from db_products import get_order, update_order
+        from db_users import add_balance
+        order = get_order(int(oid))
+        if not order:
+            await update.message.reply_text("❌ سفارش یافت نشد.")
+            return ConversationHandler.END
+        if order.get("status") not in ("pending_review", "waiting_receipt", "pending_payment"):
+            await update.message.reply_text(f"❌ این سفارش دیگر قابل پردازش نیست: {order.get('status')}")
+            return ConversationHandler.END
+        add_balance(order["telegram_id"], amount, f"manual_receipt_balance#{oid}")
+        update_order(int(oid), status="rejected", admin_note=f"شارژ دستی کیف پول: {amount:,} تومان")
+        try:
+            await context.bot.send_message(
+                order["telegram_id"],
+                f"💰 موجودی کیف پول شما به مبلغ <b>{amount:,}</b> تومان به‌صورت دستی اضافه شد.\n"
+                f"سفارش #{oid} برای جلوگیری از ساخت خودکار سرویس بسته شد.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        await update.message.reply_text(f"✅ {amount:,} تومان به کیف پول کاربر اضافه شد و سفارش #{oid} بسته شد.")
         return ConversationHandler.END
 
     if mode == "charge_manual_amount":

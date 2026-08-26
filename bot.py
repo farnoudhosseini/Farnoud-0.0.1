@@ -1,3 +1,4 @@
+import math
 # فایل اصلی ربات تلگرام فرنود
 
 from telegram.ext import (
@@ -16,7 +17,7 @@ from handlers.reseller import (
 from db_growth import ensure_growth_tables
 from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message, receive_admin_text,
-    receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
+    receive_user_field, cancel_admin_input, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
 )
 from handlers.buy import start_buy, buy_callback, receive_buy_receipt, receive_buy_custom_name, WAITING_BUY_CUSTOM_NAME, WAITING_BUY_RECEIPT
 from handlers.services_user import (
@@ -179,7 +180,11 @@ async def menu_callback(update, context):
         return await start_trial(update, context)
     if data == "menu_reseller":
         return await start_reseller_request(update, context)
-    if data == "menu_admin" and uid == ADMIN_ID:
+    if data == "menu_admin":
+        from handlers.admin import is_admin
+        if not is_admin(uid):
+            await q.answer("دسترسی مدیریت ندارید.", show_alert=True)
+            return None
         result = await admin_panel(update, context)
         try:
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -250,7 +255,6 @@ def create_bot() -> Application:
     from handlers.group_reports import setgroup_command, backup_command
     application.add_handler(CommandHandler("setgroup", setgroup_command))
     application.add_handler(CommandHandler("backup", backup_command))
-    application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(trial_callback, pattern="^trial_"))
 
     # مکالمه کیف پول / شارژ / هدیه / رسید
@@ -374,7 +378,7 @@ def create_bot() -> Application:
         fallbacks=[
             CallbackQueryHandler(admin_callback, pattern="^admin_"),
             CommandHandler("start", start_command),
-            CommandHandler("cancel", admin_panel),
+            CommandHandler("cancel", cancel_admin_input),
             CommandHandler("admin", admin_panel),
         ],
         allow_reentry=True,
@@ -386,6 +390,7 @@ def create_bot() -> Application:
     # درخواست نمایندگی
     reseller_conv = ConversationHandler(
         entry_points=[
+            CallbackQueryHandler(start_reseller_request, pattern="^menu_reseller$"),
             MessageHandler(
                 filters.TEXT & filters.Regex(r"نمایندگی|نماینده"),
                 start_reseller_request,
@@ -405,12 +410,17 @@ def create_bot() -> Application:
     )
     application.add_handler(reseller_conv)
 
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
 
     # پرداخت استارز تلگرام (بازنویسی کامل ۰.۰.۷)
     async def _pre_checkout(update, context):
         q = update.pre_checkout_query
         payload = (q.invoice_payload or "") if q else ""
         try:
+            from database import get_setting_sync
+            if get_setting_sync("stars_enabled", "0") != "1":
+                await q.answer(ok=False, error_message="پرداخت با استارز در حال حاضر غیرفعال است")
+                return
             # اعتبارسنجی اولیه payload
             if payload.startswith("order_stars_"):
                 from db_products import get_order
@@ -423,11 +433,41 @@ def create_bot() -> Application:
                 if not order:
                     await q.answer(ok=False, error_message="سفارش یافت نشد")
                     return
+                if int(order.get("telegram_id") or 0) != int(q.from_user.id):
+                    await q.answer(ok=False, error_message="این فاکتور متعلق به شما نیست")
+                    return
                 if order.get("status") in ("paid", "provisioned"):
                     await q.answer(ok=False, error_message="این سفارش قبلاً پرداخت شده")
                     return
+                try:
+                    from database import get_setting_sync
+                    rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+                    expected = max(1, int(math.ceil(int(order.get("pay_amount") or 0) / rate)))
+                    if int(q.amount or 0) != expected:
+                        await q.answer(ok=False, error_message="مبلغ استارز فاکتور تغییر کرده؛ دوباره فاکتور بگیرید")
+                        return
+                except Exception:
+                    pass
             elif payload.startswith("charge_stars_"):
-                pass  # شارژ کیف پول — در successful تایید می‌شود
+                try:
+                    from db_users import get_charge
+                    cid = int(payload.replace("charge_stars_", ""))
+                    ch = get_charge(cid)
+                    if not ch:
+                        await q.answer(ok=False, error_message="فاکتور شارژ یافت نشد")
+                        return
+                    if int(ch.get("telegram_id") or 0) != int(q.from_user.id):
+                        await q.answer(ok=False, error_message="فاکتور متعلق به شما نیست")
+                        return
+                    from database import get_setting_sync
+                    rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+                    expected = max(1, int(math.ceil(int(ch.get("amount") or 0) / rate)))
+                    if int(q.amount or 0) != expected:
+                        await q.answer(ok=False, error_message="مبلغ استارز فاکتور صحیح نیست")
+                        return
+                except Exception:
+                    await q.answer(ok=False, error_message="فاکتور شارژ نامعتبر است")
+                    return
             else:
                 await q.answer(ok=False, error_message="پرداخت نامعتبر")
                 return
@@ -454,22 +494,29 @@ def create_bot() -> Application:
             except Exception:
                 await msg.reply_text("❌ payload سفارش نامعتبر.")
                 return
-            from db_products import get_order, update_order
+            from db_products import get_order, claim_stars_order_payment
             from services.provision import provision_order, send_service_to_user
             order = get_order(order_id)
             if not order:
                 await msg.reply_text("❌ سفارش یافت نشد.")
                 return
-            if order.get("status") in ("paid", "provisioned"):
-                await msg.reply_text("ℹ️ این سفارش قبلاً پردازش شده است.")
+            if int(order.get("telegram_id") or 0) != int(msg.from_user.id if msg.from_user else 0):
+                await msg.reply_text("❌ این فاکتور متعلق به شما نیست.")
                 return
-            # ثبت پرداخت
-            update_order(
-                order_id,
-                status="paid",
-                method_key="stars",
-                pay_amount=int(order.get("pay_amount") or order.get("amount") or 0),
-            )
+            pay_amount = int(order.get("pay_amount") or order.get("amount") or 0)
+            try:
+                from database import get_setting_sync
+                rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+                expected = max(1, int(math.ceil(pay_amount / rate)))
+            except Exception:
+                expected = stars_paid
+            if stars_paid != expected:
+                await msg.reply_text("❌ تعداد استارز پرداختی با فاکتور مطابقت ندارد.")
+                return
+            claimed, reason = claim_stars_order_payment(order_id, msg.from_user.id, stars_paid, pay_amount)
+            if not claimed:
+                await msg.reply_text("ℹ️ این سفارش قبلاً پردازش شده است." if reason == "already_processed" else "❌ ثبت پرداخت ناموفق بود.")
+                return
             await msg.reply_text(
                 f"✅ پرداخت <b>{stars_paid}</b> استارز تایید شد.\n⏳ در حال ساخت سرویس...",
                 parse_mode="HTML",
@@ -496,35 +543,39 @@ def create_bot() -> Application:
         # --- شارژ کیف پول با استارز ---
         if payload.startswith("charge_stars_"):
             try:
-                parts = payload.replace("charge_stars_", "").split("_")
-                uid = int(parts[0])
-                toman = int(parts[1]) if len(parts) > 1 else 0
+                charge_id = int(payload.replace("charge_stars_", ""))
             except Exception:
                 await msg.reply_text("❌ payload شارژ نامعتبر.")
                 return
-            if uid != (msg.from_user.id if msg.from_user else 0):
-                await msg.reply_text("❌ کاربر پرداخت با گیرنده مطابقت ندارد.")
+            uid = int(msg.from_user.id if msg.from_user else 0)
+            from db_users import get_charge, upsert_bot_user, credit_stars_charge
+            ch = get_charge(charge_id)
+            if not ch or int(ch.get("telegram_id") or 0) != uid:
+                await msg.reply_text("❌ فاکتور شارژ متعلق به این کاربر نیست.")
                 return
-            if toman <= 0:
-                # محاسبه از نرخ
-                from database import get_setting_sync
-                try:
-                    rate = float(get_setting_sync("stars_rate", "1000") or 1000)
-                except Exception:
-                    rate = 1000.0
-                toman = int(round(stars_paid * rate))
             try:
-                from db_users import add_balance, upsert_bot_user
-                upsert_bot_user(msg.from_user)
-                add_balance(uid, toman, f"stars_charge#{stars_paid}")
+                from database import get_setting_sync
+                rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+                expected = max(1, int(math.ceil(int(ch.get("amount") or 0) / rate)))
+                toman = int(ch.get("amount") or 0)
+            except Exception:
+                expected = stars_paid
+                toman = int(ch.get("amount") or 0)
+            if stars_paid != expected:
+                await msg.reply_text("❌ تعداد استارز پرداختی با فاکتور مطابقت ندارد.")
+                return
+            upsert_bot_user(msg.from_user)
+            ok, reason, balance = credit_stars_charge(charge_id, uid, stars_paid, toman)
+            if ok:
                 await msg.reply_text(
-                    f"✅ شارژ موفق!\n"
-                    f"⭐ {stars_paid} استارز → <b>{toman:,}</b> تومان به کیف پول اضافه شد.",
+                    f"✅ شارژ موفق!\n⭐ {stars_paid} استارز → <b>{toman:,}</b> تومان به کیف پول اضافه شد.\n"
+                    f"موجودی: <b>{balance:,}</b> تومان",
                     parse_mode="HTML",
                 )
-            except Exception as e:
-                print("stars charge:", e)
-                await msg.reply_text(f"❌ خطا در شارژ کیف پول: {str(e)[:200]}")
+            elif reason == "already_processed":
+                await msg.reply_text("ℹ️ این پرداخت قبلاً ثبت و به کیف پول اضافه شده است.")
+            else:
+                await msg.reply_text(f"❌ خطا در ثبت شارژ: {reason[:200]}")
             return
 
         await msg.reply_text("ℹ️ پرداخت دریافت شد اما نوع آن شناسایی نشد.")

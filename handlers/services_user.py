@@ -193,6 +193,18 @@ def build_service_status_text(o: dict) -> str:
             f"{channel}"
         )
     except Exception as e:
+        # اگر کاربر از خود پنل حذف شده باشد، دیگر در ربات به آن درخواست نزن.
+        try:
+            from services.optimize import _is_missing_user_error
+            if _is_missing_user_error(e):
+                from db_products import update_order
+                update_order(int(o["id"]), status="expired", admin_note="کاربر از پنل حذف شده و توسط ربات همگام‌سازی شد.")
+                return (
+                    f"🔒 سرویس #{o.get('id')} دیگر در پنل VPN وجود ندارد.\n"
+                    "این سرویس از وضعیت فعال خارج شد و ربات دیگر برای آن درخواست API ارسال نمی‌کند."
+                )
+        except Exception:
+            pass
         text += f"\n\n⚠️ دریافت وضعیت زنده: {e}"
 
     return text
@@ -296,6 +308,15 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await q.edit_message_text(caption, reply_markup=service_card_keyboard(oid))
         except Exception as e:
+            try:
+                from services.optimize import _is_missing_user_error
+                if _is_missing_user_error(e):
+                    from db_products import update_order
+                    update_order(oid, status="expired", admin_note="کاربر از پنل حذف شده.")
+                    await q.edit_message_text("🔒 این سرویس از پنل VPN حذف شده و دیگر قابل استفاده نیست.", reply_markup=back_main_kb())
+                    return ConversationHandler.END
+            except Exception:
+                pass
             await q.edit_message_text(f"❌ خطا: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 
@@ -339,6 +360,15 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=service_card_keyboard(oid),
             )
         except Exception as e:
+            try:
+                from services.optimize import _is_missing_user_error
+                if _is_missing_user_error(e):
+                    from db_products import update_order
+                    update_order(oid, status="expired", admin_note="کاربر از پنل حذف شده.")
+                    await q.edit_message_text("🔒 سرویس از پنل حذف شده و دیگر قابل استفاده نیست.", reply_markup=back_main_kb())
+                    return ConversationHandler.END
+            except Exception:
+                pass
             await q.edit_message_text(f"❌ خطا در بازنشانی: {e}", reply_markup=service_card_keyboard(oid))
         return ConversationHandler.END
 

@@ -1,3 +1,4 @@
+import math
 # کیف پول، شارژ، کد هدیه، زیرمجموعه
 
 import os
@@ -18,6 +19,11 @@ WAITING_RECEIPT = 12
 
 # کش کوتاه منوی اصلی؛ تغییرات پنل حداکثر چند ثانیه بعد اعمال می‌شوند.
 _MAIN_KEYBOARD_CACHE = {}
+
+
+def invalidate_main_keyboard_cache():
+    """پاک‌کردن کش منوی اصلی بعد از تغییر چیدمان/تنظیمات."""
+    _MAIN_KEYBOARD_CACHE.clear()
 _MAIN_KEYBOARD_CACHE_TTL = 3.0
 
 def main_user_keyboard(is_admin: bool = False, force_inline: bool = None):
@@ -290,7 +296,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rate = 1000.0
         if rate <= 0:
             rate = 1000.0
-        stars_amount = max(1, int(round(amount / rate)))
+        stars_amount = max(1, int(math.ceil(amount / rate)))
         title = get_setting_sync("stars_payment_title", "⭐ شارژ با استارز") or "⭐ شارژ با استارز"
         try:
             from telegram import LabeledPrice
@@ -309,7 +315,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=user.id,
                 title=title[:32],
                 description=f"شارژ کیف پول #{charge_id} — {amount:,} تومان",
-                payload=f"charge_stars_{user.id}_{amount}",
+                payload=f"charge_stars_{charge_id}",
                 provider_token="",
                 currency="XTR",
                 prices=[LabeledPrice(label=title[:32], amount=stars_amount)],

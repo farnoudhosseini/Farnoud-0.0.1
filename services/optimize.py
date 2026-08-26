@@ -66,6 +66,20 @@ def _is_trial_order(o: dict) -> bool:
     return False
 
 
+def _is_missing_user_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return ("404" in msg and ("user" in msg or "not found" in msg or "یافت" in msg)) or "user not found" in msg
+
+
+def _mark_order_expired(cur, order_id: int) -> bool:
+    try:
+        cur.execute("UPDATE service_orders SET status='expired', admin_note=CONCAT(COALESCE(admin_note,''), %s) WHERE id=%s", ("\n[auto-sync] کاربر از پنل حذف شده است.", int(order_id)))
+        return True
+    except Exception as e:
+        print("mark expired:", e)
+        return False
+
+
 def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
     """
     - سفارش‌های cancelled / expired قدیمی + حذف از پنل
@@ -169,7 +183,7 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
             try:
                 cur.execute(
                     """SELECT o.id, o.vpn_username, o.panel_id, o.inbound_id,
-                              o.custom_name, o.amount, o.volume_gb_override, o.volume_gb,
+                              o.custom_name, o.amount, o.volume_gb_override,
                               o.product_id, p.volume_gb AS product_volume,
                               vp.base_url AS panel_base, vp.username AS panel_user,
                               vp.password AS panel_pass, vp.panel_type, vp.api_key
@@ -235,6 +249,10 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                             )
                             vol_exhausted += 1
                     except Exception as e:
+                        if _is_missing_user_error(e):
+                            if _mark_order_expired(cur, o["id"]):
+                                stats["volume_exhausted"] = stats.get("volume_exhausted", 0)
+                            continue
                         stats["errors"].append(f"vol_check {uname}: {e}")
                 stats["volume_exhausted"] = vol_exhausted
             except Exception as e:
@@ -314,6 +332,12 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                             st = client.get_client_traffics(uname) or {}
                             used = int(st.get("used_traffic") or st.get("up", 0) + st.get("down", 0) or 0)
                     except Exception as e:
+                        if _is_missing_user_error(e):
+                            if _delete_from_panel(o):
+                                stats["panel_deleted"] += 1
+                            _mark_order_expired(cur, o["id"])
+                            stats["expired_trials"] += 1
+                            continue
                         stats["errors"].append(f"trial check {uname}: {e}")
                         continue
                     # فقط اگر واقعاً ترافیک صفر / وصل نشده

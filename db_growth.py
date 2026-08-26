@@ -27,9 +27,14 @@ def ensure_growth_tables():
                 panel_id INT NOT NULL,
                 vpn_username VARCHAR(100) DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_trial_user (telegram_id)
+                INDEX idx_trial_user (telegram_id),
+                INDEX idx_trial_created (telegram_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            # مهاجرت از نسخه قدیمی که فقط یک تست برای هر کاربر اجازه می‌داد.
+            try: cur.execute("ALTER TABLE trials DROP INDEX uniq_trial_user")
+            except Exception: pass
+
             cur.execute("""
             CREATE TABLE IF NOT EXISTS location_changes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,6 +107,14 @@ def ensure_growth_tables():
             ]
             for k, v in defaults:
                 cur.execute("INSERT IGNORE INTO settings (`key`, `value`) VALUES (%s,%s)", (k, v))
+            try:
+                cur.execute("""UPDATE bot_users u
+                               LEFT JOIN (SELECT telegram_id, COUNT(*) AS c FROM trials GROUP BY telegram_id) t
+                               ON t.telegram_id=u.telegram_id
+                               SET u.trial_count=COALESCE(t.c, u.trial_count, 0)
+                               WHERE COALESCE(u.trial_count,0)=0""")
+            except Exception as e:
+                print("trial count migration:", e)
             for key, title, body in [
                 ("btn_trial", "دکمه تست", "🎁 تست رایگان"),
                 ("btn_reseller", "دکمه نمایندگی", "🤝 درخواست نمایندگی"),
@@ -181,14 +194,31 @@ def apply_discount(code: str, price: int) -> Tuple[bool, int, str]:
     finally:
         conn.close()
 
-def has_used_trial(telegram_id: int) -> bool:
+def get_trial_count(telegram_id: int) -> int:
+    """تعداد تست‌های رایگان مصرف‌شده کاربر."""
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM trials WHERE telegram_id=%s", (telegram_id,))
-            return cur.fetchone() is not None
+            cur.execute("SELECT trial_count FROM bot_users WHERE telegram_id=%s", (int(telegram_id),))
+            row = cur.fetchone()
+            if row is not None:
+                return max(0, int(row.get("trial_count") or 0))
+            cur.execute("SELECT COUNT(*) AS c FROM trials WHERE telegram_id=%s", (int(telegram_id),))
+            return int((cur.fetchone() or {}).get("c") or 0)
     finally:
         conn.close()
+
+
+def get_trial_limit() -> int:
+    try:
+        return max(1, int(get_setting_sync("trial_per_user", "1") or 1))
+    except Exception:
+        return 1
+
+
+def has_used_trial(telegram_id: int) -> bool:
+    return get_trial_count(telegram_id) >= get_trial_limit()
+
 
 def record_trial(telegram_id: int, panel_id: int = 0, vpn_username: str = ""):
     conn = get_sync_connection()
@@ -196,51 +226,62 @@ def record_trial(telegram_id: int, panel_id: int = 0, vpn_username: str = ""):
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO trials (telegram_id, panel_id, vpn_username) VALUES (%s,%s,%s)",
-                (telegram_id, panel_id or 0, vpn_username or ""),
+                (int(telegram_id), panel_id or 0, vpn_username or ""),
+            )
+            cur.execute(
+                "UPDATE bot_users SET trial_count=COALESCE(trial_count,0)+1 WHERE telegram_id=%s",
+                (int(telegram_id),),
             )
             conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        print("record_trial:", e)
+        try: conn.rollback()
+        except Exception: pass
     finally:
         conn.close()
 
-
 def reset_user_trial(telegram_id: int) -> bool:
-    """ریست تعداد تست رایگان یک کاربر — حذف از جدول trials."""
+    """ریست شمارنده تست یک کاربر به صفر."""
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
+            cur.execute("UPDATE bot_users SET trial_count=0 WHERE telegram_id=%s", (int(telegram_id),))
             cur.execute("DELETE FROM trials WHERE telegram_id=%s", (int(telegram_id),))
+            affected = cur.rowcount or 0
             conn.commit()
-            return (cur.rowcount or 0) > 0
+            return affected > 0
     except Exception as e:
         print("reset_user_trial:", e)
+        try: conn.rollback()
+        except Exception: pass
         return False
     finally:
         conn.close()
 
 
 def reset_trials_bulk(telegram_ids=None) -> int:
-    """
-    ریست گروهی تست‌ها.
-    اگر telegram_ids خالی/None باشد همه را ریست می‌کند.
-    برمی‌گرداند تعداد ردیف حذف‌شده.
-    """
+    """ریست شمارنده تست برای یک لیست یا همه کاربران."""
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
             if telegram_ids:
-                ids = [int(x) for x in telegram_ids if str(x).lstrip("-").isdigit()]
-                if not ids:
-                    return 0
+                ids = [int(x) for x in telegram_ids]
                 placeholders = ",".join(["%s"] * len(ids))
-                cur.execute(f"DELETE FROM trials WHERE telegram_id IN ({placeholders})", tuple(ids))
+                cur.execute(f"SELECT COUNT(*) AS c FROM bot_users WHERE telegram_id IN ({placeholders}) AND COALESCE(trial_count,0)>0", ids)
+                count = int((cur.fetchone() or {}).get("c") or 0)
+                cur.execute(f"UPDATE bot_users SET trial_count=0 WHERE telegram_id IN ({placeholders})", ids)
+                cur.execute(f"DELETE FROM trials WHERE telegram_id IN ({placeholders})", ids)
             else:
+                cur.execute("SELECT COUNT(*) AS c FROM bot_users WHERE COALESCE(trial_count,0)>0")
+                count = int((cur.fetchone() or {}).get("c") or 0)
+                cur.execute("UPDATE bot_users SET trial_count=0")
                 cur.execute("DELETE FROM trials")
             conn.commit()
-            return int(cur.rowcount or 0)
+            return count
     except Exception as e:
         print("reset_trials_bulk:", e)
+        try: conn.rollback()
+        except Exception: pass
         return 0
     finally:
         conn.close()

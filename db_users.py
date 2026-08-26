@@ -35,6 +35,9 @@ def ensure_user_tables():
                 except Exception as e:
                     if "Duplicate" not in str(e):
                         print(f"schema warn: {e}")
+            # Safe migrations for existing production data.
+            try: cur.execute("ALTER TABLE bot_users ADD COLUMN trial_count INT NOT NULL DEFAULT 0")
+            except Exception: pass
             # Safe migrations for existing production payment data.
             for ddl in (
                 "ALTER TABLE charge_requests ADD COLUMN variza_slug VARCHAR(120) NULL",
@@ -59,6 +62,23 @@ def ensure_user_tables():
                 except Exception: pass
             try: cur.execute("INSERT IGNORE INTO payment_methods (method_key,title,is_active) VALUES ('variza','پرداخت واریزا',0)")
             except Exception: pass
+            try:
+                cur.execute("INSERT IGNORE INTO payment_methods (method_key,title,is_active) VALUES ('stars','⭐ استارز تلگرام',0)")
+            except Exception: pass
+            try:
+                cur.execute("UPDATE payment_methods SET is_active=(SELECT CASE WHEN `value`='1' THEN 1 ELSE 0 END FROM settings WHERE `key`='stars_enabled') WHERE method_key='stars'")
+            except Exception: pass
+            try:
+                cur.execute("""CREATE TABLE IF NOT EXISTS stars_payments (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    charge_id INT DEFAULT NULL,
+                    stars_amount INT NOT NULL,
+                    toman_amount DECIMAL(18,0) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_stars_charge (charge_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""")
+            except Exception: pass
             try: cur.execute("CREATE UNIQUE INDEX uniq_charge_variza_slug ON charge_requests (variza_slug)")
             except Exception: pass
             connection.commit()
@@ -74,6 +94,7 @@ _SCHEMA_STATEMENTS = [
     last_name VARCHAR(150) DEFAULT NULL,
     phone VARCHAR(30) DEFAULT NULL,
     balance DECIMAL(18,0) NOT NULL DEFAULT 0,
+    trial_count INT NOT NULL DEFAULT 0,
     role ENUM('user','reseller','reseller_vip','vip') NOT NULL DEFAULT 'user',
     referrer_id BIGINT DEFAULT NULL,
     invite_code VARCHAR(32) NOT NULL,
@@ -443,6 +464,50 @@ def user_vars(user: dict, bot_username: str = "") -> dict:
     }
 
 # ---- cards & charges ----
+def credit_stars_charge(charge_id: int, telegram_id: int, stars_amount: int, toman_amount: int) -> tuple[bool, str, int]:
+    """ثبت اتمیک شارژ Stars و افزایش کیف پول، با جلوگیری از دوباره‌کاری."""
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM charge_requests WHERE id=%s FOR UPDATE",
+                (int(charge_id),),
+            )
+            ch = cur.fetchone()
+            if not ch:
+                return False, "charge_not_found", 0
+            if int(ch.get("telegram_id") or 0) != int(telegram_id):
+                return False, "user_mismatch", 0
+            cur.execute("SELECT id FROM stars_payments WHERE charge_id=%s LIMIT 1", (int(charge_id),))
+            if cur.fetchone():
+                cur.execute("SELECT balance FROM bot_users WHERE telegram_id=%s", (int(telegram_id),))
+                bal = int((cur.fetchone() or {}).get("balance") or 0)
+                return False, "already_processed", bal
+            cur.execute(
+                "INSERT INTO stars_payments (telegram_id, charge_id, stars_amount, toman_amount) VALUES (%s,%s,%s,%s)",
+                (int(telegram_id), int(charge_id), int(stars_amount), int(toman_amount)),
+            )
+            cur.execute(
+                "UPDATE bot_users SET balance=balance+%s, updated_at=NOW() WHERE telegram_id=%s",
+                (int(toman_amount), int(telegram_id)),
+            )
+            cur.execute(
+                "UPDATE charge_requests SET status='approved', paid_at=NOW(), admin_note=%s WHERE id=%s",
+                (f"Stars #{stars_amount}", int(charge_id)),
+            )
+            cur.execute("SELECT balance FROM bot_users WHERE telegram_id=%s", (int(telegram_id),))
+            balance = int((cur.fetchone() or {}).get("balance") or 0)
+            conn.commit()
+            return True, "ok", balance
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        print("credit_stars_charge:", e)
+        return False, str(e), 0
+    finally:
+        conn.close()
+
+
 def list_cards(active_only=False) -> list:
     conn = get_sync_connection()
     try:
