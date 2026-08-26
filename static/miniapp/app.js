@@ -285,7 +285,29 @@ async function buySelectProduct(pid){
   state.buy.product_id = pid;
   const p = (state.buy.products||[]).find(x=>x.id===pid);
   state.buy.product = p;
-  // If hourly available → ask mode first
+  state.buy.custom_name = null;
+  if(p && p.ask_custom_name){
+    showSheet(`<h2>${esc(p.name)}</h2>
+<p class="page-subtitle">نام سرویس مورد نظرتان را بنویسید</p>
+<div class="form-row"><label>نام سرویس</label><input id="buyCustomName" placeholder="مثلاً سرویس خانه" maxlength="100"></div>
+<div class="actions" style="margin-top:14px">
+<button class="btn primary" style="width:100%" onclick="buyAfterCustomName()">ادامه</button>
+</div>
+<button class="btn" style="width:100%;margin-top:8px" onclick="state.buy.step=3;renderBuyStep()">بازگشت</button>`);
+    return;
+  }
+  await buyContinueAfterName();
+}
+
+async function buyAfterCustomName(){
+  const name = (document.getElementById('buyCustomName')?.value||'').trim();
+  if(name.length < 2){ toast('نام سرویس حداقل ۲ کاراکتر باشد'); return; }
+  state.buy.custom_name = name.slice(0,100);
+  await buyContinueAfterName();
+}
+
+async function buyContinueAfterName(){
+  const p = state.buy.product;
   if(p && p.hourly_enabled){
     showSheet(`<h2>${esc(p.name)}</h2>
 <p class="page-subtitle">نوع خرید را انتخاب کنید</p>
@@ -321,7 +343,8 @@ async function prepareAndShowInvoice(){
       product_id: state.buy.product_id,
       panel_id: state.buy.panel_id,
       mode: state.buy.mode||'full',
-      coupon_code: state.buy.coupon||''
+      coupon_code: state.buy.coupon||'',
+      custom_name: state.buy.custom_name||''
     };
     const d = await api('/orders/prepare',{method:'POST',body:JSON.stringify(body)});
     if(d.mode==='hourly'){

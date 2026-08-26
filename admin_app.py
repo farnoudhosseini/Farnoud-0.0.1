@@ -1050,6 +1050,7 @@ def products_add():
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
             start_on_first_connect=1 if request.form.get("start_on_first_connect") == "1" else 0,
+            ask_custom_name=1 if request.form.get("ask_custom_name") == "1" else 0,
         )
         flash("محصول اضافه شد", "success")
         return redirect(url_for("products_list"))
@@ -1090,6 +1091,7 @@ def products_edit(pid):
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
             start_on_first_connect=1 if request.form.get("start_on_first_connect") == "1" else 0,
+            ask_custom_name=1 if request.form.get("ask_custom_name") == "1" else 0,
             limit_hwid=life["limit_hwid"],
             reset_day=life["reset_day"],
             reset_max=life["reset_max"],

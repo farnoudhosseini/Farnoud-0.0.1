@@ -334,16 +334,31 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         render_template("charge_waiting", vars_),
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
     )
-    # اطلاع به ادمین
+    # اطلاع به ادمین — همراه با نام، یوزرنیم و شماره
+    display_name = " ".join(filter(None, [user.first_name, user.last_name])) or (bu or {}).get("first_name") or "—"
+    username_str = f"@{user.username}" if user.username else ((bu or {}).get("username") and f"@{(bu or {}).get('username')}") or "—"
+    phone_str = (bu or {}).get("phone") or "—"
     try:
         await context.bot.send_message(
             ADMIN_ID,
-            f"🧾 رسید جدید\nکاربر: {user.id}\nفاکتور: #{charge_id}\nمبلغ: {vars_['amount']}",
+            (
+                f"🧾 رسید جدید\n"
+                f"کاربر: <code>{user.id}</code>\n"
+                f"نام: {display_name}\n"
+                f"یوزرنیم: {username_str}\n"
+                f"شماره: {phone_str}\n"
+                f"فاکتور: #{charge_id}\n"
+                f"مبلغ: {vars_['amount']}"
+            ),
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ تایید", callback_data=f"adm_ch_ok_{charge_id}"),
                     InlineKeyboardButton("❌ رد", callback_data=f"adm_ch_no_{charge_id}"),
-                ]
+                ],
+                [
+                    InlineKeyboardButton("💰 شارژ دستی", callback_data=f"adm_ch_manual_{charge_id}"),
+                ],
             ]),
         )
         await context.bot.send_photo(ADMIN_ID, file_id, caption=f"رسید #{charge_id}")

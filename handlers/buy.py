@@ -15,6 +15,7 @@ from services.provision import provision_order, send_service_to_user
 from config import ADMIN_ID
 
 WAITING_BUY_RECEIPT = 20
+WAITING_BUY_CUSTOM_NAME = 21
 
 async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -29,8 +30,7 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     from database import inline_button_from_entity
     rows = [[inline_button_from_entity(p, f"buy_panel_{p['id']}")] for p in panels]
-    rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
-    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_home")])
     text = render_template("buy_select_panel", {}) or "🖥 پنل مورد نظر را انتخاب کنید:"
     if update.message:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
@@ -72,21 +72,54 @@ async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _buy_callback_inner(update, context, q, data, user, bu):
     if data == "buy_cancel":
+        # سازگاری با callbackهای قدیمی — برگشت به منوی اصلی
         await q.edit_message_text(
-            "❌ خرید لغو شد.",
+            "به منوی اصلی برگشتید.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]]),
         )
         return ConversationHandler.END
 
-    if data == "buy_go":
+    if data == "buy_go" or data == "buy_back_panel":
         return await start_buy(update, context)
+
+    if data == "buy_back_cat":
+        # برگشت به لیست دسته‌ها برای پنل فعلی
+        panel_id = context.user_data.get("buy_panel_id")
+        if not panel_id:
+            return await start_buy(update, context)
+        products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True)
+        cats = list_categories(active_only=True)
+        cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
+        cats = [c for c in cats if c["id"] in cat_ids]
+        if cats:
+            from database import inline_button_from_entity
+            rows = [[inline_button_from_entity(c, f"buy_cat_{c['id']}")] for c in cats]
+            rows.append([InlineKeyboardButton("همه محصولات", callback_data="buy_cat_0")])
+            rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_panel")])
+            text = render_template("buy_select_category", {}) or "📁 دسته را انتخاب کنید:"
+            await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
+        else:
+            return await start_buy(update, context)
+        return ConversationHandler.END
+
+    if data == "buy_back_prod":
+        panel_id = context.user_data.get("buy_panel_id")
+        cat_id = context.user_data.get("buy_cat_id")
+        if not panel_id:
+            return await start_buy(update, context)
+        await _show_products(q, context, panel_id, cat_id, bu)
+        return ConversationHandler.END
 
     if data.startswith("buy_panel_"):
         panel_id = int(data.replace("buy_panel_", ""))
         context.user_data["buy_panel_id"] = panel_id
+        context.user_data.pop("buy_cat_id", None)
         products = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True)
         if not products:
-            await q.edit_message_text("برای این پنل محصولی تعریف نشده.")
+            await q.edit_message_text(
+                "برای این پنل محصولی تعریف نشده.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_panel")]]),
+            )
             return ConversationHandler.END
         cats = list_categories(active_only=True)
         cat_ids = {p.get("category_id") for p in products if p.get("category_id")}
@@ -95,7 +128,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             from database import inline_button_from_entity
             rows = [[inline_button_from_entity(c, f"buy_cat_{c['id']}")] for c in cats]
             rows.append([InlineKeyboardButton("همه محصولات", callback_data="buy_cat_0")])
-            rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
+            rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_panel")])
             text = render_template("buy_select_category", {}) or "📁 دسته را انتخاب کنید:"
             await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
         else:
@@ -105,6 +138,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
     if data.startswith("buy_cat_"):
         cat_id = int(data.replace("buy_cat_", ""))
         panel_id = context.user_data.get("buy_panel_id")
+        context.user_data["buy_cat_id"] = cat_id if cat_id else None
         await _show_products(q, context, panel_id, cat_id if cat_id else None, bu)
         return ConversationHandler.END
 
@@ -145,10 +179,28 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🛒 خرید کامل", callback_data=f"buy_full_{pid}")],
                     [InlineKeyboardButton("⏱ خرید ساعتی", callback_data=f"buy_hour_{pid}")],
-                    [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_go")],
+                    [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
                 ]),
             )
             return ConversationHandler.END
+
+        # اگر محصول درخواست نام سفارشی دارد و هنوز نام گرفته نشده
+        if product.get("ask_custom_name") and not context.user_data.get("buy_custom_name"):
+            context.user_data["buy_pending_pid"] = pid
+            context.user_data["buy_pending_hourly"] = 1 if is_hourly_buy else 0
+            context.user_data["buy_panel_id"] = panel_id
+            await q.edit_message_text(
+                f"📦 {product['name']}\n\n"
+                "✏️ نام سرویس مورد نظرتان را بنویسید:\n"
+                "(این نام در پنل و بخش «سرویس‌های من» نمایش داده می‌شود)\n\n"
+                "برای بازگشت دکمه زیر را بزنید یا /cancel بفرستید.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
+                ]),
+            )
+            return WAITING_BUY_CUSTOM_NAME
+
+        custom_name = (context.user_data.pop("buy_custom_name", None) or "").strip() or None
 
         if is_hourly_buy:
             # خرید ساعتی: فقط موجودی کیف پول — کسر اولین ساعت
@@ -160,6 +212,8 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
                 )
                 return ConversationHandler.END
             order_id = create_order(user.id, pid, panel_id, hprice, hprice, 0)
+            if custom_name:
+                update_order(order_id, custom_name=custom_name[:100])
             add_balance(user.id, -hprice, f"hourly_start#{order_id}")
             update_order(
                 order_id,
@@ -214,6 +268,8 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         wallet_used = min(balance, price)
         pay_amount = max(0, price - balance)
         order_id = create_order(user.id, pid, panel_id, price, wallet_used, pay_amount)
+        if custom_name:
+            update_order(order_id, custom_name=custom_name[:100])
 
         vars_ = {
             "product_name": product["name"],
@@ -236,7 +292,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             rows = [
                 [InlineKeyboardButton("✅ تایید و پرداخت از کیف پول", callback_data=f"buy_confirm_{order_id}")],
                 [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
-                [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
             ]
             await q.edit_message_text(
                 text + "\n\n⚠️ با تایید، مبلغ از کیف پول کسر و سرویس ساخته می‌شود.",
@@ -268,7 +324,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             rows.append([payment_method_button(pm, f"buy_pay_{key}_{order_id}")])
         rows.extend([
             [InlineKeyboardButton("🏷 کد تخفیف", callback_data=f"buy_disc_{order_id}")],
-            [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
         ])
         context.user_data["buy_order_id"] = order_id
         context.user_data["buy_price"] = price
@@ -319,7 +375,10 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
         oid = int(data.replace("buy_disc_", ""))
         context.user_data["buy_order_id"] = oid
         context.user_data["waiting_discount"] = True
-        await q.edit_message_text("کد تخفیف را ارسال کنید:\n(یا /start انصراف)")
+        await q.edit_message_text(
+            "کد تخفیف را ارسال کنید:\n(یا /cancel برای بازگشت)",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")]]),
+        )
         return ConversationHandler.END
 
     if data.startswith("buy_pay_variza_"):
@@ -334,7 +393,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             data_v = create_payment_link(pay_amount, "order", order_id, f"خرید سرویس #{order_id}")
             save_order_link(order_id, data_v)
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("💳 پرداخت با واریزا", url=data_v["pay_url"])],
-                                       [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+                                       [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
                                        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")]])
             await q.edit_message_text(
                 f"🧾 سفارش #{order_id}\n\nمبلغ قابل پرداخت: <b>{pay_amount:,}</b> تومان\n\n"
@@ -380,7 +439,7 @@ async def _buy_callback_inner(update, context, q, data, user, bu):
             copy_btn = InlineKeyboardButton("📋 کپی شماره کارت", callback_data=f"copy_card_{card['id']}")
         kb = InlineKeyboardMarkup([
             [copy_btn],
-            [InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="buy_back_prod")],
             [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ])
         try:
@@ -461,8 +520,21 @@ async def _show_products(q, context, panel_id, cat_id, bu):
             f"{p['name']} — {price:,} ت",
             callback_data=f"buy_prod_{pid}",
         )])
-    rows.append([InlineKeyboardButton("❌ انصراف", callback_data="buy_cancel")])
-    rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
+    # برگشت: اگر دسته انتخاب شده بود → لیست دسته؛ وگرنه → لیست پنل
+    back_cb = "buy_back_cat" if context.user_data.get("buy_cat_id") is not None or context.user_data.get("buy_had_cats") else "buy_back_panel"
+    # تشخیص دسته‌دار بودن پنل
+    try:
+        prods_all = list_products(panel_id=panel_id, role=bu.get("role"), active_only=True, with_panels=False) or []
+        has_cats = any(p.get("category_id") for p in prods_all)
+        if has_cats:
+            back_cb = "buy_back_cat"
+            context.user_data["buy_had_cats"] = True
+        else:
+            back_cb = "buy_back_panel"
+            context.user_data["buy_had_cats"] = False
+    except Exception:
+        pass
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=back_cb)])
     text = render_template("buy_select_product", {}) or "📦 محصول را انتخاب کنید:"
     await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
 
@@ -481,12 +553,25 @@ async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE
     update_order(order_id, receipt_file_id=file_id, status="pending_review")
     await update.message.reply_text("⏳ رسید ثبت شد. پس از تایید ادمین سرویس برایتان ساخته می‌شود.")
     order = get_order(order_id)
+    user = update.effective_user
     try:
+        from db_users import get_bot_user
+        bu = get_bot_user(user.id) or {}
+        display_name = " ".join(filter(None, [user.first_name, user.last_name])) or bu.get("first_name") or "—"
+        username_str = f"@{user.username}" if user.username else (bu.get("username") and f"@{bu.get('username')}") or "—"
+        phone_str = bu.get("phone") or "—"
         await context.bot.send_message(
             ADMIN_ID,
-            f"🧾 رسید سفارش سرویس #{order_id}\nکاربر: {update.effective_user.id}\n"
-            f"مبلغ قابل پرداخت: {int(order['pay_amount']):,} تومان\n"
-            f"(موجودی کیف پول رزرو: {int(order.get('wallet_used') or 0):,})",
+            (
+                f"🧾 رسید سفارش سرویس #{order_id}\n"
+                f"کاربر: <code>{user.id}</code>\n"
+                f"نام: {display_name}\n"
+                f"یوزرنیم: {username_str}\n"
+                f"شماره: {phone_str}\n"
+                f"مبلغ قابل پرداخت: {int(order['pay_amount']):,} تومان\n"
+                f"(موجودی کیف پول رزرو: {int(order.get('wallet_used') or 0):,})"
+            ),
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ تایید و ساخت سرویس", callback_data=f"adm_ord_ok_{order_id}"),
                 InlineKeyboardButton("❌ رد", callback_data=f"adm_ord_no_{order_id}"),
@@ -497,3 +582,46 @@ async def receive_buy_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE
         print(e)
     context.user_data.pop("waiting_buy_receipt", None)
     return ConversationHandler.END
+
+
+async def receive_buy_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت نام سفارشی سرویس هنگام خرید (قبل از فاکتور)."""
+    user = update.effective_user
+    name = (update.message.text or "").strip()
+    if name.lower() in ("/cancel", "cancel", "انصراف", "/start"):
+        context.user_data.pop("buy_pending_pid", None)
+        context.user_data.pop("buy_pending_hourly", None)
+        context.user_data.pop("buy_custom_name", None)
+        await update.message.reply_text(
+            "بازگشت.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به محصولات", callback_data="buy_back_prod")]]),
+        )
+        return ConversationHandler.END
+    if not name or len(name) < 2:
+        await update.message.reply_text("نام سرویس حداقل ۲ کاراکتر باشد. دوباره بفرستید:\n(/cancel برای بازگشت)")
+        return WAITING_BUY_CUSTOM_NAME
+    if len(name) > 100:
+        name = name[:100]
+    pid = context.user_data.get("buy_pending_pid")
+    is_hourly = context.user_data.get("buy_pending_hourly")
+    panel_id = context.user_data.get("buy_panel_id")
+    if not pid:
+        await update.message.reply_text("نشست خرید منقضی شده. دوباره از منوی خرید شروع کنید.")
+        return ConversationHandler.END
+    context.user_data["buy_custom_name"] = name
+    context.user_data.pop("buy_pending_pid", None)
+    context.user_data.pop("buy_pending_hourly", None)
+    # ادامهٔ جریان خرید با همان callback داخلی
+    class _FakeQuery:
+        def __init__(self, message):
+            self.message = message
+            self.data = f"buy_hour_{pid}" if is_hourly else f"buy_full_{pid}"
+            self.from_user = user
+        async def edit_message_text(self, *a, **k):
+            return await update.message.reply_text(a[0] if a else k.get("text", ""), reply_markup=k.get("reply_markup"))
+        async def answer(self, *a, **k):
+            return None
+    bu = get_bot_user(user.id)
+    fake_q = _FakeQuery(update.message)
+    data = f"buy_hour_{pid}" if is_hourly else f"buy_full_{pid}"
+    return await _buy_callback_inner(update, context, fake_q, data, user, bu)

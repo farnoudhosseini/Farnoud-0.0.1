@@ -18,7 +18,7 @@ from handlers.admin import (
     admin_panel, admin_callback, receive_welcome_message, receive_admin_text,
     receive_user_field, WAITING_WELCOME, WAITING_USER_FIELD, WAITING_ADMIN_TEXT,
 )
-from handlers.buy import start_buy, buy_callback, receive_buy_receipt
+from handlers.buy import start_buy, buy_callback, receive_buy_receipt, receive_buy_custom_name, WAITING_BUY_CUSTOM_NAME, WAITING_BUY_RECEIPT
 from handlers.services_user import (
     show_my_services, services_callback, show_support, support_callback,
     receive_ticket_subject, receive_ticket_msg, receive_ticket_reply, show_education,
@@ -268,6 +268,16 @@ def create_bot() -> Application:
     # همه callbackهای buy_ با هندلر ساده پردازش می‌شوند
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy_"))
 
+    # دریافت نام سفارشی سرویس هنگام خرید (بر اساس user_data)
+    async def _buy_custom_name_handler(update, context):
+        if context.user_data.get("buy_pending_pid"):
+            return await receive_buy_custom_name(update, context)
+        return None
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, _buy_custom_name_handler),
+        group=1,
+    )
+
     # دریافت رسید خرید (بر اساس user_data، نه state مکالمه)
     async def _buy_receipt_handler(update, context):
         if context.user_data.get("waiting_buy_receipt"):
@@ -278,16 +288,39 @@ def create_bot() -> Application:
         group=1,
     )
     
+    async def _support_cancel(update, context):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        context.user_data.pop("sup_ticket", None)
+        context.user_data.pop("sup_dep", None)
+        await update.message.reply_text(
+            "✅ ارسال پیام لغو شد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🛠 پشتیبانی", callback_data="sup_back")],
+                [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+            ]),
+        )
+        return ConversationHandler.END
+
     support_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(support_callback, pattern="^sup_")],
         states={
-            WAITING_TICKET_SUBJECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_subject)],
-            WAITING_TICKET_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_msg)],
-            WAITING_TICKET_REPLY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_reply)],
+            WAITING_TICKET_SUBJECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_subject),
+                CommandHandler("cancel", _support_cancel),
+            ],
+            WAITING_TICKET_MSG: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_msg),
+                CommandHandler("cancel", _support_cancel),
+            ],
+            WAITING_TICKET_REPLY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ticket_reply),
+                CommandHandler("cancel", _support_cancel),
+            ],
         },
         fallbacks=[
             CommandHandler("start", start_command),
-            CommandHandler("cancel", start_command),
+            CommandHandler("cancel", _support_cancel),
+            CallbackQueryHandler(support_callback, pattern="^sup_"),
         ],
         allow_reentry=True,
         per_message=False,

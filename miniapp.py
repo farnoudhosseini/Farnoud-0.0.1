@@ -1272,6 +1272,7 @@ def catalog_products():
             "hourly_enabled": hourly_ok,
             "hourly_price": _jsonable(eff_hourly) if hourly_ok else None,
             "category_id": p.get("category_id"),
+            "ask_custom_name": bool(p.get("ask_custom_name")),
         })
     return jsonify({"ok": True, "products": out})
 
@@ -1378,11 +1379,14 @@ def prepare_order():
 
     buy_mode = (body.get("mode") or "full").strip()  # full | hourly
     coupon_code = (body.get("coupon_code") or "").strip()
+    custom_name = (body.get("custom_name") or body.get("service_name") or "").strip()[:100] or None
 
     product = get_product(product_id)
     panel = get_panel_by_id(panel_id)
     if not product or not product.get("is_active") or not panel:
         return jsonify({"ok": False, "error": "محصول یا پنل در دسترس نیست"}), 404
+    if product.get("ask_custom_name") and not custom_name:
+        return jsonify({"ok": False, "error": "نام سرویس الزامی است", "need_custom_name": True}), 400
 
     panels = product.get("panels") or []
     if panel_id not in [int(x["id"]) for x in panels]:
@@ -1429,6 +1433,8 @@ def prepare_order():
                 "required": hprice, "balance": balance,
             }), 402
         order_id = create_order(user_id, product_id, panel_id, hprice, hprice, 0)
+        if custom_name:
+            update_order(order_id, custom_name=custom_name)
         from db_users import add_balance
         add_balance(user_id, -hprice, f"hourly_start#{order_id}")
         now_s = datetime.now(tz.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -1472,6 +1478,11 @@ def prepare_order():
         update_order(order_id, status="pending_payment", wallet_used=wallet_used, pay_amount=pay_amount, amount=final_price)
     except Exception as e:
         print("force pending_payment", e)
+    if custom_name:
+        try:
+            update_order(order_id, custom_name=custom_name)
+        except Exception:
+            pass
     if coupon_code and discount:
         try:
             update_order(order_id, coupon_code=coupon_code, discount_amount=discount)
@@ -1674,9 +1685,21 @@ def upload_order_receipt(order_id):
 
     pay_amount = int(order.get("pay_amount") or order.get("amount") or 0)
     wallet_used = int(order.get("wallet_used") or 0)
+    tg = request.tg_user or {}
+    try:
+        from db_users import get_bot_user
+        bu = get_bot_user(user_id) or {}
+    except Exception:
+        bu = {}
+    display_name = " ".join(filter(None, [tg.get("first_name"), tg.get("last_name")])) or bu.get("first_name") or "—"
+    username_str = ("@" + tg["username"]) if tg.get("username") else (bu.get("username") and ("@" + str(bu.get("username")))) or "—"
+    phone_str = bu.get("phone") or "—"
     admin_text = (
         f"🧾 رسید سفارش سرویس #{order_id} (از مینی‌اپ)\n"
         f"کاربر: {user_id}\n"
+        f"نام: {display_name}\n"
+        f"یوزرنیم: {username_str}\n"
+        f"شماره: {phone_str}\n"
         f"مبلغ قابل پرداخت: {pay_amount:,} تومان\n"
         f"(موجودی کیف پول رزرو: {wallet_used:,})"
     )
@@ -1899,13 +1922,34 @@ def wallet_topup_receipt():
         _notify_user(user_id, f"شارژ #{charge_id} به صورت خودکار تایید شد.")
         return jsonify({"ok": True, "message": "رسید ثبت و به صورت خودکار تایید شد.", "auto_approved": True})
     if ADMIN_ID:
-        kb = {"inline_keyboard": [[
-            {"text": "تایید", "callback_data": f"adm_ch_ok_{charge_id}"},
-            {"text": "رد", "callback_data": f"adm_ch_no_{charge_id}"},
-        ]]}
+        tg = request.tg_user or {}
+        try:
+            from db_users import get_bot_user
+            bu = get_bot_user(user_id) or {}
+        except Exception:
+            bu = {}
+        display_name = " ".join(filter(None, [tg.get("first_name"), tg.get("last_name")])) or bu.get("first_name") or "—"
+        username_str = ("@" + tg["username"]) if tg.get("username") else (bu.get("username") and ("@" + str(bu.get("username")))) or "—"
+        phone_str = bu.get("phone") or "—"
+        kb = {"inline_keyboard": [
+            [
+                {"text": "✅ تایید", "callback_data": f"adm_ch_ok_{charge_id}"},
+                {"text": "❌ رد", "callback_data": f"adm_ch_no_{charge_id}"},
+            ],
+            [
+                {"text": "💰 شارژ دستی", "callback_data": f"adm_ch_manual_{charge_id}"},
+            ],
+        ]}
         _tg_api("sendMessage", {
             "chat_id": ADMIN_ID,
-            "text": "رسید شارژ #%s (مینی اپ)\nکاربر: %s\nمبلغ: %s تومان" % (charge_id, user_id, f"{amount:,}"),
+            "text": (
+                f"🧾 رسید شارژ #{charge_id} (مینی‌اپ)\n"
+                f"کاربر: {user_id}\n"
+                f"نام: {display_name}\n"
+                f"یوزرنیم: {username_str}\n"
+                f"شماره: {phone_str}\n"
+                f"مبلغ: {amount:,} تومان"
+            ),
             "reply_markup": kb,
         })
         try:

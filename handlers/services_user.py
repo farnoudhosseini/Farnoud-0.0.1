@@ -801,17 +801,27 @@ async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("دپارتمان را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
         else:
             context.user_data["sup_dep"] = None
-            await q.edit_message_text("پیام خود را بنویسید:")
+            context.user_data.pop("sup_ticket", None)
+            await q.edit_message_text(
+                "پیام خود را بنویسید:\n"
+                "(برای لغو: /cancel)"
+            )
             return WAITING_TICKET_MSG
         return ConversationHandler.END
 
     if data == "sup_back":
+        context.user_data.pop("sup_ticket", None)
+        context.user_data.pop("sup_dep", None)
         await show_support(update, context)
         return ConversationHandler.END
 
     if data.startswith("sup_dep_"):
         context.user_data["sup_dep"] = int(data.replace("sup_dep_", ""))
-        await q.edit_message_text("پیام خود را بنویسید:\n(یا /start برای انصراف)")
+        context.user_data.pop("sup_ticket", None)
+        await q.edit_message_text(
+            "پیام خود را بنویسید:\n"
+            "(برای لغو: /cancel)"
+        )
         return WAITING_TICKET_MSG
 
     if data == "sup_my":
@@ -857,16 +867,143 @@ async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("sup_cont_"):
         tid = int(data.replace("sup_cont_", ""))
         context.user_data["sup_ticket"] = tid
-        await q.edit_message_text("پیام خود را بنویسید:")
+        await q.edit_message_text(
+            "پیام خود را بنویسید:\n"
+            "(برای لغو: /cancel)"
+        )
         return WAITING_TICKET_MSG
 
     return ConversationHandler.END
 
+
+def _is_menu_button_text(text: str) -> bool:
+    """آیا متن فشرده‌شده از دکمه‌های منوی اصلی است؟"""
+    if not text:
+        return False
+    t = text.strip()
+    # پیشوندهای رنگی احتمالی
+    for pfx in ("🔵 ", "🟢 ", "🔴 ", "⚪ "):
+        if t.startswith(pfx):
+            t = t[len(pfx):].strip()
+            break
+    # دکمه‌های شناخته‌شده
+    known = ("⚙️ مدیریت",)
+    if t in known:
+        return True
+    if any(k in t for k in ("کیف پول", "خرید", "سرویس", "پشتیبانی", "آموزش", "تست", "رایگان", "نمایندگی", "اپلیکیشن")):
+        # اگر خیلی کوتاه و شبیه دکمه منو است
+        if len(t) <= 40:
+            return True
+    try:
+        from db_extras import get_menu_buttons, strip_premium_codes
+        for item in get_menu_buttons() or []:
+            if not item.get("enabled", True):
+                continue
+            raw = (item.get("label") or "").split("\n")[0].strip()
+            clean = strip_premium_codes(raw)
+            if t == raw or t == clean:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 async def receive_ticket_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     msg = (update.message.text or "").strip()
+
+    # لغو صریح
+    if msg.lower() in ("/cancel", "cancel", "انصراف", "/start"):
+        context.user_data.pop("sup_ticket", None)
+        context.user_data.pop("sup_dep", None)
+        if msg.lower() == "/start":
+            from handlers.start import start_command
+            return await start_command(update, context)
+        await update.message.reply_text(
+            "✅ ارسال پیام لغو شد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🛠 پشتیبانی", callback_data="sup_back")],
+                [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+            ]),
+        )
+        return ConversationHandler.END
+
+    # اگر کاربر دکمه منوی رپلای را زده، آن را به‌عنوان متن تیکت ثبت نکن
+    if _is_menu_button_text(msg):
+        context.user_data.pop("sup_ticket", None)
+        context.user_data.pop("sup_dep", None)
+        # مسیریابی مستقیم دکمه‌های منو (بدون import از bot برای جلوگیری از circular import)
+        t = msg.strip()
+        for pfx in ("🔵 ", "🟢 ", "🔴 ", "⚪ "):
+            if t.startswith(pfx):
+                t = t[len(pfx):].strip()
+                break
+        try:
+            if "پشتیبانی" in t:
+                await show_support(update, context)
+            elif "خرید" in t:
+                from handlers.buy import start_buy
+                await start_buy(update, context)
+            elif "سرویس" in t:
+                await show_my_services(update, context)
+            elif "کیف پول" in t:
+                from handlers.wallet import show_wallet
+                await show_wallet(update, context)
+            elif "آموزش" in t:
+                await show_education(update, context)
+            elif "تست" in t or "رایگان" in t:
+                from handlers.trial import start_trial
+                await start_trial(update, context)
+            elif t == "⚙️ مدیریت":
+                from handlers.admin import is_admin, admin_panel
+                if is_admin(user.id):
+                    await admin_panel(update, context)
+                else:
+                    await show_support(update, context)
+            else:
+                # دکمه‌های سفارشی منو
+                routed = False
+                try:
+                    from db_extras import get_menu_buttons, strip_premium_codes
+                    from handlers.buy import start_buy
+                    from handlers.wallet import show_wallet
+                    from handlers.trial import start_trial
+                    from handlers.reseller import start_reseller_request
+                    for item in get_menu_buttons() or []:
+                        if not item.get("enabled", True):
+                            continue
+                        raw = (item.get("label") or "").split("\n")[0].strip()
+                        clean = strip_premium_codes(raw)
+                        if t == raw or t == clean:
+                            cb = item.get("callback") or ""
+                            if cb == "menu_buy":
+                                await start_buy(update, context)
+                            elif cb == "menu_services":
+                                await show_my_services(update, context)
+                            elif cb == "menu_wallet":
+                                await show_wallet(update, context)
+                            elif cb == "menu_trial":
+                                await start_trial(update, context)
+                            elif cb == "menu_support":
+                                await show_support(update, context)
+                            elif cb == "menu_education":
+                                await show_education(update, context)
+                            elif cb == "menu_reseller":
+                                await start_reseller_request(update, context)
+                            else:
+                                await show_support(update, context)
+                            routed = True
+                            break
+                except Exception:
+                    pass
+                if not routed:
+                    await show_support(update, context)
+        except Exception:
+            await show_support(update, context)
+        return ConversationHandler.END
+
     if not msg:
-        await update.message.reply_text("پیام خالی است. دوباره بنویسید:")
+        await update.message.reply_text("پیام خالی است. دوباره بنویسید:\n(برای لغو: /cancel)")
         return WAITING_TICKET_MSG
     tid = context.user_data.get("sup_ticket")
     if not tid:
@@ -879,6 +1016,7 @@ async def receive_ticket_msg(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📋 تیکت‌های من", callback_data="sup_my")],
             [InlineKeyboardButton("✍️ پیام دیگر", callback_data=f"sup_cont_{tid}")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
         ]),
     )
     try:
@@ -888,6 +1026,9 @@ async def receive_ticket_msg(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     except Exception:
         pass
+    # state را ببند تا دکمه‌های منو دوباره کار کنند
+    context.user_data.pop("sup_ticket", None)
+    context.user_data.pop("sup_dep", None)
     return ConversationHandler.END
 
 async def receive_rename(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -10,7 +10,7 @@
     @font-face{font-family:Vazirmatn;src:url(/miniapp/assets/fonts/Vazirmatn-Medium.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
     @font-face{font-family:Vazirmatn;src:url(/miniapp/assets/fonts/Vazirmatn-Bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
   </style>
-  <link rel="stylesheet" href="/miniapp/assets/app.css?v=10">
+  <link rel="stylesheet" href="/miniapp/assets/app.css?v=11">
 </head>
 <body>
   <div class="app-shell">
@@ -26,11 +26,15 @@
     </header>
 
     <main id="app" class="content">
-      <section class="skeleton-page" id="loading">
-        <div class="sk hero"></div>
-        <div class="sk line"></div>
-        <div class="sk line short"></div>
-        <div class="sk card"></div>
+      <section class="loading-page" id="loading">
+        <div class="circle-progress" role="progressbar" aria-label="در حال بارگذاری">
+          <svg viewBox="0 0 64 64" class="circle-progress-svg">
+            <circle class="circle-bg" cx="32" cy="32" r="28"></circle>
+            <circle class="circle-fg" cx="32" cy="32" r="28"></circle>
+          </svg>
+          <span class="circle-progress-text">...</span>
+        </div>
+        <p class="loading-hint">در حال بارگذاری مینی‌اپ...</p>
       </section>
     </main>
 
@@ -61,6 +65,6 @@
   </div>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/miniapp/assets/app.js?v=10"></script>
+  <script src="/miniapp/assets/app.js?v=11"></script>
 </body>
 </html>

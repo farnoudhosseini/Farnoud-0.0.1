@@ -48,6 +48,8 @@
 <input type="number" name="traffic_reset_day" min="1" max="31" placeholder="1" value="{{ product.traffic_reset_day if product and product.traffic_reset_day is not none else '' }}"></div>
 </details>
 <div class="form-group"><label><input type="checkbox" name="hourly_enabled" value="1" {% if product and product.hourly_enabled %}checked{% endif %}> قابل خرید ساعتی</label></div>
+<div class="form-group"><label><input type="checkbox" name="ask_custom_name" value="1" {% if product and product.ask_custom_name %}checked{% endif %}> پرسیدن نام سرویس از مشتری هنگام خرید</label>
+<p class="muted" style="font-size:.8rem">بعد از انتخاب محصول، قبل از فاکتور از مشتری نام دلخواه سرویس پرسیده می‌شود و در پنل پاسارگارد/ثنایی و «سرویس‌های من» نمایش داده می‌شود.</p></div>
 <div class="form-group"><label><input type="checkbox" name="start_on_first_connect" value="1" {% if product and product.start_on_first_connect %}checked{% endif %}> شروع زمان از اولین اتصال (on_hold)</label>
 <p class="muted" style="font-size:.8rem">برای پاسارگارد و ثنایی: مهلت سرویس از لحظهٔ اولین اتصال کاربر محاسبه می‌شود، نه از لحظهٔ خرید.</p></div>
 <div class="form-group"><label>قیمت هر ساعت (تومان)</label>

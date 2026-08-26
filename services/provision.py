@@ -235,6 +235,10 @@ def provision_order(order_id: int) -> dict:
             except Exception:
                 group_ids = []
 
+        cname = (order.get("custom_name") or "").strip()
+        note_base = f"order#{order_id} tg:{order['telegram_id']}"
+        if cname:
+            note_base = f"{cname} | {note_base}"
         if start_on_first:
             payload = client.build_user_payload(
                 username=username,
@@ -243,7 +247,7 @@ def provision_order(order_id: int) -> dict:
                 expire=None,
                 group_ids=group_ids,
                 hwid_limit=hwid,
-                note=f"order#{order_id} tg:{order['telegram_id']} on_hold",
+                note=f"{note_base} on_hold",
                 on_hold_expire_duration=int(days) * 86400 if days > 0 else 30 * 86400,
                 for_create=True,
             )
@@ -255,7 +259,7 @@ def provision_order(order_id: int) -> dict:
                 expire=expire_dt.isoformat(),
                 group_ids=group_ids,
                 hwid_limit=hwid,
-                note=f"order#{order_id} tg:{order['telegram_id']}",
+                note=note_base,
                 for_create=True,
             )
         try:

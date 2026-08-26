@@ -1191,6 +1191,23 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("ناموفق", show_alert=True)
         return ConversationHandler.END
 
+    if data.startswith("adm_ch_manual_"):
+        cid = int(data.replace("adm_ch_manual_", ""))
+        from db_users import get_charge
+        ch = get_charge(cid)
+        if not ch:
+            await query.answer("فاکتور یافت نشد", show_alert=True)
+            return ConversationHandler.END
+        context.user_data["admin_input_mode"] = "charge_manual_amount"
+        context.user_data["charge_manual_id"] = cid
+        suggested = int(ch.get("amount") or 0)
+        await query.edit_message_text(
+            f"💰 شارژ دستی برای فاکتور #{cid}\n"
+            f"مبلغ ثبت‌شده روی رسید: {suggested:,} تومان\n\n"
+            f"مبلغی که می‌خواهید به کیف پول کاربر اضافه شود را به تومان بفرستید:",
+        )
+        return WAITING_ADMIN_TEXT
+
     if data.startswith("adm_ch_no_"):
         from db_users import reject_charge, get_charge, render_template, user_vars, get_bot_user
         cid = int(data.replace("adm_ch_no_", ""))
@@ -2233,15 +2250,86 @@ async def receive_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✅ کارت اضافه شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 کارت‌ها",callback_data="admin_cards")]]))
         return ConversationHandler.END
 
+    if mode == "charge_manual_amount":
+        cid = context.user_data.pop("charge_manual_id", None)
+        if not cid:
+            await update.message.reply_text("❌ شناسه فاکتور نامعتبر.")
+            return ConversationHandler.END
+        try:
+            amount = int(str(text).replace(",", "").replace("،", "").replace(" ", ""))
+            if amount <= 0:
+                raise ValueError()
+        except Exception:
+            context.user_data["admin_input_mode"] = "charge_manual_amount"
+            context.user_data["charge_manual_id"] = cid
+            await update.message.reply_text("❌ مبلغ معتبر به تومان بفرستید (مثال: 50000)")
+            return WAITING_ADMIN_TEXT
+        from db_users import get_charge, approve_charge, render_template, user_vars, get_bot_user, add_balance
+        from database import get_sync_connection
+        ch = get_charge(cid)
+        if not ch:
+            await update.message.reply_text("❌ فاکتور یافت نشد.")
+            return ConversationHandler.END
+        # set amount then approve (approve uses stored amount)
+        try:
+            conn = get_sync_connection()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE charge_requests SET amount=%s WHERE id=%s", (amount, cid))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا در به‌روزرسانی مبلغ: {e}")
+            return ConversationHandler.END
+        user = approve_charge(cid)
+        if user:
+            try:
+                vars_ = user_vars(user)
+                vars_["amount"] = f"{amount:,}"
+                vars_["balance"] = f"{int(user['balance']):,}"
+                await context.bot.send_message(user["telegram_id"], render_template("charge_approved", vars_), parse_mode="HTML")
+            except Exception:
+                pass
+            try:
+                from handlers.group_reports import send_report
+                await send_report(context.bot, "charges", f"✅ شارژ دستی تأیید شد — charge #{cid} مبلغ {amount:,}")
+            except Exception:
+                pass
+            await update.message.reply_text(
+                f"✅ فاکتور #{cid} با مبلغ دستی {amount:,} تومان تایید و به کیف پول اضافه شد.",
+                reply_markup=main_keyboard(),
+            )
+        else:
+            await update.message.reply_text("❌ تایید ناموفق (ممکن است قبلاً پردازش شده باشد).", reply_markup=main_keyboard())
+        return ConversationHandler.END
+
     if mode == "bot_admin_add":
-        from db_extras import add_bot_admin
+        from db_extras import add_bot_admin, is_bot_admin_id
         tid = text.strip().lstrip("@")
         if not tid.isdigit():
+            context.user_data["admin_input_mode"] = "bot_admin_add"
             await update.message.reply_text("❌ فقط آیدی عددی بفرستید (مثال: 123456789)")
             return WAITING_ADMIN_TEXT
-        ok = add_bot_admin(int(tid))
-        msg = f"✅ ادمین <code>{tid}</code> اضافه شد." if ok else f"ℹ️ <code>{tid}</code> از قبل ادمین بود یا خطا رخ داد."
-        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=main_keyboard())
+        tid_int = int(tid)
+        if is_bot_admin_id(tid_int):
+            await update.message.reply_text(
+                f"ℹ️ <code>{tid}</code> از قبل در لیست ادمین‌ها بود.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👮 لیست ادمین‌ها", callback_data="admin_botadmins")]]),
+            )
+            return ConversationHandler.END
+        ok = add_bot_admin(tid_int)
+        if ok or is_bot_admin_id(tid_int):
+            await update.message.reply_text(
+                f"✅ ادمین <code>{tid}</code> اضافه شد.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👮 لیست ادمین‌ها", callback_data="admin_botadmins")]]),
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ افزودن ادمین <code>{tid}</code> ناموفق بود. دوباره تلاش کنید یا لاگ دیتابیس را بررسی کنید.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👮 لیست ادمین‌ها", callback_data="admin_botadmins")]]),
+            )
         return ConversationHandler.END
 
     if mode=="web_user":
