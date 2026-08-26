@@ -1160,6 +1160,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"#{ch['id']} — کاربر {ch['telegram_id']} — {int(ch['amount']):,} تومان")
             rows.append([
                 InlineKeyboardButton(f"✅ #{ch['id']}", callback_data=f"adm_ch_ok_{ch['id']}"),
+                InlineKeyboardButton(f"✏️ دستی #{ch['id']}", callback_data=f"adm_ch_manual_{ch['id']}"),
                 InlineKeyboardButton(f"❌ #{ch['id']}", callback_data=f"adm_ch_no_{ch['id']}"),
             ])
         rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])

@@ -138,15 +138,20 @@ def wallet_keyboard():
     ])
 
 def payment_methods_keyboard(charge_id: int):
+    from database import get_setting_sync
     methods = list_payment_methods(active_only=True)
     rows = []
     for m in methods:
-        if m.get("method_key") == "variza":
+        key = m.get("method_key")
+        if key == "variza":
             try:
                 from services.variza import configured, is_enabled
                 if not (is_enabled() and configured()):
                     continue
             except Exception:
+                continue
+        if key == "stars":
+            if get_setting_sync("stars_enabled", "0") != "1":
                 continue
         rows.append([payment_method_button(m, f"pay_{m['method_key']}_{charge_id}")])
     rows.append([InlineKeyboardButton("❌ انصراف", callback_data="wallet_cancel")])
@@ -267,6 +272,64 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
         context.user_data["waiting_receipt_charge_id"] = charge_id
         return WAITING_RECEIPT
+
+    if data.startswith("pay_stars_"):
+        from database import get_setting_sync
+        if get_setting_sync("stars_enabled", "0") != "1":
+            await q.edit_message_text("پرداخت با استارز غیرفعال است.", reply_markup=wallet_keyboard())
+            return ConversationHandler.END
+        charge_id = int(data.split("_")[-1])
+        ch = get_charge(charge_id)
+        if not ch or int(ch["telegram_id"]) != user.id:
+            await q.edit_message_text("فاکتور نامعتبر است.")
+            return ConversationHandler.END
+        amount = int(ch.get("amount") or 0)
+        try:
+            rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+        except Exception:
+            rate = 1000.0
+        if rate <= 0:
+            rate = 1000.0
+        stars_amount = max(1, int(round(amount / rate)))
+        title = get_setting_sync("stars_payment_title", "⭐ شارژ با استارز") or "⭐ شارژ با استارز"
+        try:
+            from telegram import LabeledPrice
+            from database import get_sync_connection
+            conn = get_sync_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE charge_requests SET method_key='stars', status='pending_payment' WHERE id=%s",
+                        (charge_id,),
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
+            await context.bot.send_invoice(
+                chat_id=user.id,
+                title=title[:32],
+                description=f"شارژ کیف پول #{charge_id} — {amount:,} تومان",
+                payload=f"charge_stars_{user.id}_{amount}",
+                provider_token="",
+                currency="XTR",
+                prices=[LabeledPrice(label=title[:32], amount=stars_amount)],
+            )
+            await q.edit_message_text(
+                f"⭐ فاکتور استارز ارسال شد.\n"
+                f"مبلغ: <b>{amount:,}</b> تومان ≈ <b>{stars_amount}</b> استار\n"
+                f"نرخ: هر استار ≈ {int(rate):,} تومان\n\n"
+                "پس از پرداخت، موجودی به‌صورت خودکار اضافه می‌شود.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")],
+                ]),
+            )
+        except Exception as e:
+            await q.edit_message_text(
+                f"❌ خطا در ساخت فاکتور استارز:\n{str(e)[:250]}",
+                reply_markup=payment_methods_keyboard(charge_id),
+            )
+        return ConversationHandler.END
 
     return ConversationHandler.END
 

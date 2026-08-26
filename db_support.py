@@ -177,7 +177,7 @@ def close_ticket(ticket_id):
         conn.close()
 
 def list_user_orders(telegram_id, limit=50):
-    """سرویس‌های خریداری‌شده کاربر"""
+    """سرویس‌های خریداری‌شده کاربر + تست‌های منقضی‌شده (برای نمایش غیرفعال)"""
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -189,9 +189,21 @@ def list_user_orders(telegram_id, limit=50):
                    FROM service_orders o
                    LEFT JOIN products p ON p.id=o.product_id
                    LEFT JOIN vpn_panels vp ON vp.id=o.panel_id
-                   WHERE o.telegram_id=%s AND o.status IN ('paid','provisioned')
+                   WHERE o.telegram_id=%s AND (
+                       o.status IN ('paid','provisioned')
+                       OR (
+                           o.status = 'expired'
+                           AND (
+                               (o.custom_name IS NOT NULL AND (
+                                   o.custom_name LIKE %s OR o.custom_name LIKE %s
+                                   OR o.custom_name LIKE %s OR o.custom_name LIKE %s
+                               ))
+                               OR (COALESCE(o.amount,0)=0 AND o.volume_gb_override IS NOT NULL)
+                           )
+                       )
+                   )
                    ORDER BY o.id DESC LIMIT %s""",
-                (telegram_id, limit),
+                (telegram_id, "%تست%", "%trial%", "%رایگان%", "%free%", limit),
             )
             return cur.fetchall() or []
     finally:

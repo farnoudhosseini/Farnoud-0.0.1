@@ -219,7 +219,12 @@ async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uname = o.get("vpn_username") or f"#{o['id']}"
         cname = (o.get("custom_name") or "").strip()
         label = f"{cname} ({uname})" if cname else f"{uname} - {product}"
-        rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_open_{o['id']}")])
+        st = (o.get("status") or "").lower()
+        if st == "expired":
+            # تست منقضی: نمایش بده ولی غیرقابل کلیک
+            rows.append([InlineKeyboardButton(f"🔒 {label[:55]} (منقضی)", callback_data="svc_expired_noop")])
+        else:
+            rows.append([InlineKeyboardButton(label[:60], callback_data=f"svc_open_{o['id']}")])
     rows.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="menu_home")])
     text = "📱 سرویس‌های من\nسرویس خریداری‌شده را انتخاب کنید:"
     kb = InlineKeyboardMarkup(rows)
@@ -242,6 +247,10 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "svc_list":
         await show_my_services(update, context)
+        return ConversationHandler.END
+
+    if data == "svc_expired_noop":
+        await q.answer("این سرویس تست منقضی شده و قابل استفاده نیست.", show_alert=True)
         return ConversationHandler.END
 
     if data.startswith("svc_open_") or data.startswith("svc_refresh_"):

@@ -21,7 +21,7 @@ def ensure_user_tables():
     try:
         connection = get_sync_connection()
         with connection.cursor() as cur:
-            with open("/opt/Farnoud-0.0.1/models_schema.sql", "r") as f:
+            with open("/opt/Farnoud-0.0.7/models_schema.sql", "r") as f:
                 pass
     except Exception:
         pass

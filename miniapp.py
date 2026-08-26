@@ -382,12 +382,44 @@ def auth_required(fn):
         if not _rate_limit(int(user["id"]), request.endpoint or "api"):
             return jsonify({"ok": False, "error": "کمی بعد دوباره تلاش کنید."}), 429
         request.tg_user = user
+        db_user = None
         try:
+            # اطمینان از وجود جداول برای نصب تازه
+            try:
+                from db_users import ensure_user_tables
+                ensure_user_tables()
+            except Exception:
+                pass
+            try:
+                from db_extras import ensure_bot_admins_table
+                ensure_bot_admins_table()
+            except Exception:
+                pass
             db_user = upsert_bot_user(_TelegramUser(user))
-            request.db_user = db_user
-            _sync_telegram_account(user)
+            request.db_user = db_user or {
+                "telegram_id": int(user["id"]),
+                "first_name": user.get("first_name"),
+                "username": user.get("username"),
+                "balance": 0,
+                "role": "user",
+                "is_blocked": 0,
+            }
+            try:
+                _sync_telegram_account(user)
+            except Exception:
+                pass
         except Exception as exc:
-            return jsonify({"ok": False, "error": f"خطای ثبت کاربر: {exc}"}), 500
+            print("miniapp upsert error:", exc)
+            # برای کاربران تازه بعد از نصب: به جای 500، پروفایل حداقلی برگردان
+            request.db_user = {
+                "telegram_id": int(user["id"]),
+                "first_name": user.get("first_name"),
+                "username": user.get("username"),
+                "balance": 0,
+                "role": "user",
+                "is_blocked": 0,
+            }
+            db_user = request.db_user
         if db_user and db_user.get("is_blocked"):
             return jsonify({"ok": False, "error": "دسترسی شما مسدود است."}), 403
         return fn(*args, **kwargs)

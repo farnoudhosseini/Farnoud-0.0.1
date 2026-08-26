@@ -237,6 +237,15 @@ def create_bot() -> Application:
     application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     application.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     application.add_handler(CommandHandler("admin", admin_panel))
+    # هندلر اولویت‌دار برای ورودی‌های متنی ادمین (افزودن ادمین، شارژ دستی و ...) تا حتی اگر Conversation state ست نشده باشد کار کند
+    async def _admin_text_fallback(update, context):
+        from handlers.admin import is_admin, receive_admin_text
+        from telegram.ext import ApplicationHandlerStop
+        user = update.effective_user
+        if user and is_admin(user.id) and context.user_data.get("admin_input_mode"):
+            await receive_admin_text(update, context)
+            raise ApplicationHandlerStop
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _admin_text_fallback), group=-1)
     application.add_handler(CommandHandler("wallet", show_wallet))
     from handlers.group_reports import setgroup_command, backup_command
     application.add_handler(CommandHandler("setgroup", setgroup_command))
@@ -348,10 +357,14 @@ def create_bot() -> Application:
     application.add_handler(wallet_conv)
     application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wallet_|pay_)"))
 
-    # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN)
+    # مکالمه ادمین (پیام خوش‌آمد + کاربران VPN + ورودی‌های متنی مثل افزودن ادمین)
+    # entry_points شامل همه callbackهایی است که ممکن است به WAITING_ADMIN_TEXT بروند تا state درست ست شود
     admin_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(admin_callback, pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_web_|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome)"),
+            CallbackQueryHandler(
+                admin_callback,
+                pattern="^(set_welcome|admin_msg_|admin_msgs|admin_products|admin_product_add|admin_menu_labels|admin_mblabel_|admin_msgs_tpl|admin_to_start|admin_pdelete|admin_padduser_|admin_pedit_|admin_ordedit_|admin_premiji_add|admin_user_search|admin_bc_|admin_web|admin_web_|admin_card_add|admin_pmax_|admin_prenew|admin_referral|admin_ref_|admin_welcome|admin_badm_|admin_botadmins|admin_stars_|admin_gift_|admin_trial_|admin_as_|admin_card_|admin_auto_|admin_charge_|admin_menu_|admin_prod_|admin_order_|admin_ticket_|admin_backup_|admin_inline_|admin_panel|admin_optimize|admin_settings|admin_users|admin_support)",
+            ),
         ],
         states={
             WAITING_WELCOME: [MessageHandler(filters.TEXT, receive_welcome_message)],
@@ -393,10 +406,31 @@ def create_bot() -> Application:
     application.add_handler(reseller_conv)
 
 
-    # پرداخت استارز تلگرام
+    # پرداخت استارز تلگرام (بازنویسی کامل ۰.۰.۷)
     async def _pre_checkout(update, context):
         q = update.pre_checkout_query
+        payload = (q.invoice_payload or "") if q else ""
         try:
+            # اعتبارسنجی اولیه payload
+            if payload.startswith("order_stars_"):
+                from db_products import get_order
+                try:
+                    oid = int(payload.replace("order_stars_", ""))
+                except Exception:
+                    await q.answer(ok=False, error_message="سفارش نامعتبر")
+                    return
+                order = get_order(oid)
+                if not order:
+                    await q.answer(ok=False, error_message="سفارش یافت نشد")
+                    return
+                if order.get("status") in ("paid", "provisioned"):
+                    await q.answer(ok=False, error_message="این سفارش قبلاً پرداخت شده")
+                    return
+            elif payload.startswith("charge_stars_"):
+                pass  # شارژ کیف پول — در successful تایید می‌شود
+            else:
+                await q.answer(ok=False, error_message="پرداخت نامعتبر")
+                return
             await q.answer(ok=True)
         except Exception as e:
             print("pre_checkout:", e)
@@ -411,41 +445,89 @@ def create_bot() -> Application:
         if not sp:
             return
         payload = sp.invoice_payload or ""
-        if not payload.startswith("order_stars_"):
-            return
-        try:
-            order_id = int(payload.replace("order_stars_", ""))
-        except Exception:
-            return
-        from db_products import get_order, update_order
-        from services.provision import provision_order
-        from services.provision import send_service_to_user
-        order = get_order(order_id)
-        if not order:
-            await msg.reply_text("سفارش یافت نشد.")
-            return
-        if order.get("status") in ("paid", "provisioned"):
-            await msg.reply_text("این سفارش قبلاً پردازش شده است.")
-            return
-        update_order(order_id, status="paid", method_key="stars", pay_amount=0)
-        await msg.reply_text("⏳ پرداخت استارز تایید شد. در حال ساخت سرویس...")
-        result = provision_order(order_id)
-        try:
-            await send_service_to_user(context.bot, order["telegram_id"], result)
-        except Exception as e:
-            print("stars deliver:", e)
-            if result.get("ok"):
-                await msg.reply_text("✅ سرویس ساخته شد. از «سرویس‌های من» ببینید.")
-            else:
-                await msg.reply_text(f"❌ خطا در ساخت: {result.get('error')}")
-        if result.get("ok"):
+        stars_paid = int(sp.total_amount or 0)  # تعداد استارز
+
+        # --- خرید سرویس با استارز ---
+        if payload.startswith("order_stars_"):
             try:
-                from db_growth import award_purchase_points, pay_referral_commission
-                amt = int(order.get("amount") or 0)
-                award_purchase_points(order["telegram_id"], amt, order_id)
-                pay_referral_commission(order["telegram_id"], amt)
+                order_id = int(payload.replace("order_stars_", ""))
             except Exception:
-                pass
+                await msg.reply_text("❌ payload سفارش نامعتبر.")
+                return
+            from db_products import get_order, update_order
+            from services.provision import provision_order, send_service_to_user
+            order = get_order(order_id)
+            if not order:
+                await msg.reply_text("❌ سفارش یافت نشد.")
+                return
+            if order.get("status") in ("paid", "provisioned"):
+                await msg.reply_text("ℹ️ این سفارش قبلاً پردازش شده است.")
+                return
+            # ثبت پرداخت
+            update_order(
+                order_id,
+                status="paid",
+                method_key="stars",
+                pay_amount=int(order.get("pay_amount") or order.get("amount") or 0),
+            )
+            await msg.reply_text(
+                f"✅ پرداخت <b>{stars_paid}</b> استارز تایید شد.\n⏳ در حال ساخت سرویس...",
+                parse_mode="HTML",
+            )
+            result = provision_order(order_id)
+            try:
+                await send_service_to_user(context.bot, order["telegram_id"], result)
+            except Exception as e:
+                print("stars deliver:", e)
+                if result.get("ok"):
+                    await msg.reply_text("✅ سرویس ساخته شد. از «سرویس‌های من» ببینید.")
+                else:
+                    await msg.reply_text(f"❌ خطا در ساخت سرویس: {str(result.get('error') or e)[:200]}")
+            if result.get("ok"):
+                try:
+                    from db_growth import award_purchase_points, pay_referral_commission
+                    amt = int(order.get("amount") or 0)
+                    award_purchase_points(order["telegram_id"], amt, order_id)
+                    pay_referral_commission(order["telegram_id"], amt)
+                except Exception:
+                    pass
+            return
+
+        # --- شارژ کیف پول با استارز ---
+        if payload.startswith("charge_stars_"):
+            try:
+                parts = payload.replace("charge_stars_", "").split("_")
+                uid = int(parts[0])
+                toman = int(parts[1]) if len(parts) > 1 else 0
+            except Exception:
+                await msg.reply_text("❌ payload شارژ نامعتبر.")
+                return
+            if uid != (msg.from_user.id if msg.from_user else 0):
+                await msg.reply_text("❌ کاربر پرداخت با گیرنده مطابقت ندارد.")
+                return
+            if toman <= 0:
+                # محاسبه از نرخ
+                from database import get_setting_sync
+                try:
+                    rate = float(get_setting_sync("stars_rate", "1000") or 1000)
+                except Exception:
+                    rate = 1000.0
+                toman = int(round(stars_paid * rate))
+            try:
+                from db_users import add_balance, upsert_bot_user
+                upsert_bot_user(msg.from_user)
+                add_balance(uid, toman, f"stars_charge#{stars_paid}")
+                await msg.reply_text(
+                    f"✅ شارژ موفق!\n"
+                    f"⭐ {stars_paid} استارز → <b>{toman:,}</b> تومان به کیف پول اضافه شد.",
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                print("stars charge:", e)
+                await msg.reply_text(f"❌ خطا در شارژ کیف پول: {str(e)[:200]}")
+            return
+
+        await msg.reply_text("ℹ️ پرداخت دریافت شد اما نوع آن شناسایی نشد.")
 
     application.add_handler(PreCheckoutQueryHandler(_pre_checkout))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, _successful_payment))
