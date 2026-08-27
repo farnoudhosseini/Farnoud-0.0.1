@@ -568,12 +568,17 @@ function topup(){
 async function confirmTopup(){
   try{
     const amount=Number(document.getElementById('topupAmount').value);
+    if(!amount || amount<=0){toast('مبلغ را وارد کنید');return}
     const d=await api('/wallet/topup',{method:'POST',body:JSON.stringify({amount})});
     state.pendingChargeId = d.charge_id;
+    state.pendingTopupAmount = amount;
     const methods=(d.payment_methods||[]);
-    const cards=d.card?`<div class="detail-card"><strong>${esc(d.card.card_number)}</strong><p class="page-subtitle">${esc(d.card.owner_name||'')}${d.card.bank_name?' · '+esc(d.card.bank_name):''}</p></div>`:'';
-    const buttons=methods.map(pm=>pm.key==='variza'?`<button class="btn primary" style="width:100%;margin-top:8px" onclick="startTopupVariza(${d.charge_id},${amount})">${esc(pm.title)}</button>`:pm.key==='card'?`${cards}<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${esc(d.card?.card_number||'')}')">کپی شماره کارت</button><div class="form-row" style="margin-top:12px"><label>تصویر رسید</label><input type="file" id="chargeReceipt" accept="image/*"></div><button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید</button>`:'').join('');
-    showSheet(`<h2>واریز ${money(amount)}</h2><p class="page-subtitle">روش پرداخت را انتخاب کنید.</p>${buttons}`);
+    const buttons=methods.map(pm=>{
+      if(pm.key==='variza') return `<button class="btn primary" style="width:100%;margin-top:8px" onclick="startTopupVariza(${d.charge_id},${amount})">${esc(pm.title)}</button>`;
+      if(pm.key==='card') return `<button class="btn" style="width:100%;margin-top:8px" onclick="startTopupCard(${d.charge_id},${amount})">${esc(pm.title)}</button>`;
+      return '';
+    }).join('');
+    showSheet(`<h2>واریز ${money(amount)}</h2><p class="page-subtitle">روش پرداخت را انتخاب کنید.</p>${buttons || '<p class="page-subtitle">روش پرداخت فعالی نیست.</p>'}`);
   }catch(e){toast(e.message)}
 }
 async function startTopupVariza(chargeId,amount){
@@ -581,6 +586,26 @@ async function startTopupVariza(chargeId,amount){
     const d=await api('/wallet/topup/variza',{method:'POST',body:JSON.stringify({amount,charge_id:chargeId})});
     window.open(d.pay_url,'_blank','noopener');
     showSheet(`<h2>پرداخت واریزا</h2><p class="page-subtitle">صفحه پرداخت باز شد. پس از پرداخت، شارژ کیف پول به‌صورت خودکار تایید می‌شود.</p><button class="btn primary" style="width:100%" onclick="closeSheet();refresh()">بررسی وضعیت</button>`);
+  }catch(e){toast(e.message)}
+}
+async function startTopupCard(chargeId,amount){
+  try{
+    const d=await api('/wallet/topup/card',{method:'POST',body:JSON.stringify({amount,charge_id:chargeId})});
+    state.pendingChargeId = d.charge_id || chargeId;
+    const card = d.card || {};
+    const cardNum = esc(card.card_number||'');
+    showSheet(`<h2>واریز کارت‌به‌کارت</h2>
+<p class="page-subtitle">مبلغ ${money(d.pay_amount||amount)} را واریز کنید، سپس تصویر رسید را آپلود کنید. همزمان در ربات هم پیام واریز برایتان ارسال شد.</p>
+<div class="detail-card">
+<strong style="font-size:18px;letter-spacing:1px">${cardNum}</strong>
+<p class="page-subtitle">${esc(card.owner_name||'')}${card.bank_name?' · '+esc(card.bank_name):''}</p>
+</div>
+<button class="btn" style="width:100%;margin-top:10px" onclick="copyText('${cardNum}')">کپی شماره کارت</button>
+<div class="form-row" style="margin-top:14px">
+<label>تصویر رسید</label>
+<input type="file" id="chargeReceipt" accept="image/*" capture="environment">
+</div>
+<button class="btn primary" style="width:100%" onclick="uploadChargeReceipt()">ارسال رسید برای تایید</button>`);
   }catch(e){toast(e.message)}
 }
 async function uploadChargeReceipt(){
@@ -593,6 +618,7 @@ async function uploadChargeReceipt(){
     const d=await api('/wallet/topup/receipt',{method:'POST',body:JSON.stringify({charge_id:state.pendingChargeId,photo:b64})});
     setProgress(100);
     closeSheet(); toast(d.message||'رسید ثبت شد');
+    await refresh();
   }catch(e){toast(e.message)}
 }
 function showTransactions(){showSheet(`<h2>تاریخچه تراکنش‌ها</h2>${transactions(state.data.wallet.transactions)}`)}

@@ -1159,19 +1159,89 @@ def wallet_topup():
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM payment_cards WHERE is_active=1 ORDER BY sort_order,id LIMIT 1")
-            card = cur.fetchone()
             # Keep the charge pending until the user explicitly chooses a method.
             cur.execute("""INSERT INTO charge_requests (telegram_id,amount,method_key,card_id,status)
-                           VALUES (%s,%s,'card',%s,'pending_payment')""",
-                        (int(request.tg_user["id"]), amount, card["id"] if card else None))
+                           VALUES (%s,%s,'pending',NULL,'pending_payment')""",
+                        (int(request.tg_user["id"]), amount))
             charge_id = cur.lastrowid
             conn.commit()
-            return jsonify({"ok": True, "charge_id": charge_id, "card": _jsonable(card) if card else None,
+            return jsonify({"ok": True, "charge_id": charge_id,
                             "payment_methods": methods,
                             "message": "روش پرداخت را انتخاب کنید."})
     finally:
         conn.close()
+
+
+@miniapp_bp.post("/api/wallet/topup/card")
+@auth_required
+def wallet_topup_card():
+    """Select card-to-card for an existing charge request (mirrors order pay-card flow)."""
+    from db_users import list_cards
+    body = request.get_json(silent=True) or {}
+    user_id = int(request.tg_user["id"])
+    try:
+        charge_id = int(body.get("charge_id") or 0)
+        amount = int(body.get("amount") or 0)
+    except Exception:
+        return jsonify({"ok": False, "error": "پارامتر نامعتبر"}), 400
+    if get_setting_sync("payment_method_card_enabled", "1") == "0":
+        return jsonify({"ok": False, "error": "پرداخت کارت‌به‌کارت خاموش است"}), 503
+    cards = list_cards(active_only=True) or []
+    if not cards:
+        return jsonify({"ok": False, "error": "کارتی تعریف نشده. با پشتیبانی تماس بگیرید."}), 503
+    card = cards[0]
+    card_num = str(card.get("card_number") or "").replace(" ", "").replace("-", "")
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            if charge_id:
+                cur.execute("SELECT * FROM charge_requests WHERE id=%s AND telegram_id=%s", (charge_id, user_id))
+                ch = cur.fetchone()
+                if not ch:
+                    return jsonify({"ok": False, "error": "درخواست شارژ یافت نشد"}), 404
+                if ch.get("status") not in ("pending_payment", "waiting_receipt"):
+                    return jsonify({"ok": False, "error": "این درخواست قابل پرداخت نیست"}), 400
+                if amount <= 0:
+                    amount = int(ch.get("amount") or 0)
+                cur.execute(
+                    """UPDATE charge_requests
+                       SET amount=%s, method_key='card', card_id=%s, status='waiting_receipt'
+                       WHERE id=%s""",
+                    (amount, card["id"], charge_id),
+                )
+            else:
+                if amount < int(os.getenv("MIN_CHARGE", "10000")) or amount > int(os.getenv("MAX_CHARGE", "50000000")):
+                    return jsonify({"ok": False, "error": "مبلغ خارج از محدوده مجاز است"}), 400
+                cur.execute(
+                    """INSERT INTO charge_requests (telegram_id,amount,method_key,card_id,status)
+                       VALUES (%s,%s,'card',%s,'waiting_receipt')""",
+                    (user_id, amount, card["id"]),
+                )
+                charge_id = cur.lastrowid
+            conn.commit()
+    finally:
+        conn.close()
+
+    _notify_user(
+        user_id,
+        f"💳 مبلغ <b>{amount:,}</b> تومان را واریز کنید:\n\n"
+        f"شماره کارت: <code>{card_num}</code>\n"
+        f"به نام: {card.get('owner_name') or '—'}\n\n"
+        f"سپس تصویر رسید را در مینی‌اپ یا ربات ارسال کنید.\n"
+        f"شارژ: #{charge_id}",
+    )
+    return jsonify({
+        "ok": True,
+        "charge_id": charge_id,
+        "pay_amount": amount,
+        "card": {
+            "id": card["id"],
+            "card_number": card_num,
+            "owner_name": card.get("owner_name"),
+            "bank_name": card.get("bank_name"),
+        },
+        "message": "واریز را انجام دهید و رسید را آپلود کنید.",
+    })
 
 
 @miniapp_bp.post("/api/referrals/copy")
