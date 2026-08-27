@@ -22,6 +22,14 @@
     </div>
   </div>
 
+  <label style="display:block;margin-top:1rem">رنگ دکمه</label>
+  <select class="form-control" name="button_color">
+    <option value="none" {% if (panel.button_color or 'none') not in ['blue','primary','green','success','red','danger'] %}selected{% endif %}>⚪ بی‌رنگ</option>
+    <option value="blue" {% if panel.button_color in ['blue','primary'] %}selected{% endif %}>🔵 آبی</option>
+    <option value="green" {% if panel.button_color in ['green','success'] %}selected{% endif %}>🟢 سبز</option>
+    <option value="red" {% if panel.button_color in ['red','danger'] %}selected{% endif %}>🔴 قرمز</option>
+  </select>
+
   <label style="display:block;margin-top:1rem">سقف فروش پنل</label>
   <input class="form-control" type="number" name="max_sales" min="0" value="{{ max_sales or '' }}" placeholder="خالی = بدون محدودیت">
   <label style="display:block;margin-top:1rem">روش تمدید</label>

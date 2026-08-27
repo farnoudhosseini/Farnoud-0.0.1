@@ -435,6 +435,7 @@ def ensure_panel_max_sales():
                 ("api_key", "VARCHAR(512) DEFAULT NULL"),
                 ("emoji", "VARCHAR(32) DEFAULT NULL"),
                 ("premium_emoji", "VARCHAR(64) DEFAULT NULL"),
+                ("button_color", "VARCHAR(20) DEFAULT 'none'"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE vpn_panels ADD COLUMN {col} {ddl}")
@@ -446,7 +447,7 @@ def ensure_panel_max_sales():
 
 
 def set_panel_field(panel_id: int, field: str, value) -> bool:
-    allowed = {"max_sales", "renew_mode", "name", "is_active", "emoji", "premium_emoji"}
+    allowed = {"max_sales", "renew_mode", "name", "is_active", "emoji", "premium_emoji", "button_color"}
     if field not in allowed:
         return False
     conn = get_sync_connection()
@@ -472,9 +473,21 @@ def set_panel_max_sales(panel_id: int, max_sales):
         conn.close()
 
 
+_COLOR_EMOJI = {
+    "blue": "🔵",
+    "primary": "🔵",
+    "green": "🟢",
+    "success": "🟢",
+    "red": "🔴",
+    "danger": "🔴",
+    "none": "",
+    "": "",
+}
+
+
 def format_entity_label(entity: dict, for_miniapp: bool = False) -> str:
     """
-    نام نمایشی پنل/دسته با ایموجی.
+    نام نمایشی پنل/دسته/محصول با ایموجی و نشانگر رنگ.
     for_miniapp=True → فقط ایموجی عادی (پریمیوم در مینی‌اپ نیست)
     for_miniapp=False → اولویت با ایموجی پریمیوم (کد p_ یا شناسه)
     """
@@ -483,20 +496,22 @@ def format_entity_label(entity: dict, for_miniapp: bool = False) -> str:
     name = (entity.get("name") or "").strip()
     emoji = (entity.get("emoji") or "").strip()
     prem = (entity.get("premium_emoji") or "").strip()
+    color = (entity.get("button_color") or entity.get("color") or "none").strip().lower()
+    color_pfx = _COLOR_EMOJI.get(color, "")
     if for_miniapp:
-        if emoji:
-            return f"{emoji} {name}".strip()
-        return name
-    # ربات / دکمه اینلاین
+        base = f"{emoji} {name}".strip() if emoji else name
+        return f"{color_pfx} {base}".strip() if color_pfx else base
     if prem:
-        return f"{prem} {name}".strip()
-    if emoji:
-        return f"{emoji} {name}".strip()
-    return name
+        base = f"{prem} {name}".strip()
+    elif emoji:
+        base = f"{emoji} {name}".strip()
+    else:
+        base = name
+    return f"{color_pfx} {base}".strip() if color_pfx else base
 
 
 def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 64):
-    """ساخت InlineKeyboardButton با پشتیبانی ایموجی پریمیوم برای پنل/دسته."""
+    """ساخت InlineKeyboardButton با پشتیبانی ایموجی پریمیوم و رنگ برای پنل/دسته/محصول."""
     from telegram import InlineKeyboardButton
     label = format_entity_label(entity, for_miniapp=False)
     text = label
@@ -505,23 +520,36 @@ def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 6
         from db_extras import extract_premium_from_label
         text, eid = extract_premium_from_label(label)
     except Exception:
-        # اگر premium_emoji عدد خالص باشد
         prem = (entity.get("premium_emoji") or "").strip()
         if prem.isdigit():
             eid = prem
-            text = (entity.get("name") or "").strip() or "•"
+            name = (entity.get("name") or "").strip() or "•"
+            color = (entity.get("button_color") or entity.get("color") or "none").strip().lower()
+            color_pfx = _COLOR_EMOJI.get(color, "")
+            text = f"{color_pfx} {name}".strip() if color_pfx else name
         else:
-            emoji = (entity.get("emoji") or "").strip()
-            name = (entity.get("name") or "").strip()
-            text = f"{emoji} {name}".strip() if emoji else name
+            text = format_entity_label(entity, for_miniapp=False)
     text = (text or "•")[:max_len]
+    color = (entity.get("button_color") or entity.get("color") or "none").strip().lower()
+    style_map = {
+        "blue": "primary", "primary": "primary",
+        "green": "success", "success": "success",
+        "red": "danger", "danger": "danger",
+    }
+    style = style_map.get(color)
     kwargs = {"text": text, "callback_data": callback_data}
     if eid:
         kwargs["icon_custom_emoji_id"] = str(eid)
+    if style:
+        kwargs["style"] = style
     try:
         return InlineKeyboardButton(**kwargs)
     except TypeError:
-        return InlineKeyboardButton(text, callback_data=callback_data)
+        kwargs.pop("style", None)
+        try:
+            return InlineKeyboardButton(**kwargs)
+        except TypeError:
+            return InlineKeyboardButton(text, callback_data=callback_data)
 
 
 def payment_method_button(method: dict, callback_data: str, max_len: int = 64):

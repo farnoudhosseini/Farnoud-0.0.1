@@ -9,6 +9,14 @@
 <form method="post" id="productForm">
 <div class="form-group"><label>نام محصول *</label>
 <input name="name" required value="{{ product.name if product else '' }}"></div>
+<div class="form-group"><label>رنگ دکمه</label>
+<select name="button_color" class="form-select">
+<option value="none" {% if not product or (product.button_color or 'none') not in ['blue','primary','green','success','red','danger'] %}selected{% endif %}>⚪ بی‌رنگ</option>
+<option value="blue" {% if product and product.button_color in ['blue','primary'] %}selected{% endif %}>🔵 آبی</option>
+<option value="green" {% if product and product.button_color in ['green','success'] %}selected{% endif %}>🟢 سبز</option>
+<option value="red" {% if product and product.button_color in ['red','danger'] %}selected{% endif %}>🔴 قرمز</option>
+</select>
+</div>
 <div class="form-group"><label>دسته‌بندی</label>
 <select name="category_id" class="form-select">
 <option value="">— بدون دسته —</option>

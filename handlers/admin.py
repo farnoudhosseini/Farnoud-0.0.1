@@ -581,6 +581,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "admin_web":
         from database import get_sync_connection, get_setting_sync
+        import os
         conn=get_sync_connection()
         try:
             with conn.cursor() as cur:
@@ -588,11 +589,25 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row=cur.fetchone()
         finally:
             conn.close()
+        # تشخیص خودکار آدرس ورود: اولویت با تنظیم دستی، سپس public_base_url، سپس PUBLIC_BASE_URL از .env
         panel_url = (
-            get_setting_sync("web_panel_url", "")
-            or get_setting_sync("admin_panel_url", "")
-            or "http://YOUR_SERVER_IP:5000"
+            (get_setting_sync("web_panel_url", "") or "").strip()
+            or (get_setting_sync("admin_panel_url", "") or "").strip()
+            or (get_setting_sync("public_base_url", "") or "").strip()
+            or (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
         )
+        if not panel_url:
+            # آخرین تلاش: اگر MINIAPP_URL تنظیم شده باشد دامنه آن را بگیر
+            mini = (os.getenv("MINIAPP_URL") or get_setting_sync("miniapp_url", "") or "").strip()
+            if mini.startswith("http"):
+                try:
+                    from urllib.parse import urlparse
+                    p = urlparse(mini)
+                    panel_url = f"{p.scheme}://{p.netloc}"
+                except Exception:
+                    pass
+        if not panel_url:
+            panel_url = "آدرس تنظیم نشده — از دکمه «تنظیم آدرس وب‌پنل» وارد کنید"
         await query.edit_message_text(
             f"🛠 <b>مدیریت وب‌پنل</b>\n\n"
             f"🌐 آدرس ورود:\n<code>{panel_url}</code>\n\n"

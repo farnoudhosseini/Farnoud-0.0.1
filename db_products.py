@@ -28,6 +28,7 @@ def ensure_product_tables():
             for col, ddl in [
                 ("emoji", "VARCHAR(32) DEFAULT NULL"),
                 ("premium_emoji", "VARCHAR(64) DEFAULT NULL"),
+                ("button_color", "VARCHAR(20) DEFAULT 'none'"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE product_categories ADD COLUMN {col} {ddl}")
@@ -65,6 +66,9 @@ def ensure_product_tables():
                 ("traffic_reset", "VARCHAR(20) DEFAULT NULL"),
                 ("traffic_reset_day", "INT DEFAULT NULL"),
                 ("ask_custom_name", "TINYINT(1) NOT NULL DEFAULT 0"),
+                ("button_color", "VARCHAR(20) DEFAULT 'none'"),
+                ("emoji", "VARCHAR(32) DEFAULT NULL"),
+                ("premium_emoji", "VARCHAR(64) DEFAULT NULL"),
             ):
                 try:
                     cur.execute(f"ALTER TABLE products ADD COLUMN {col} {ddl}")
@@ -159,7 +163,7 @@ def add_category(name: str) -> int:
         conn.close()
 
 def update_category(cid: int, **fields):
-    allowed = {"name", "sort_order", "is_active", "emoji", "premium_emoji"}
+    allowed = {"name", "sort_order", "is_active", "emoji", "premium_emoji", "button_color"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -315,7 +319,7 @@ def update_product(pid: int, panel_ids=None, panel_config=None, **fields):
     allowed = {"name", "category_id", "price", "volume_gb", "duration_days", "hwid_limit",
                "target_role", "description", "sort_order", "is_active", "hourly_enabled", "hourly_price",
                "limit_hwid", "reset_day", "reset_max", "traffic_reset", "traffic_reset_day", "start_on_first_connect",
-               "ask_custom_name"}
+               "ask_custom_name", "button_color", "emoji", "premium_emoji"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:

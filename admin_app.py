@@ -419,6 +419,9 @@ def panel_edit(slug):
                 pass
             emoji = (request.form.get("emoji") or "").strip()[:32] or None
             premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
+            button_color = (request.form.get("button_color") or "none").strip().lower()
+            if button_color not in ("blue", "green", "red", "none", "primary", "success", "danger"):
+                button_color = "none"
             results = [
                 set_panel_field(panel["id"], "name", name[:150]),
                 set_panel_field(panel["id"], "max_sales", max_sales),
@@ -426,6 +429,7 @@ def panel_edit(slug):
                 set_panel_field(panel["id"], "is_active", active),
                 set_panel_field(panel["id"], "emoji", emoji),
                 set_panel_field(panel["id"], "premium_emoji", premium_emoji),
+                set_panel_field(panel["id"], "button_color", button_color),
             ]
             if all(results):
                 flash("تنظیمات پنل با موفقیت ذخیره شد", "success")
@@ -1061,12 +1065,16 @@ def products_add():
             traffic_reset=life["traffic_reset"],
             traffic_reset_day=life["traffic_reset_day"],
         )
+        bc = (request.form.get("button_color") or "none").strip().lower()
+        if bc not in ("blue", "green", "red", "none", "primary", "success", "danger"):
+            bc = "none"
         update_product(
             pid,
             hourly_enabled=1 if request.form.get("hourly_enabled") == "1" else 0,
             hourly_price=float(request.form.get("hourly_price") or 0) or None,
             start_on_first_connect=1 if request.form.get("start_on_first_connect") == "1" else 0,
             ask_custom_name=1 if request.form.get("ask_custom_name") == "1" else 0,
+            button_color=bc,
         )
         flash("محصول اضافه شد", "success")
         return redirect(url_for("products_list"))
@@ -1113,6 +1121,7 @@ def products_edit(pid):
             reset_max=life["reset_max"],
             traffic_reset=life["traffic_reset"],
             traffic_reset_day=life["traffic_reset_day"],
+            button_color=(lambda bc: bc if bc in ("blue","green","red","none","primary","success","danger") else "none")((request.form.get("button_color") or "none").strip().lower()),
         )
         flash("ذخیره شد", "success")
         return redirect(url_for("products_list"))
@@ -1241,8 +1250,11 @@ def categories_list():
             name = (request.form.get("name") or "").strip()
             emoji = (request.form.get("emoji") or "").strip()[:32] or None
             premium_emoji = (request.form.get("premium_emoji") or "").strip()[:64] or None
+            button_color = (request.form.get("button_color") or "none").strip().lower()
+            if button_color not in ("blue", "green", "red", "none", "primary", "success", "danger"):
+                button_color = "none"
             if cid and name:
-                update_category(cid, name=name[:120], emoji=emoji, premium_emoji=premium_emoji)
+                update_category(cid, name=name[:120], emoji=emoji, premium_emoji=premium_emoji, button_color=button_color)
                 flash("دسته به‌روز شد", "success")
             else:
                 flash("نام دسته الزامی است", "error")

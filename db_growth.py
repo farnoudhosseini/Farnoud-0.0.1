@@ -480,13 +480,19 @@ def user_pending_reseller_request(telegram_id: int) -> Optional[dict]:
 def calculate_purchase_points(amount: int) -> int:
     """محاسبه امتیاز خرید بر اساس تنظیمات وب‌پنل."""
     try:
-        if get_setting_sync("purchase_points_enabled", "1") != "1":
+        try:
+            ensure_growth_tables()
+        except Exception:
+            pass
+        enabled = str(get_setting_sync("purchase_points_enabled", "1") or "1").strip()
+        if enabled not in ("1", "true", "yes", "on"):
             return 0
-        unit = max(1, int(get_setting_sync("purchase_points_unit", "10000") or 10000))
-        value = max(0, int(get_setting_sync("purchase_points_value", "1") or 1))
-        amount = max(0, int(amount or 0))
+        unit = max(1, int(float(get_setting_sync("purchase_points_unit", "10000") or 10000)))
+        value = max(0, int(float(get_setting_sync("purchase_points_value", "1") or 1)))
+        amount = max(0, int(float(amount or 0)))
         return (amount // unit) * value
-    except Exception:
+    except Exception as e:
+        print("calculate_purchase_points error:", e)
         return 0
 
 
@@ -494,8 +500,12 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
     """اعطای اتمیزه و idempotent امتیاز برای خرید موفق."""
     try:
         ensure_growth_tables()
+    except Exception as e:
+        print("ensure_growth_tables in award:", e)
+    try:
+        telegram_id = int(telegram_id)
     except Exception:
-        pass
+        return 0
     points = calculate_purchase_points(amount)
     if points <= 0:
         return 0
@@ -511,6 +521,7 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
                 )
             except Exception:
                 pass
+            # idempotent: already awarded for this order?
             cur.execute(
                 """SELECT id FROM loyalty_transactions
                    WHERE telegram_id=%s AND type='purchase' AND reference_id=%s
@@ -519,12 +530,17 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
             )
             if cur.fetchone():
                 return 0
-            cur.execute(
-                """INSERT INTO loyalty_transactions
-                   (telegram_id, points, type, reference_id, description)
-                   VALUES (%s,%s,'purchase',%s,%s)""",
-                (telegram_id, points, ref, "امتیاز خرید"),
-            )
+            try:
+                cur.execute(
+                    """INSERT INTO loyalty_transactions
+                       (telegram_id, points, type, reference_id, description)
+                       VALUES (%s,%s,'purchase',%s,%s)""",
+                    (telegram_id, points, ref, "امتیاز خرید"),
+                )
+            except Exception as e:
+                # duplicate key race
+                print("loyalty_tx insert:", e)
+                return 0
             cur.execute(
                 """INSERT INTO loyalty_accounts (telegram_id, points, level)
                    VALUES (%s,%s,'Bronze')
@@ -536,7 +552,6 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
                 cur.execute("SELECT points FROM loyalty_accounts WHERE telegram_id=%s", (telegram_id,))
                 row = cur.fetchone()
                 total_pts = int((row or {}).get("points") or points)
-                # reuse level logic without circular import
                 levels = [
                     {"name": "Bronze", "min_points": 0},
                     {"name": "Silver", "min_points": 2500},
@@ -573,4 +588,7 @@ def award_purchase_points(telegram_id: int, amount: int, order_id) -> int:
             pass
         return 0
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass

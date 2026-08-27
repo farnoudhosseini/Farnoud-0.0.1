@@ -514,13 +514,14 @@ async def _show_products(q, context, panel_id, cat_id, bu):
         except Exception as e:
             print("show_products panel prices:", e)
     rows = []
+    from database import inline_button_from_entity, format_entity_label
     for p in products:
         pid = int(p["id"])
         price = int(price_map.get(pid, p.get("price") or 0))
-        rows.append([InlineKeyboardButton(
-            f"{p['name']} — {price:,} ت",
-            callback_data=f"buy_prod_{pid}",
-        )])
+        # برچسب با رنگ/ایموجی + قیمت
+        label_ent = dict(p)
+        label_ent["name"] = f"{p.get('name') or 'محصول'} — {price:,} ت"
+        rows.append([inline_button_from_entity(label_ent, f"buy_prod_{pid}", max_len=64)])
     # برگشت: اگر دسته انتخاب شده بود → لیست دسته؛ وگرنه → لیست پنل
     back_cb = "buy_back_cat" if context.user_data.get("buy_cat_id") is not None or context.user_data.get("buy_had_cats") else "buy_back_panel"
     # تشخیص دسته‌دار بودن پنل
