@@ -38,7 +38,7 @@ async def start_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
-    log_activity(user.id, "buy_start")
+    pass  # navigation — not stored as activity
     return ConversationHandler.END
 
 async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

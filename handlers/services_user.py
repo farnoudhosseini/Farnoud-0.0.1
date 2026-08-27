@@ -245,7 +245,7 @@ async def show_my_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.edit_message_text(text, reply_markup=kb)
     else:
         await update.message.reply_text(text, reply_markup=kb)
-    log_activity(user.id, "my_services")
+    pass  # navigation — not stored as activity
 
 async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

@@ -180,7 +180,7 @@ async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
     elif update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=wallet_keyboard(), parse_mode="HTML")
-    log_activity(user.id, "wallet_open")
+    pass  # navigation — not stored as activity
 
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

@@ -282,6 +282,13 @@ def optimize_bot_data(days_cancelled: int = 7, days_logs: int = 30) -> dict:
                     stats["activity_logs"] += cur.rowcount or 0
                 except Exception:
                     pass
+            # علاوه بر حذف قدیمی: برای هر کاربر فقط ۵ لاگ اخیر نگه داشته شود
+            try:
+                from db_users import prune_all_user_activity
+                pruned = prune_all_user_activity(5)
+                stats["activity_logs"] += int(pruned or 0)
+            except Exception as e:
+                stats["errors"].append(f"activity_keep5: {e}")
 
             # تست‌های رایگان استفاده‌نشده (ترافیک صفر): فقط حذف از پنل + status=expired — در DB بمانند
             try:

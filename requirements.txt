@@ -7,3 +7,4 @@ werkzeug
 requests
 qrcode[pil]>=7.4
 cryptography
+DBUtils>=3.0.0

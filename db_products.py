@@ -138,7 +138,19 @@ def ensure_product_tables():
         conn.close()
 
 # ---- categories ----
+_categories_cache = {}  # (active_only,) -> (ts, rows)
+_CATEGORIES_CACHE_TTL = 5.0
+
+def invalidate_categories_cache():
+    _categories_cache.clear()
+
 def list_categories(active_only=False):
+    import time
+    key = (bool(active_only),)
+    now = time.monotonic()
+    cached = _categories_cache.get(key)
+    if cached and now - cached[0] < _CATEGORIES_CACHE_TTL:
+        return list(cached[1])
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -146,7 +158,9 @@ def list_categories(active_only=False):
                 cur.execute("SELECT * FROM product_categories WHERE is_active=1 ORDER BY sort_order, id")
             else:
                 cur.execute("SELECT * FROM product_categories ORDER BY sort_order, id")
-            return cur.fetchall() or []
+            rows = cur.fetchall() or []
+        _categories_cache[key] = (now, rows)
+        return list(rows)
     finally:
         conn.close()
 
@@ -158,6 +172,10 @@ def add_category(name: str) -> int:
             n = (cur.fetchone() or {}).get("n") or 1
             cur.execute("INSERT INTO product_categories (name, sort_order) VALUES (%s,%s)", (name, n))
             conn.commit()
+            try:
+                invalidate_categories_cache()
+            except Exception:
+                pass
             return cur.lastrowid
     finally:
         conn.close()
@@ -176,6 +194,10 @@ def update_category(cid: int, **fields):
         with conn.cursor() as cur:
             cur.execute(f"UPDATE product_categories SET {','.join(sets)} WHERE id=%s", vals)
             conn.commit()
+            try:
+                invalidate_categories_cache()
+            except Exception:
+                pass
     finally:
         conn.close()
 
@@ -186,6 +208,10 @@ def delete_category(cid: int):
             cur.execute("UPDATE products SET category_id=NULL WHERE category_id=%s", (cid,))
             cur.execute("DELETE FROM product_categories WHERE id=%s", (cid,))
             conn.commit()
+            try:
+                invalidate_categories_cache()
+            except Exception:
+                pass
     finally:
         conn.close()
 

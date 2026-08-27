@@ -11,7 +11,7 @@ pool = None
 
 async def init_db():
     global pool
-    pool = await aiomysql.create_pool(**DB_CONFIG, minsize=2, maxsize=15)
+    pool = await aiomysql.create_pool(**DB_CONFIG, minsize=3, maxsize=25, pool_recycle=300)
     await ensure_tables_async()
     print("✅ اتصال به دیتابیس با موفقیت برقرار شد")
 
@@ -77,7 +77,51 @@ async def set_setting(key: str, value: str):
 
 # ==================== sync (پنل وب) ====================
 
+# --- pool اتصال sync (وب‌پنل + مسیرهای sync ربات) ---
+_sync_pool = None
+_sync_pool_lock = None
+
+def _get_sync_pool_lock():
+    global _sync_pool_lock
+    if _sync_pool_lock is None:
+        import threading
+        _sync_pool_lock = threading.Lock()
+    return _sync_pool_lock
+
+def _init_sync_pool():
+    """ساخت یک‌باره pool سبک برای pymysql — کاهش overhead باز/بسته شدن اتصال."""
+    global _sync_pool
+    if _sync_pool is not None:
+        return _sync_pool
+    with _get_sync_pool_lock():
+        if _sync_pool is not None:
+            return _sync_pool
+        try:
+            from dbutils.pooled_db import PooledDB
+            cfg = DB_CONFIG_SYNC.copy()
+            _sync_pool = PooledDB(
+                creator=pymysql,
+                maxconnections=20,
+                mincached=2,
+                maxcached=8,
+                blocking=True,
+                ping=1,
+                cursorclass=pymysql.cursors.DictCursor,
+                **cfg,
+            )
+        except Exception as e:
+            print(f"sync pool unavailable ({e}); fallback to direct connect")
+            _sync_pool = False  # mark failed so we don't retry every call
+        return _sync_pool
+
 def get_sync_connection():
+    """اتصال sync: از pool اگر موجود باشد، وگرنه اتصال مستقیم."""
+    pool = _init_sync_pool()
+    if pool and pool is not False:
+        try:
+            return pool.connection()
+        except Exception as e:
+            print(f"sync pool get failed: {e}")
     config = DB_CONFIG_SYNC.copy()
     config["cursorclass"] = pymysql.cursors.DictCursor
     return pymysql.connect(**config)
@@ -173,29 +217,51 @@ def _invalidate_runtime_caches(key: str = ""):
 
 
 def get_settings_sync(keys, defaults=None) -> dict:
-    """خواندن چند تنظیم با یک اتصال دیتابیس؛ برای مسیرهای پرتکرار ربات."""
+    """خواندن چند تنظیم با یک اتصال؛ از کش مشترک هم استفاده می‌کند."""
+    import time
+    global _settings_sync_cache, _settings_sync_cache_ts
     keys = list(keys or [])
     defaults = defaults or {}
     if not keys:
         return {}
+    now = time.monotonic()
+    result = {}
+    missing = []
+    if now - _settings_sync_cache_ts < _SETTINGS_CACHE_TTL:
+        for k in keys:
+            if k in _settings_sync_cache:
+                val = _settings_sync_cache[k]
+                result[k] = val if val is not None else defaults.get(k, "")
+            else:
+                missing.append(k)
+    else:
+        missing = list(keys)
+    if not missing:
+        return result
     connection = None
     try:
         connection = get_sync_connection()
         with connection.cursor() as cursor:
-            placeholders = ",".join(["%s"] * len(keys))
+            placeholders = ",".join(["%s"] * len(missing))
             cursor.execute(
                 f"SELECT `key`, `value` FROM settings WHERE `key` IN ({placeholders})",
-                tuple(keys),
+                tuple(missing),
             )
             rows = cursor.fetchall() or []
-        result = {k: defaults.get(k, "") for k in keys}
-        for row in rows:
-            if row.get("value") is not None:
-                result[row["key"]] = row["value"]
+        found = {row["key"]: row.get("value") for row in rows}
+        if now - _settings_sync_cache_ts >= _SETTINGS_CACHE_TTL:
+            _settings_sync_cache = {}
+            _settings_sync_cache_ts = now
+        for k in missing:
+            val = found.get(k)
+            _settings_sync_cache[k] = val
+            result[k] = val if val is not None else defaults.get(k, "")
         return result
     except Exception as e:
         print(f"❌ خطا در خواندن تنظیمات: {e}")
-        return {k: defaults.get(k, "") for k in keys}
+        for k in missing:
+            result[k] = defaults.get(k, "")
+        return result
     finally:
         if connection:
             connection.close()
@@ -302,16 +368,30 @@ def slugify(text: str) -> str:
     text = text.strip("-")
     return text[:80] or "panel"
 
+_panels_cache = {"ts": 0.0, "data": None}
+_PANELS_CACHE_TTL = 5.0
+
+def invalidate_panels_cache():
+    _panels_cache["ts"] = 0.0
+    _panels_cache["data"] = None
+
 def list_panels():
+    import time
+    now = time.monotonic()
+    if _panels_cache["data"] is not None and now - _panels_cache["ts"] < _PANELS_CACHE_TTL:
+        return list(_panels_cache["data"])
     connection = None
     try:
         connection = get_sync_connection()
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM vpn_panels ORDER BY id DESC")
-            return cursor.fetchall() or []
+            rows = cursor.fetchall() or []
+        _panels_cache["data"] = rows
+        _panels_cache["ts"] = now
+        return list(rows)
     except Exception as e:
         print(f"❌ list_panels: {e}")
-        return []
+        return list(_panels_cache["data"] or [])
     finally:
         if connection:
             connection.close()
@@ -386,6 +466,10 @@ def create_panel(name: str, panel_type: str, base_url: str, username: str, passw
                     connection.commit()
                 except Exception:
                     pass
+            try:
+                invalidate_panels_cache()
+            except Exception:
+                pass
             return pid, final_slug
     except Exception as e:
         print(f"❌ create_panel: {e}")
@@ -416,6 +500,10 @@ def delete_panel(panel_id: int) -> bool:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM vpn_panels WHERE id = %s", (panel_id,))
             connection.commit()
+            try:
+                invalidate_panels_cache()
+            except Exception:
+                pass
             return cursor.rowcount > 0
     except Exception as e:
         print(f"❌ delete_panel: {e}")
@@ -455,6 +543,10 @@ def set_panel_field(panel_id: int, field: str, value) -> bool:
         with conn.cursor() as cur:
             cur.execute(f"UPDATE vpn_panels SET `{field}`=%s WHERE id=%s", (value, panel_id))
             conn.commit()
+            try:
+                invalidate_panels_cache()
+            except Exception:
+                pass
             # حتی اگر مقدار عوض نشده باشد (rowcount=0) موفقیت است
             return True
     except Exception as e:
@@ -473,21 +565,10 @@ def set_panel_max_sales(panel_id: int, max_sales):
         conn.close()
 
 
-_COLOR_EMOJI = {
-    "blue": "🔵",
-    "primary": "🔵",
-    "green": "🟢",
-    "success": "🟢",
-    "red": "🔴",
-    "danger": "🔴",
-    "none": "",
-    "": "",
-}
-
-
 def format_entity_label(entity: dict, for_miniapp: bool = False) -> str:
     """
-    نام نمایشی پنل/دسته/محصول با ایموجی و نشانگر رنگ.
+    نام نمایشی پنل/دسته/محصول با ایموجی.
+    رنگ دکمه فقط از طریق style تلگرام اعمال می‌شود — بدون 🔵🟢🔴 در متن.
     for_miniapp=True → فقط ایموجی عادی (پریمیوم در مینی‌اپ نیست)
     for_miniapp=False → اولویت با ایموجی پریمیوم (کد p_ یا شناسه)
     """
@@ -496,22 +577,19 @@ def format_entity_label(entity: dict, for_miniapp: bool = False) -> str:
     name = (entity.get("name") or "").strip()
     emoji = (entity.get("emoji") or "").strip()
     prem = (entity.get("premium_emoji") or "").strip()
-    color = (entity.get("button_color") or entity.get("color") or "none").strip().lower()
-    color_pfx = _COLOR_EMOJI.get(color, "")
     if for_miniapp:
-        base = f"{emoji} {name}".strip() if emoji else name
-        return f"{color_pfx} {base}".strip() if color_pfx else base
+        if emoji:
+            return f"{emoji} {name}".strip()
+        return name
     if prem:
-        base = f"{prem} {name}".strip()
-    elif emoji:
-        base = f"{emoji} {name}".strip()
-    else:
-        base = name
-    return f"{color_pfx} {base}".strip() if color_pfx else base
+        return f"{prem} {name}".strip()
+    if emoji:
+        return f"{emoji} {name}".strip()
+    return name
 
 
 def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 64):
-    """ساخت InlineKeyboardButton با پشتیبانی ایموجی پریمیوم و رنگ برای پنل/دسته/محصول."""
+    """ساخت InlineKeyboardButton با پشتیبانی ایموجی پریمیوم و رنگ (style) بدون ایموجی رنگی در متن."""
     from telegram import InlineKeyboardButton
     label = format_entity_label(entity, for_miniapp=False)
     text = label
@@ -523,10 +601,7 @@ def inline_button_from_entity(entity: dict, callback_data: str, max_len: int = 6
         prem = (entity.get("premium_emoji") or "").strip()
         if prem.isdigit():
             eid = prem
-            name = (entity.get("name") or "").strip() or "•"
-            color = (entity.get("button_color") or entity.get("color") or "none").strip().lower()
-            color_pfx = _COLOR_EMOJI.get(color, "")
-            text = f"{color_pfx} {name}".strip() if color_pfx else name
+            text = (entity.get("name") or "").strip() or "•"
         else:
             text = format_entity_label(entity, for_miniapp=False)
     text = (text or "•")[:max_len]

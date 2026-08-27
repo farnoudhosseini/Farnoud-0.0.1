@@ -200,7 +200,15 @@ def upsert_bot_user(tg_user, referrer_id: int = None) -> dict:
                 )
                 conn.commit()
                 cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (tg_user.id,))
-                return cur.fetchone()
+                result = cur.fetchone()
+                try:
+                    invalidate_bot_user_cache(tg_user.id)
+                    if result:
+                        import time as _t
+                        _bot_user_cache[int(tg_user.id)] = (_t.monotonic(), dict(result))
+                except Exception:
+                    pass
+                return result
             invite = _gen_invite()
             # جلوگیری از خودمعرفی
             ref = referrer_id if referrer_id and referrer_id != tg_user.id else None
@@ -227,12 +235,35 @@ def upsert_bot_user(tg_user, referrer_id: int = None) -> dict:
     finally:
         conn.close()
 
+# کش کوتاه کاربر — کاهش SELECT تکراری در یک درخواست (callbackهای پشت‌سرهم)
+_bot_user_cache: dict = {}  # telegram_id -> (ts, row)
+_BOT_USER_CACHE_TTL = 3.0
+
+def invalidate_bot_user_cache(telegram_id: int = None):
+    if telegram_id is None:
+        _bot_user_cache.clear()
+    else:
+        _bot_user_cache.pop(int(telegram_id), None)
+
 def get_bot_user(telegram_id: int) -> Optional[dict]:
+    import time
+    tid = int(telegram_id)
+    now = time.monotonic()
+    cached = _bot_user_cache.get(tid)
+    if cached and now - cached[0] < _BOT_USER_CACHE_TTL:
+        return dict(cached[1]) if cached[1] else None
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (telegram_id,))
-            return cur.fetchone()
+            cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (tid,))
+            row = cur.fetchone()
+            _bot_user_cache[tid] = (now, dict(row) if row else None)
+            # محدود کردن اندازه کش
+            if len(_bot_user_cache) > 2000:
+                # حذف قدیمی‌ترین‌ها
+                for k, _ in sorted(_bot_user_cache.items(), key=lambda x: x[1][0])[:500]:
+                    _bot_user_cache.pop(k, None)
+            return dict(row) if row else None
     finally:
         conn.close()
 
@@ -351,7 +382,15 @@ def add_balance(telegram_id: int, amount: int, reason: str = "") -> Optional[dic
             conn.commit()
             log_activity(telegram_id, "balance_add", f"{amount}|{reason}")
             cur.execute("SELECT * FROM bot_users WHERE telegram_id = %s", (telegram_id,))
-            return cur.fetchone()
+            result = cur.fetchone()
+            try:
+                invalidate_bot_user_cache(telegram_id)
+                if result:
+                    import time as _t
+                    _bot_user_cache[int(telegram_id)] = (_t.monotonic(), dict(result))
+            except Exception:
+                pass
+            return result
     finally:
         conn.close()
 
@@ -364,7 +403,38 @@ def count_referrals(telegram_id: int) -> int:
     finally:
         conn.close()
 
+
+_activity_index_ready = False
+
+def _ensure_activity_index():
+    """ایندکس ترکیبی برای prune سریع ۵ لاگ اخیر."""
+    global _activity_index_ready
+    if _activity_index_ready:
+        return
+    try:
+        conn = get_sync_connection()
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("CREATE INDEX idx_uid_id ON user_activity (telegram_id, id)")
+                    conn.commit()
+                except Exception:
+                    pass
+                _activity_index_ready = True
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+# حداکثر ۵ لاگ فعالیت اخیر برای هر کاربر (جلوگیری از رشد بی‌نهایت جدول)
+_ACTIVITY_KEEP = 5
+
 def log_activity(telegram_id: int, action: str, detail: str = None):
+    """ثبت فعالیت و نگه‌داشتن فقط ۵ رکورد اخیر هر کاربر."""
+    try:
+        _ensure_activity_index()
+    except Exception:
+        pass
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
@@ -372,21 +442,91 @@ def log_activity(telegram_id: int, action: str, detail: str = None):
                 "INSERT INTO user_activity (telegram_id, action, detail) VALUES (%s,%s,%s)",
                 (telegram_id, action, detail),
             )
+            # حذف رکوردهای قدیمی‌تر از ۵تای آخر — یک کوئری بهینه
+            cur.execute(
+                """DELETE FROM user_activity
+                   WHERE telegram_id=%s
+                     AND id NOT IN (
+                       SELECT id FROM (
+                         SELECT id FROM user_activity
+                         WHERE telegram_id=%s
+                         ORDER BY id DESC
+                         LIMIT %s
+                       ) AS keep_rows
+                     )""",
+                (telegram_id, telegram_id, _ACTIVITY_KEEP),
+            )
             conn.commit()
     except Exception as e:
         print(f"activity log: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
     finally:
         conn.close()
 
-def get_user_activity(telegram_id: int, limit=30) -> list:
+def get_user_activity(telegram_id: int, limit=5) -> list:
     conn = get_sync_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM user_activity WHERE telegram_id=%s ORDER BY id DESC LIMIT %s",
-                (telegram_id, limit),
+                (telegram_id, min(int(limit or 5), _ACTIVITY_KEEP)),
             )
             return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def prune_all_user_activity(keep: int = 5) -> int:
+    """یک‌باره: برای همه کاربران فقط keep رکورد اخیر را نگه می‌دارد. برای cron/بهینه‌سازی."""
+    keep = max(1, int(keep or 5))
+    conn = get_sync_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """DELETE ua FROM user_activity ua
+                   LEFT JOIN (
+                     SELECT id FROM (
+                       SELECT id,
+                              ROW_NUMBER() OVER (PARTITION BY telegram_id ORDER BY id DESC) AS rn
+                       FROM user_activity
+                     ) ranked WHERE rn <= %s
+                   ) keep_ids ON keep_ids.id = ua.id
+                   WHERE keep_ids.id IS NULL""",
+                (keep,),
+            )
+            deleted = cur.rowcount or 0
+            conn.commit()
+            return deleted
+    except Exception as e:
+        # fallback برای MySQL قدیمی بدون window functions
+        print(f"prune_all_user_activity window fallback: {e}")
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT telegram_id FROM user_activity")
+                uids = [r["telegram_id"] for r in (cur.fetchall() or [])]
+                total = 0
+                for uid in uids:
+                    cur.execute(
+                        """DELETE FROM user_activity
+                           WHERE telegram_id=%s
+                             AND id NOT IN (
+                               SELECT id FROM (
+                                 SELECT id FROM user_activity
+                                 WHERE telegram_id=%s
+                                 ORDER BY id DESC LIMIT %s
+                               ) t
+                             )""",
+                        (uid, uid, keep),
+                    )
+                    total += cur.rowcount or 0
+                conn.commit()
+                return total
+        except Exception as e2:
+            print(f"prune_all_user_activity: {e2}")
+            return 0
     finally:
         conn.close()
 
